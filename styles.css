@@ -1,0 +1,772 @@
+/* @settings
+
+name: Linked Citations
+id: linked-citations
+settings:
+  - 
+    id: lc-font-size
+    title: Sidebar reference list font size
+    type: variable-number-slider
+    default: 15
+    format: px
+    min: 8
+    max: 24
+    step: 1
+  - 
+    id: lc-tooltip-font-size
+    title: Tooltip citation font size
+    type: variable-number-slider
+    default: 14
+    format: px
+    min: 8
+    max: 24
+    step: 1
+  - 
+    id: lc-citation-color
+    title: Citation color
+    type: variable-themed-color
+    format: hex
+    default-light: '#2e3338'
+    default-dark: '#dcddde'
+  - 
+    id: lc-citation-color-missing
+    title: Unresolved citation color
+    description: This color will be applied if a citekey is not found in your bibliography file
+    type: variable-themed-color
+    format: hex
+    default-light: '#2e3338'
+    default-dark: '#dcddde'
+  - 
+    id: lc-citation-underline-color
+    title: Citation underline color
+    type: variable-themed-color
+    format: hex
+    default-light: '#705dcf'
+    default-dark: '#7f6df2'
+  - 
+    id: lc-citation-underline-color-missing
+    title: Unresolved citation underline color
+    description: This color will be applied if a citekey is not found in your bibliography file
+    type: variable-themed-color
+    format: hex
+    default-light: '#'
+    default-dark: '#'
+  - 
+    id: lc-citation-formatting-color
+    title: Citation formatting color
+    description: Changes the color of brackets and semicolons
+    type: variable-themed-color
+    format: hex
+    default-light: '#2e3338'
+    default-dark: '#dcddde'
+  -
+    id: lc-citation-extra-color
+    title: 'Citation "extra" color'
+    description: 'Changes the color text within a citation, eg. "pp. 22-24"'
+    type: variable-themed-color
+    format: hex
+    default-light: '#2e3338'
+    default-dark: '#dcddde'
+  -
+    id: lc-citation-color-link
+    title: Link citation color
+    description: 'Color for [[@citekey]] citations that are also Obsidian wikilinks'
+    type: variable-themed-color
+    format: hex
+    default-light: '#086ddd'
+    default-dark: '#578dde'
+  -
+    id: lc-citation-underline-color-link
+    title: Link citation underline color
+    type: variable-themed-color
+    format: hex
+    default-light: '#086ddd'
+    default-dark: '#578dde'
+  -
+    id: lc-citation-underline-style
+    title: Citation underline style
+    type: variable-select
+    default: dotted
+    options:
+      - label: Dotted
+        value: dotted
+      - label: Dashed
+        value: dashed
+      - label: Solid
+        value: solid
+      - label: None
+        value: none
+  -
+    id: lc-citation-underline-style-link
+    title: Link citation underline style
+    type: variable-select
+    default: solid
+    options:
+      - label: Solid
+        value: solid
+      - label: Dotted
+        value: dotted
+      - label: Dashed
+        value: dashed
+      - label: None
+        value: none
+*/
+
+body {
+  --lc-font-size: var(--font-ui-medium);
+  --lc-tooltip-font-size: 14px;
+  --lc-citation-color: var(--text-accent);
+  --lc-citation-color-missing: var(--text-normal);
+  --lc-citation-color-link: var(--link-color);
+  --lc-citation-underline-color: var(--text-accent);
+  --lc-citation-underline-color-missing: transparent;
+  --lc-citation-underline-color-link: var(--link-color);
+  --lc-citation-underline-style: dotted;
+  --lc-citation-underline-style-link: solid;
+  --lc-citation-extra-color: var(--text-normal);
+  --lc-citation-formatting-color: var(--text-muted);
+}
+
+.lc-reference-list {
+  padding-bottom: 2rem;
+}
+
+.lc-reference-list__title {
+  font-size: var(--lc-font-size);
+  font-weight: bold;
+  padding: 0 5px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.lc-reference-list__title > div {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-1);
+}
+
+.lc-reference-list__count {
+  color: var(--text-muted);
+  display: flex;
+  padding: var(--size-4-1) var(--size-4-2);
+  border-radius: var(--tag-radius);
+  background-color: rgba(var(--mono-rgb-100), 0.05);
+  font-weight: var(--font-normal);
+  line-height: 1;
+  font-size: var(--font-ui-smaller);
+}
+
+.lc-reference-list__unresolved-count {
+  color: var(--text-on-accent);
+  display: flex;
+  padding: var(--size-4-1) var(--size-4-2);
+  border-radius: var(--tag-radius);
+  background-color: var(--text-error);
+  font-weight: var(--font-normal);
+  line-height: 1;
+  font-size: var(--font-ui-smaller);
+}
+
+.lc-reference-list__global-only-count {
+  color: var(--text-normal);
+  display: flex;
+  padding: var(--size-4-1) var(--size-4-2);
+  border-radius: var(--tag-radius);
+  background-color: var(--color-yellow);
+  font-weight: var(--font-normal);
+  line-height: 1;
+  font-size: var(--font-ui-smaller);
+}
+
+.lc-no-content {
+  font-size: var(--lc-font-size);
+  padding: 0 5px;
+  color: var(--text-muted);
+}
+
+.csl-entry-wrapper {
+  --icon-size: var(--icon-s);
+  --icon-stroke: var(--icon-s-stroke-width);
+
+  display: flex;
+  padding: 1em 5px;
+  gap: var(--size-4-2);
+}
+
+/* Tooltip: stack entry on top, action buttons in a horizontal row below */
+.lc-tooltip .csl-entry-wrapper {
+  padding: 0;
+  flex-direction: column;
+}
+
+.lc-tooltip .lc-entry-btns {
+  flex-direction: row;
+  justify-content: flex-start;
+}
+
+.csl-entry {
+  font-size: var(--lc-font-size);
+  /* flex: 1 + min-width: 0 are both required for text to wrap inside a flex
+     container — without min-width: 0 the item never shrinks below its content
+     width and long words / URLs overflow the panel. */
+  flex: 1;
+  min-width: 0;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  gap: var(--size-4-2);
+}
+
+.csl-entry:has(> div + div) {
+  display: flex;
+}
+
+.lc-reference-list .csl-entry-wrapper:not(:last-child) {
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.lc-entry-btns {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-1);
+}
+
+.lc-conflict-icon {
+  color: var(--color-yellow);
+  opacity: 0.8;
+}
+
+.lc-reference-list a.footnote-ref {
+  vertical-align: super;
+}
+
+.lc-reference-list em,
+.lc-reference-list em em em,
+.lc-reference-list em em em em em {
+  font-style: italic;
+}
+
+.lc-reference-list em em,
+.lc-reference-list em em em em {
+  font-style: normal;
+}
+.lc-reference-list code {
+  white-space: pre-wrap;
+}
+
+.lc-reference-list span.smallcaps {
+  font-variant: small-caps;
+}
+
+.lc-reference-list span.underline {
+  text-decoration: underline;
+}
+
+.lc-reference-list q {
+  quotes: '“' '”' '‘' '’';
+}
+
+.lc-reference-list div.column {
+  display: inline-block;
+  vertical-align: top;
+  width: 50%;
+}
+
+.lc-tooltip.collapsed-links a,
+.lc-reference-list.collapsed-links a {
+  font-size: 0;
+}
+
+.lc-tooltip.collapsed-links a::after,
+.lc-reference-list.collapsed-links a::after {
+  font-size: var(--lc-font-size);
+  content: ' ';
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+
+  background-color: var(--text-accent);
+
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1em' height='1em' viewBox='0 0 24 24'%3E%3Cpath d='M8.465 11.293c1.133-1.133 3.109-1.133 4.242 0l.707.707 1.414-1.414-.707-.707c-.943-.944-2.199-1.465-3.535-1.465s-2.592.521-3.535 1.465L4.929 12a5.008 5.008 0 0 0 0 7.071 4.983 4.983 0 0 0 3.535 1.462A4.982 4.982 0 0 0 12 19.071l.707-.707-1.414-1.414-.707.707a3.007 3.007 0 0 1-4.243 0 3.005 3.005 0 0 1 0-4.243l2.122-2.121z'%3E%3C/path%3E%3Cpath d='m12 4.929-.707.707 1.414 1.414.707-.707a3.007 3.007 0 0 1 4.243 0 3.005 3.005 0 0 1 0 4.243l-2.122 2.121c-1.133 1.133-3.109 1.133-4.242 0L10.586 12l-1.414 1.414.707.707c.943.944 2.199 1.465 3.535 1.465s2.592-.521 3.535-1.465L19.071 12a5.008 5.008 0 0 0 0-7.071 5.006 5.006 0 0 0-7.071 0z'%3E%3C/path%3E%3C/svg%3E");
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1em' height='1em' viewBox='0 0 24 24'%3E%3Cpath d='M8.465 11.293c1.133-1.133 3.109-1.133 4.242 0l.707.707 1.414-1.414-.707-.707c-.943-.944-2.199-1.465-3.535-1.465s-2.592.521-3.535 1.465L4.929 12a5.008 5.008 0 0 0 0 7.071 4.983 4.983 0 0 0 3.535 1.462A4.982 4.982 0 0 0 12 19.071l.707-.707-1.414-1.414-.707.707a3.007 3.007 0 0 1-4.243 0 3.005 3.005 0 0 1 0-4.243l2.122-2.121z'%3E%3C/path%3E%3Cpath d='m12 4.929-.707.707 1.414 1.414.707-.707a3.007 3.007 0 0 1 4.243 0 3.005 3.005 0 0 1 0 4.243l-2.122 2.121c-1.133 1.133-3.109 1.133-4.242 0L10.586 12l-1.414 1.414.707.707c.943.944 2.199 1.465 3.535 1.465s2.592-.521 3.535-1.465L19.071 12a5.008 5.008 0 0 0 0-7.071 5.006 5.006 0 0 0-7.071 0z'%3E%3C/path%3E%3C/svg%3E");
+}
+
+/* ── Mobile citation card (bottom-sheet) ──────────────────────────────────── */
+
+.lc-mobile-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--layer-popover);
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: flex-end;
+}
+
+.lc-mobile-card {
+  background: var(--background-primary);
+  border-top: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-l) var(--radius-l) 0 0;
+  padding: var(--size-4-4) var(--size-4-4) calc(var(--size-4-4) + env(safe-area-inset-bottom));
+  width: 100%;
+  max-height: 65vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  font-size: var(--font-ui-medium);
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.15);
+}
+
+.lc-mobile-card .csl-entry-wrapper {
+  flex-direction: column;
+  padding: 0;
+}
+
+.lc-mobile-card .lc-entry-btns {
+  flex-direction: row;
+  justify-content: flex-start;
+  margin-top: var(--size-4-2);
+}
+
+.lc-mobile-card-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--size-4-2);
+}
+
+/* ── Desktop hover tooltip ────────────────────────────────────────────────── */
+
+.lc-tooltip {
+  word-wrap: break-word;
+  position: fixed;
+  font-family: var(--font-interface);
+  font-size: var(--lc-tooltip-font-size);
+  padding: 10px;
+  background-color: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  border-radius: 6px;
+  width: 95vw;
+  max-width: 300px;
+  line-height: 1.4;
+  z-index: var(--layer-popover);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  user-select: text;
+}
+
+.lc-tooltip .csl-entry {
+  padding: 0;
+}
+
+.lc-decorations .cm-hmd-barelink {
+  text-decoration: none;
+}
+
+.lc-decorations
+  :not(a, .cm-hmd-internal-link, .cm-link-alias)
+  > :is(.pandoc-citation, .at).is-resolved:not(.is-link) {
+  color: var(--lc-citation-color);
+}
+
+.lc-decorations
+  :not(.cm-formatting-link)
+  > .cm-pandoc-citation-formatting:not(.at) {
+  color: var(--lc-citation-formatting-color);
+}
+
+.lc-decorations
+  :not(.cm-hmd-internal-link, .cm-link-alias)
+  > .cm-pandoc-citation-extra {
+  color: var(--lc-citation-extra-color);
+}
+
+.lc-decorations
+  :not(.cm-link-alias)
+  > :is(.pandoc-citation, .at).is-resolved:not(.is-link) {
+  text-decoration-line: underline;
+  text-decoration-style: var(--lc-citation-underline-style);
+  text-decoration-thickness: 2px;
+  text-decoration-color: var(--lc-citation-underline-color);
+}
+
+.lc-decorations
+  :not(.cm-hmd-internal-link, .cm-link-alias)
+  > :is(.pandoc-citation, .at).is-unresolved {
+  color: var(--lc-citation-color-missing);
+  text-decoration-color: var(--lc-citation-underline-color-missing);
+  opacity: 1;
+}
+
+/* Citation is in the global library but not yet saved to this note's
+   snapshot .bib. Yellow = "resolvable but not pinned". */
+.lc-decorations
+  :not(.cm-hmd-internal-link, .cm-link-alias)
+  > :is(.pandoc-citation, .at).is-global-only {
+  color: var(--color-yellow);
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-decoration-thickness: 2px;
+  text-decoration-color: var(--color-yellow);
+  opacity: 0.9;
+}
+
+.lc-decorations
+  :not(a, .cm-hmd-internal-link, .cm-link-alias)
+  > :is(.pandoc-citation, .at).is-link {
+  color: var(--lc-citation-color-link);
+  cursor: var(--cursor-link);
+}
+
+.lc-decorations
+  :not(.cm-link-alias)
+  > :is(.pandoc-citation, .at).is-link {
+  text-decoration-line: underline;
+  text-decoration-style: var(--lc-citation-underline-style-link);
+  text-decoration-thickness: 2px;
+  text-decoration-color: var(--lc-citation-underline-color-link);
+}
+
+.pandoc-citation > * {
+  pointer-events: none;
+}
+
+.pandoc-citation.is-link > a.internal-link {
+  pointer-events: auto;
+  color: inherit;
+  text-decoration: inherit;
+}
+
+.lc-decoration-preview {
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-small);
+  padding: var(--size-4-2) var(--size-4-3);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0;
+}
+
+.lc-decoration-preview .lc-preview-sep {
+  color: var(--text-faint);
+  padding: 0 var(--size-4-2);
+}
+
+.lc-success {
+  color: var(--interactive-success);
+}
+
+.lc-error {
+  color: var(--text-error);
+}
+
+.lc-multiselect {
+  width: 320px;
+  text-align: left;
+  font-size: var(--font-ui-small);
+}
+
+.lc-multiselect input {
+  outline: none !important;
+  box-shadow: none !important;
+  font-size: var(--font-ui-small);
+  height: unset;
+}
+
+.lc-setting-item-wrapper {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.lc-setting-item-wrapper > div {
+  margin-right: 0 !important;
+}
+
+.lc-setting-item-wrapper > div:last-child {
+  padding-bottom: 0;
+}
+
+.lc-group-toggle {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: var(--size-4-2);
+}
+
+.lc-group-toggle .setting-item-description {
+  padding-top: 0;
+}
+
+.lc-suggest-title {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-top: var(--size-4-1);
+}
+
+.lc-suggest-meta {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lc-suggest-loading-wrapper {
+  display: flex;
+  position: relative;
+  align-items: center;
+  justify-content: center;
+  padding: var(--size-4-2) 0;
+}
+
+.lc-suggest-loading,
+.lc-suggest-loading:before,
+.lc-suggest-loading:after {
+  border-radius: 999px;
+  width: 1em;
+  height: 1em;
+  animation-fill-mode: both;
+  animation: bblFadInOut 1.6s infinite ease-in-out;
+}
+
+.lc-suggest-loading {
+  display: block;
+  color: var(--text-muted);
+  font-size: 7px;
+  position: relative;
+  animation-delay: -0.16s;
+  top: -1em;
+}
+.lc-suggest-loading:before,
+.lc-suggest-loading:after {
+  content: '';
+  position: absolute;
+}
+.lc-suggest-loading:before {
+  left: -2em;
+  animation-delay: -0.32s;
+}
+.lc-suggest-loading:after {
+  left: 2em;
+}
+
+@keyframes bblFadInOut {
+  0%,
+  80%,
+  100% {
+    box-shadow: 0 1em 0 -1.3em;
+  }
+  40% {
+    box-shadow: 0 1em 0 0;
+  }
+}
+
+.lc-status-icon {
+  --icon-size: var(--icon-s);
+  --icon-stroke: var(--icon-s-stroke-width);
+}
+
+.lc-status-icon.is-loading svg {
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.suggestion-container.lc-suggest {
+  max-width: 500px;
+  width: 95vw;
+}
+
+/* ── SearchSelect component (replaces react-select) ─────────────────────── */
+
+.lc-search-select {
+  position: relative;
+  width: 320px;
+  font-size: var(--font-ui-small);
+}
+
+.lc-search-select__control {
+  display: flex;
+  align-items: center;
+  background: var(--background-modifier-form-field);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--input-radius);
+}
+
+.lc-search-select__control:focus-within {
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 1px var(--interactive-accent);
+}
+
+.lc-search-select__input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  padding: 4px 8px;
+  outline: none;
+  box-shadow: none !important;
+  height: unset;
+}
+
+.lc-search-select__clear {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1.1em;
+  padding: 0 6px;
+  line-height: 1;
+}
+
+.lc-search-select__clear:hover {
+  color: var(--text-normal);
+}
+
+.lc-search-select__menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: var(--layer-popover);
+  background: var(--background-modifier-form-field);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--input-radius);
+  max-height: 200px;
+  overflow-y: auto;
+  margin-top: 2px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.lc-search-select__option {
+  padding: 6px 10px;
+  cursor: pointer;
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+}
+
+.lc-search-select__option:hover,
+.lc-search-select__option.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+/* ── Sidebar reference filter ────────────────────────────────────────────── */
+
+.lc-search-wrap {
+  padding: 4px 5px 2px;
+}
+
+.lc-search-input {
+  width: 100%;
+  font-size: var(--font-ui-small);
+  background: var(--background-modifier-form-field);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--input-radius);
+  color: var(--text-normal);
+  padding: 3px 6px;
+  box-sizing: border-box;
+}
+
+.lc-search-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+  box-shadow: 0 0 0 1px var(--interactive-accent);
+}
+
+/* ══ Citation decoration: linked/unlinked/unimported dotted underlines ══════
+   Per the desired formatting in "_1 General/Test Alias Citations.md":
+     linked     -> dotted underline #4aff  ([[@key]] wikilink + note exists)
+     unlinked   -> dotted underline #555a  (plain [@citekey] bracket)
+     unimported -> dotted underline #c5fa  ([[@key]] wikilink, no note yet)
+   All three keep the DEFAULT text color (no theme link blue). Scoped to the
+   editor (.markdown-source-view) so READING MODE and EXPORT stay plain text.
+   The plugin marks each citation widget with:
+     .pandoc-citation.is-wikilink.has-lit-note            linked
+     .pandoc-citation:not(.is-wikilink)                   unlinked
+     .pandoc-citation.is-wikilink:not(.has-lit-note)      unimported */
+
+.markdown-source-view
+  :not(.cm-hmd-internal-link, .cm-link-alias)
+  > :is(.pandoc-citation, .at).is-resolved {
+  color: var(--text-normal) !important;
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-thickness: 2px;
+}
+
+.markdown-source-view
+  :not(.cm-hmd-internal-link, .cm-link-alias)
+  > :is(.pandoc-citation, .at).is-wikilink.has-lit-note {
+  text-decoration-color: #4aff;
+}
+
+.markdown-source-view
+  :not(.cm-hmd-internal-link, .cm-link-alias)
+  > :is(.pandoc-citation, .at):not(.is-wikilink) {
+  text-decoration-color: #555a;
+}
+
+.markdown-source-view
+  :not(.cm-hmd-internal-link, .cm-link-alias)
+  > :is(.pandoc-citation, .at).is-wikilink:not(.has-lit-note) {
+  text-decoration-color: #c5fa;
+}
+
+/* Multi-work containers: each member is its own .pandoc-citation-member span
+   carrying the same state classes, so a glance at "[ (A); (B); (C) ]" shows
+   each work's linked/unlinked/unimported status. */
+.markdown-source-view .pandoc-citation .pandoc-citation-member {
+  color: var(--text-normal) !important;
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-thickness: 2px;
+}
+.markdown-source-view .pandoc-citation .pandoc-citation-member.is-wikilink.has-lit-note {
+  text-decoration-color: #4aff;
+}
+.markdown-source-view .pandoc-citation .pandoc-citation-member:not(.is-wikilink) {
+  text-decoration-color: #555a;
+}
+.markdown-source-view .pandoc-citation .pandoc-citation-member.is-wikilink:not(.has-lit-note) {
+  text-decoration-color: #c5fa;
+}
+
+/* Reading mode + export: citations are plain text — no dotted underline,
+   and no theme link styling on the internal anchor. In reading mode a
+   citekey with no literature note renders as Obsidian's "unresolved" link
+   (gray); force ALL citation anchors — resolved or not — to the default
+   text color, because in reading mode the citation is content, not a link. */
+.markdown-reading-view .pandoc-citation,
+.markdown-reading-view .pandoc-citation a.internal-link,
+.markdown-reading-view .pandoc-citation a.internal-link.is-unresolved,
+.markdown-reading-view .pandoc-citation .is-unresolved {
+  color: var(--text-normal) !important;
+  text-decoration: none !important;
+}
+
+/* Formatting marks around citations (brackets, @, commas, locator labels)
+   keep default text color in live preview. */
+.markdown-source-view
+  :not(.cm-formatting-link)
+  > .cm-pandoc-citation-formatting:not(.at),
+.markdown-source-view
+  :not(.cm-hmd-internal-link, .cm-link-alias)
+  > .cm-pandoc-citation-extra {
+  color: var(--text-normal) !important;
+}

@@ -1,0 +1,60 @@
+{
+  "name": "scholar-weave",
+  "version": "2.5.12",
+  "description": "ScholarWeave for Obsidian — weaves Zotero references into Obsidian's linked-note universe with linked citations, a live reference sidebar, and a book compiler that exports to Word.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "node esbuild.config.mjs production",
+    "check-types": "tsc --noemit",
+    "lint": "eslint ./src",
+    "lint:fix": "eslint ./src/**/* --fix",
+    "prettier": "prettier --write \"./src/**/*.{ts,tsx}\"",
+    "clean": "npm run prettier && npm run lint:fix",
+    "test": "jest",
+    "rlnotes": "git log $(git describe --tags --abbrev=0)..HEAD --oneline > release-notes.md && git add release-notes.md",
+    "bump": "node version-bump.mjs && git add package.json manifest.json versions.json && npm run rlnotes",
+    "release": "version=$(node -p \"require('./manifest.json').version\") && git commit -m \"$version\" && git tag \"$version\" && git push && git push --tags"
+  },
+  "keywords": [],
+  "author": "Joseph Hill <jbhill@ualberta.ca>",
+  "license": "GPL-3.0-or-later",
+  "devDependencies": {
+    "@babel/core": "7.17.9",
+    "@babel/preset-env": "7.16.11",
+    "@babel/preset-typescript": "7.16.7",
+    "@codemirror/language": "https://github.com/lishid/cm-language",
+    "@types/jest": "27.4.1",
+    "@types/node": "16.11.6",
+    "@types/react-dom": "18.2.6",
+    "@typescript-eslint/eslint-plugin": "5.2.0",
+    "@typescript-eslint/parser": "5.2.0",
+    "babel-jest": "27.5.1",
+    "builtin-modules": "3.2.0",
+    "cross-env": "7.0.3",
+    "esbuild": "0.13.12",
+    "eslint": "8.12.0",
+    "jest": "27.5.1",
+    "obsidian": "1.2.8",
+    "tslib": "2.3.1",
+    "typescript": "^5.4.0",
+    "xml-js": "1.6.11"
+  },
+  "dependencies": {
+    "@retorquere/bibtex-parser": "^9.0.29",
+    "citeproc": "2.4.63",
+    "fast-deep-equal": "^3.1.3",
+    "fuse.js": "6.6.2",
+    "preact": "^10.16.0",
+    "react": "npm:@preact/compat",
+    "react-dom": "npm:@preact/compat",
+    "text-clipper": "^2.2.0"
+  },
+  "jest": {
+    "moduleNameMapper": {
+      "^src/(.*)$": "<rootDir>/src/$1"
+    },
+    "transformIgnorePatterns": [],
+    "testEnvironment": "jsdom"
+  }
+}

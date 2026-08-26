@@ -1,0 +1,39 @@
+# vscode
+.vscode 
+
+# Intellij
+*.iml
+.idea
+
+# npm
+node_modules
+
+# Don't include the compiled main.js file in the repo.
+# They should be uploaded to GitHub releases instead.
+main.js
+
+# Exclude sourcemaps
+*.map
+
+# TypeScript incremental build state
+*.tsbuildinfo
+
+# obsidian
+data.json
+.DS_Store
+dist
+.hotreload
+coverage
+yarn-error.log
+
+# Personal / session files — not for public repo
+CLAUDE.md
+backlog.md
+flicker-notes.md
+
+# Generated tool files
+tools/citekey-map.json
+tools/citekeys.json
+
+# Python cache
+scripts/__pycache__/

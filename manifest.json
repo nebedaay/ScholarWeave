@@ -1,0 +1,10 @@
+{
+	"id": "scholar-weave",
+	"name": "ScholarWeave",
+	"version": "2.5.12",
+	"minAppVersion": "0.15.0",
+	"description": "Weaves your Zotero library into Obsidian's linked-note universe. Linked citations ([[@key|see @, p. 6]]) are real wikilinks and formatted citations at once — plus a live reference sidebar, citekey autocomplete, literature-note sync, and a book compiler that exports to Word.",
+	"author": "Joseph Hill",
+	"authorUrl": "",
+	"isDesktopOnly": false
+}
