@@ -1,11 +1,11 @@
--- doc-title.lua
+-- sw-doc-title.lua
 --
 -- Document title for docx/odt exports: use the note's YAML frontmatter
 -- "title" property when present; otherwise fall back to the note's file name,
--- which Enhancing Export passes in as --metadata source-note="${currentFileName}".
+-- which ScholarWeave passes in as --metadata source-note="${currentFileName}".
 --
 -- Example command line:
---   --metadata source-note="My Note" --lua-filter=doc-title.lua
+--   --metadata source-note="My Note" --lua-filter=sw-doc-title.lua
 
 function Meta(meta)
   local title = meta.title
@@ -14,6 +14,8 @@ function Meta(meta)
       meta.title = meta['source-note']
     end
   end
+  -- Suppress abstract from pandoc body output; merge scripts handle injection.
+  meta.abstract = nil
   return meta
 end
 

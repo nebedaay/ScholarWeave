@@ -40,6 +40,7 @@ import { findPandoc } from './bib/pandoc';
 import { BibManager, getScopedSettings } from './bib/bibManager';
 import { CiteSuggest } from './citeSuggest/citeSuggest';
 import { ExportModal } from './exportModal';
+import { ImportModal } from './importModal';
 import { CitekeyRenameModal } from './modals/citekeyRenameModal';
 import { convertActiveNote, convertVault } from './pandocToLinked';
 import { convertNoteToPandoc, convertVaultToPandoc } from './linkedToPandoc';
@@ -211,8 +212,32 @@ export default class ReferenceList extends Plugin {
         // Build the Fuse index now so @ autocomplete is available immediately,
         // before the (slower) CSL engine compilation below.
         bibManager.buildFuseIndex();
+        // CSL engine compilation can take 30–60 s on a large library — show a
+        // persistent Notice so the user knows why autocomplete and citation
+        // formatting aren't available yet.
+        const hasSources =
+          (settings.bibliographyPaths?.length ?? 0) > 0 || settings.pullFromZotero;
+        const engineNotice = hasSources
+          ? new Notice(
+              'ScholarWeave: building citation engine… autocomplete and citation formatting will be ready shortly.',
+              0
+            )
+          : null;
         // Build the CSL engine once, after all sources are merged.
         await bibManager.buildGlobalEngine();
+        engineNotice?.hide();
+        // Force all open reading-mode views to re-render now that the citation
+        // engine is ready. The markdown post-processor runs synchronously when
+        // Obsidian first paints a reading view — if the engine wasn't done yet
+        // the file cache was empty and the citations stayed as raw text.
+        // Calling rerender(true) triggers a full re-parse so formatted citations
+        // appear without the user having to switch away and back.
+        this.app.workspace.getLeavesOfType('markdown').forEach((leaf) => {
+          const mv = leaf.view as any;
+          if (mv?.getMode?.() === 'preview') {
+            mv.previewMode?.rerender?.(true);
+          }
+        });
         debugLog('[lc:main] bib load complete, bibManager.initPromise resolving');
         // Incremental Zotero refresh runs async after the engine is ready.
         // If renames are detected, refreshGlobalZBib() schedules the
@@ -372,14 +397,14 @@ export default class ReferenceList extends Plugin {
       },
     });
 
-    // Book Compiler — outline → markdown, and outline/markdown → docx.
-    // Desktop only: runs the bundled scripts/BookCompiler.py with Python 3.
+    // Document Compiler — outline → markdown, and outline/markdown → docx.
+    // Desktop only: runs the bundled scripts/DocumentCompiler.py with Python 3.
     // A single command opens a modal with the TOC / footnotes / output-folder
     // options (template-aware defaults) and Compile / Export buttons.
     if (Platform.isDesktop) {
       this.addCommand({
         id: 'compile-export-book',
-        name: t('Compile and export a book (outline or markdown)'),
+        name: t('Compile and export a book, article, or other document (outline or markdown)'),
         checkCallback: (checking) => {
           const file = app.workspace.getActiveViewOfType(MarkdownView)?.file;
           if (!file) return false;
@@ -387,6 +412,18 @@ export default class ReferenceList extends Plugin {
             new ExportModal(app, this, file).open();
           }
           return true;
+        },
+      });
+    }
+
+    // Import a DOCX or ODT file with Zotero citation fields into the vault
+    // as a Markdown note, then optionally link citations and create lit notes.
+    if (Platform.isDesktop) {
+      this.addCommand({
+        id: 'import-document',
+        name: t('Import a Word or ODT document with Zotero citations'),
+        callback: () => {
+          new ImportModal(app, this).open();
         },
       });
     }
@@ -466,6 +503,7 @@ export default class ReferenceList extends Plugin {
       'lc-decorations',
       this.settings.showCitationDecorations ?? true
     );
+    this.applyCitationColors();
 
     this.registerEvent(
       app.metadataCache.on(
@@ -600,6 +638,17 @@ export default class ReferenceList extends Plugin {
       await this.bibManager.initPromise.promise;
 
       this.setStatusBarIdle();
+      // The first reading-mode render runs before the bib engine is ready, so
+      // the post-processor has no cache and leaves container citations as raw
+      // text.  getCacheForPath then hydrates from the persisted cache and
+      // stamps dispatchedHashes — which causes dispatchResult to skip the
+      // re-render that would fix the formatting.  Clear the hash guard for the
+      // active file so dispatchResult triggers a fresh DOM re-render once
+      // processReferences() finishes.
+      const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+      if (activeView?.file) {
+        this.bibManager.invalidateFile(activeView.file);
+      }
       this.processReferences();
     })();
   }
@@ -832,6 +881,10 @@ export default class ReferenceList extends Plugin {
     // Users who intentionally disable these can still do so via the settings tab.
     if (saved.enableCiteKeyCompletion === false) delete saved.enableCiteKeyCompletion;
     if (saved.showCitekeyTooltips === false) delete saved.showCitekeyTooltips;
+    // formatLinkAliases is now on by default (merged into the single
+    // "Process linked citations" toggle). Reset any saved false so the new
+    // default (true) takes effect for existing users.
+    if (saved.formatLinkAliases === false) delete saved.formatLinkAliases;
 
     // Migrate single pathToBibliography → bibliographyPaths array.
     if (saved.pathToBibliography && !saved.bibliographyPaths?.length) {
@@ -887,6 +940,24 @@ export default class ReferenceList extends Plugin {
     return false;
   }
 
+  /** Apply the three decoration underline colors from settings as CSS custom
+   *  properties on document.body, overriding the stylesheet defaults.
+   *  Only fires when a value has been explicitly saved; unset keys leave the
+   *  stylesheet default intact. */
+  private applyCitationColors() {
+    const { decorationColorUnlinked, decorationColorLinked, decorationColorUnimported } =
+      this.settings;
+    if (decorationColorUnlinked) {
+      document.body.style.setProperty('--lc-citation-underline-color-unlinked', decorationColorUnlinked);
+    }
+    if (decorationColorLinked) {
+      document.body.style.setProperty('--lc-wikilink-linked-color', decorationColorLinked);
+    }
+    if (decorationColorUnimported) {
+      document.body.style.setProperty('--lc-wikilink-unimported-color', decorationColorUnimported);
+    }
+  }
+
   async saveSettings(cb?: () => void) {
     document.body.toggleClass(
       'lc-tooltips',
@@ -896,6 +967,7 @@ export default class ReferenceList extends Plugin {
       'lc-decorations',
       this.settings.showCitationDecorations ?? true
     );
+    this.applyCitationColors();
 
     this.positionSuggest();
 

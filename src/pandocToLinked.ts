@@ -136,10 +136,16 @@ function parseBracket(raw: string): ParsedCite | null {
  * against `resolvable` (a Set of citekeys known to the plugin's Zotero/bib
  * index). Returns the rewritten body plus a report of what was converted and
  * what was skipped (and why).
+ *
+ * When `allowUnresolved` is true the resolution check is skipped and all
+ * syntactically valid citations are converted regardless of whether their
+ * keys appear in the bib index.  Use this for the import pipeline where the
+ * source is trusted (the file just came from Zotero).
  */
 export function rewritePandocToLinked(
   body: string,
-  resolvable: Set<string>
+  resolvable: Set<string>,
+  allowUnresolved = false
 ): { out: string; report: ConversionReport } {
   const report: ConversionReport = { converted: 0, skipped: [] };
   let out = body;
@@ -178,14 +184,16 @@ export function rewritePandocToLinked(
       report.skipped.push({ text: raw, reason: 'unparseable' });
       return raw;
     }
-    // All keys must resolve
-    const unresolved = parsed.keys.filter((k) => !resolvable.has(k));
-    if (unresolved.length) {
-      report.skipped.push({
-        text: raw,
-        reason: `unresolved: ${unresolved.join(', ')}`,
-      });
-      return raw;
+    // All keys must resolve (unless allowUnresolved — e.g. import from Zotero).
+    if (!allowUnresolved) {
+      const unresolved = parsed.keys.filter((k) => !resolvable.has(k));
+      if (unresolved.length) {
+        report.skipped.push({
+          text: raw,
+          reason: `unresolved: ${unresolved.join(', ')}`,
+        });
+        return raw;
+      }
     }
     changed = true;
 
@@ -296,15 +304,19 @@ export async function convertVault(
  * Run the conversion on the active note. Resolves citekeys against the
  * plugin's live Zotero/bib index (bibCache), writes a "<file>.bk" backup on
  * first conversion, and reports counts + skipped items in a Notice.
+ *
+ * Pass `allowUnresolved: true` to skip the resolution check (used by the
+ * import pipeline where citations are trusted to be valid Zotero keys).
  */
 export async function convertActiveNote(
   plugin: ReferenceList,
-  file: TFile
+  file: TFile,
+  { allowUnresolved = false }: { allowUnresolved?: boolean } = {}
 ): Promise<ConversionReport> {
   const content = await plugin.app.vault.read(file);
 
   const resolvable = new Set(plugin.bibManager.bibCache.keys());
-  if (!resolvable.size) {
+  if (!allowUnresolved && !resolvable.size) {
     new Notice('No bibliography loaded — cannot resolve citekeys.', 6000);
     return { converted: 0, skipped: [] };
   }
@@ -318,7 +330,7 @@ export async function convertActiveNote(
     body = content.slice(fm[0].length);
   }
 
-  const { out, report } = rewritePandocToLinked(body, resolvable);
+  const { out, report } = rewritePandocToLinked(body, resolvable, allowUnresolved);
   if (out === body) {
     new Notice(`No pandoc citations found in ${file.basename}.`, 4000);
     return report;

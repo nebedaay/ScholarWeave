@@ -402,6 +402,7 @@ export class BibManager {
       this.conflictKeys.clear();
       this.bibEpoch++;
 
+      if (!this.plugin) return;
       const { settings } = this.plugin;
       if (settings.bibliographyPaths?.length) await this.loadGlobalBibFiles();
       if (settings.pullFromZotero) await this.loadGlobalZBib(false);
@@ -674,6 +675,7 @@ export class BibManager {
   // Within Zotero, keeps the most recently modified entry when a citationKey
   // appears in multiple groups. Does not build the CSL engine.
   async loadGlobalZBib(fromCache?: boolean) {
+    if (!this.plugin) return;
     const { settings } = this.plugin;
     debugLog('[lc:bib] loadGlobalZBib, fromCache=', fromCache, 'zoteroGroups=', JSON.stringify(settings.zoteroGroups), 'pullFromZotero=', settings.pullFromZotero);
     if (!settings.zoteroGroups?.length) {
@@ -1154,6 +1156,7 @@ export class BibManager {
     content: string,
     shouldContinue: () => boolean = () => true
   ) {
+    if (!this.plugin) return undefined;
     await this.plugin.initPromise.promise;
     if (!shouldContinue()) return undefined;
     await this.initPromise.promise;
@@ -1164,6 +1167,43 @@ export class BibManager {
       !this.plugin.settings.renderLinkCitations,
       this.plugin.settings.formatLinkAliases
     );
+
+    // When formatLinkAliases is on, getCitationSegments' transformLinkAliases
+    // pass converts [[@key]] → [@key] before the container pre-pass runs.
+    // mergeContainerExpression then finds no [[@…]] anchors and returns null,
+    // so ⟦…⟧ container groups are silently dropped from segs — they never
+    // reach cache.citations, and the reading-mode post-processor's findRendered
+    // always returns undefined for them.
+    //
+    // Recover missed containers: re-parse without alias expansion (so
+    // mergeContainerExpression still sees [[@…]]) and splice in any container
+    // groups that the first pass omitted.
+    if (
+      this.plugin.settings.renderLinkCitations &&
+      this.plugin.settings.formatLinkAliases
+    ) {
+      const containerOpen = '⟦'; // ⟦
+      const rawSegs = getCitationSegments(
+        content,
+        false, // ignoreLinks=false — containers use [[@key]] wikilinks
+        false  // expandLinkAliases=false — keep [[@key]] intact for merging
+      );
+      for (const group of rawSegs) {
+        if (!group.length) continue;
+        // Only add groups that start with the container-open character.
+        if (content[group[0].from] !== containerOpen) continue;
+        // Skip if the first pass already captured this range (avoids
+        // duplicates if the parser is ever fixed upstream).
+        const dup = segs.some(
+          (s) =>
+            s.length > 0 &&
+            s[0].from === group[0].from &&
+            s[s.length - 1].to === group[group.length - 1].to
+        );
+        if (!dup) segs.push(group);
+      }
+    }
+
     const processed = segs.map((s) => getCitations(s));
 
     // Load the persistent cache once so both the prune path (no citations)

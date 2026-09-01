@@ -15,6 +15,7 @@ import { BibFileSuggest } from './settings/BibFileSuggest';
 import { cslListRaw } from './bib/cslList';
 import { langListRaw } from './bib/cslLangList';
 import { ZoteroPullSetting } from './settings/ZoteroPullSetting';
+import { ZoteroStylePicker } from './settings/ZoteroStylePicker';
 
 export const DEFAULT_SETTINGS: ReferenceListSettings = {
   pathToPandoc: '',
@@ -24,7 +25,7 @@ export const DEFAULT_SETTINGS: ReferenceListSettings = {
   renderCitations: true,
   renderCitationsReadingMode: true,
   renderLinkCitations: true,
-  formatLinkAliases: false,
+  formatLinkAliases: true,
   showCitationDecorations: true,
   mobileClickAction: 'show',
   enableCiteKeyCompletion: true,
@@ -35,12 +36,16 @@ export const DEFAULT_SETTINGS: ReferenceListSettings = {
    *  fallback. Off by default: opening in Zotero already reveals all
    *  attachments, and the lookup costs per-citekey network time. */
   showPdfLinks: false,
-  /** Python 3 interpreter for the Book Compiler commands (blank = auto). */
+  /** Python 3 interpreter for the Document Compiler commands (blank = auto). */
   pathToPython: '',
   /** Vault-relative (or absolute) directory of user .docx export templates. */
   exportTemplatesDir: '',
   /** Default output folder for compiled/exported documents (blank = source folder). */
   defaultOutputDir: '',
+  defaultAuthor: '',
+  useAccountNameAsAuthor: false,
+  styleMappings: [],
+  styleMappingsEnabled: true,
 };
 
 export interface ZoteroGroup {
@@ -49,6 +54,23 @@ export interface ZoteroGroup {
   lastUpdate?: number;
   /** Library version used for incremental sync with the native Zotero API. */
   libraryVersion?: number;
+}
+
+/**
+ * A single callout-type → word-processor style mapping.
+ * The `styleName` is the human-readable name as it appears in the template
+ * (e.g. "Arabic poetry"); the export pipeline converts it to the
+ * format-specific form automatically (ODT: "Arabic_20_poetry", DOCX: as-is).
+ */
+export interface StyleMapping {
+  /** Stable UUID used for per-file enable/disable tracking. */
+  id: string;
+  /** Whether this mapping is on by default (can be overridden per-export). */
+  enabled: boolean;
+  /** Callout type or CSS class name, e.g. "arabic-poetry". */
+  source: string;
+  /** Human-readable style name as defined in the template, e.g. "Arabic poetry". */
+  styleName: string;
 }
 
 export interface ReferenceListSettings {
@@ -73,12 +95,12 @@ export interface ReferenceListSettings {
   renderCitationsAsLinks?: boolean;
   /**
    * When true, aliased citation wikilinks of the form [[@key|alias]] are
-   * parsed as Pandoc citations instead of being skipped so Obsidian can
-   * render the alias natively. The alias text becomes the citation
+   * parsed as Pandoc citations. The alias text becomes the citation
    * expression; the `@@` placeholder inside it expands to the link's own
    * citekey (e.g. [[@smith1992|see also @@, 6]] → [see also @smith1992, 6]).
    * Aliases without any citekey (e.g. [[@key|Just a label]]) are left
-   * untouched. Requires "Process citations in links" (renderLinkCitations).
+   * untouched. Controlled together with renderLinkCitations by the single
+   * "Process linked citations" toggle. Both default to true.
    */
   formatLinkAliases?: boolean;
 
@@ -87,12 +109,18 @@ export interface ReferenceListSettings {
    *  fallback. Off by default (opening in Zotero shows all attachments; the
    *  PDF lookup costs per-citekey network time). */
   showPdfLinks?: boolean;
-  /** Python 3 interpreter path for the Book Compiler commands (blank = auto). */
+  /** Python 3 interpreter path for the Document Compiler commands (blank = auto). */
   pathToPython?: string;
   /** Vault-relative (or absolute) directory of user .docx export templates. */
   exportTemplatesDir?: string;
   /** Default output folder for compiled/exported documents (blank = source folder). */
   defaultOutputDir?: string;
+  /** Last export format chosen in the export modal — remembered across opens. */
+  lastExportFormat?: 'md' | 'docx' | 'odt';
+  /** Default author name used when the note has no `author:` frontmatter property. */
+  defaultAuthor?: string;
+  /** When true, fall back to the Obsidian account display name if defaultAuthor is also empty. */
+  useAccountNameAsAuthor?: boolean;
   /**
    * When true (default), the tooltip's "Create literature note" button hands
    * note creation off to ZotLit when it is available, so the note is rendered
@@ -127,6 +155,18 @@ export interface ReferenceListSettings {
    * "Purge citekey rename history" command.
    */
   citekeyRenameHistory?: Record<string, string>;
+
+  /** Color for the underline under unlinked [@pandoc] citations (source view). */
+  decorationColorUnlinked?: string;
+  /** Color for the underline under [[@key]] citations that have a lit note. */
+  decorationColorLinked?: string;
+  /** Color for the underline under [[@key]] citations without a lit note yet. */
+  decorationColorUnimported?: string;
+
+  /** User-defined callout-type → word-processor style mappings. */
+  styleMappings?: StyleMapping[];
+  /** Master switch: when false, no mappings are applied on export. */
+  styleMappingsEnabled?: boolean;
 }
 
 const BIB_EXTENSIONS = new Set(['bib', 'json', 'yaml', 'yml']);
@@ -211,11 +251,11 @@ export class ReferenceListSettingsTab extends PluginSettingTab {
         });
     }
 
-    // Book Compiler commands (outline → markdown → docx) run the bundled
-    // scripts/BookCompiler.py via Python 3. Desktop only.
+    // Document Compiler commands (outline → markdown → docx) run the bundled
+    // scripts/DocumentCompiler.py via Python 3. Desktop only.
     if (Platform.isDesktop) {
       new Setting(containerEl)
-        .setName(t('Path to Python 3 (for Book Compiler)'))
+        .setName(t('Path to Python 3 (for Document Compiler)'))
         .setDesc(
           t(
             'Absolute path to the python3 interpreter used by the "Compile outline…" and "Compile + export to docx" commands. Leave blank to auto-detect (python3 on PATH, then common install locations).'
@@ -272,6 +312,138 @@ export class ReferenceListSettingsTab extends PluginSettingTab {
               })
           );
         });
+    }
+
+    new Setting(containerEl)
+      .setName(t('Default author name (optional)'))
+      .setDesc(
+        t(
+          'Used as the document author when the note has no `author:` frontmatter property. Leave blank to omit the author field in exported documents.'
+        )
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder('First Last')
+          .setValue(this.plugin.settings.defaultAuthor ?? '')
+          .onChange((value) => {
+            this.plugin.settings.defaultAuthor = value;
+            this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName(t('Use Obsidian account name as author fallback'))
+      .setDesc(
+        t(
+          'If enabled and no `author:` property or default author name is set, the display name from your Obsidian account (if signed in) is used instead.'
+        )
+      )
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.useAccountNameAsAuthor ?? false)
+          .onChange((value) => {
+            this.plugin.settings.useAccountNameAsAuthor = value;
+            this.plugin.saveSettings();
+          })
+      );
+
+    // ── Custom style mappings ─────────────────────────────────────────────
+    {
+      // Helper: render / re-render the full mapping list into `listEl`.
+      const renderMappingList = (listEl: HTMLElement) => {
+        listEl.empty();
+        const mappings = this.plugin.settings.styleMappings ?? [];
+        if (mappings.length === 0) {
+          listEl.createEl('p', {
+            text: t('No mappings yet. Click "+ Add" to create one.'),
+            cls: 'lc-mapping-empty',
+          });
+          return;
+        }
+        for (let i = 0; i < mappings.length; i++) {
+          const m = mappings[i];
+          const row = listEl.createDiv({ cls: 'lc-mapping-row' });
+
+          // Global-default enable checkbox
+          const cb = row.createEl('input', { type: 'checkbox' });
+          cb.title = t('Enable this mapping by default on export');
+          cb.checked = m.enabled;
+          cb.addEventListener('change', () => {
+            mappings[i].enabled = cb.checked;
+            this.plugin.saveSettings();
+          });
+
+          // Source input
+          const srcInput = row.createEl('input', { type: 'text' });
+          srcInput.placeholder = 'callout-type';
+          srcInput.value = m.source;
+          srcInput.title = t('Callout type or CSS class name (e.g. arabic-poetry)');
+          srcInput.classList.add('lc-mapping-input');
+          srcInput.addEventListener('change', () => {
+            mappings[i].source = srcInput.value.trim();
+            this.plugin.saveSettings();
+          });
+
+          row.createSpan({ text: '→', cls: 'lc-mapping-arrow' });
+
+          // Style name input
+          const nameInput = row.createEl('input', { type: 'text' });
+          nameInput.placeholder = 'Style name';
+          nameInput.value = m.styleName;
+          nameInput.title = t('Style name as defined in the template (e.g. Arabic poetry)');
+          nameInput.classList.add('lc-mapping-input', 'lc-mapping-style');
+          nameInput.addEventListener('change', () => {
+            mappings[i].styleName = nameInput.value.trim();
+            this.plugin.saveSettings();
+          });
+
+          // Delete button
+          const del = row.createEl('button', { text: '🗑', cls: 'lc-mapping-del' });
+          del.title = t('Remove this mapping');
+          del.addEventListener('click', () => {
+            mappings.splice(i, 1);
+            this.plugin.saveSettings();
+            renderMappingList(listEl);
+          });
+        }
+      };
+
+      new Setting(containerEl)
+        .setName(t('Custom style mappings'))
+        .setDesc(
+          t(
+            'Map callout types (e.g. arabic-poetry) to word-processor style names. ' +
+            'Applied during DOCX and ODT export. For multi-style or per-line formatting, ' +
+            'add a .lua filter to your Export Templates folder instead.'
+          )
+        )
+        .addToggle((toggle) =>
+          toggle
+            .setValue(this.plugin.settings.styleMappingsEnabled ?? true)
+            .onChange((value) => {
+              this.plugin.settings.styleMappingsEnabled = value;
+              this.plugin.saveSettings();
+            })
+        );
+
+      const listEl = containerEl.createDiv({ cls: 'lc-mapping-list' });
+      renderMappingList(listEl);
+
+      const addBtn = containerEl.createEl('button', {
+        text: t('+ Add mapping'),
+        cls: 'lc-mapping-add',
+      });
+      addBtn.addEventListener('click', () => {
+        if (!this.plugin.settings.styleMappings) this.plugin.settings.styleMappings = [];
+        this.plugin.settings.styleMappings.push({
+          id: crypto.randomUUID(),
+          enabled: true,
+          source: '',
+          styleName: '',
+        });
+        this.plugin.saveSettings();
+        renderMappingList(listEl);
+      });
     }
 
     new Setting(containerEl)
@@ -401,7 +573,9 @@ export class ReferenceListSettingsTab extends PluginSettingTab {
         )
       )
       .then((setting) => {
+        let pathText: any;
         setting.addText((text) => {
+          pathText = text;
           text.setValue(this.plugin.settings.cslStylePath ?? '').onChange((value) => {
             this.plugin.settings.cslStylePath = value;
             this.plugin.saveSettings(() =>
@@ -409,6 +583,23 @@ export class ReferenceListSettingsTab extends PluginSettingTab {
             );
           });
         });
+        if (Platform.isDesktop) {
+          setting.addButton((btn) => {
+            btn.setButtonText(t('Browse Zotero styles…')).onClick(() => {
+              new ZoteroStylePicker(this.app, this.plugin, (style) => {
+                this.plugin.settings.cslStylePath = style.path;
+                this.plugin.saveSettings(() =>
+                  this.plugin.bibManager.reinit(false)
+                );
+                // Refresh the text input to show the chosen path.
+                if (pathText?.inputEl) {
+                  pathText.inputEl.value = style.path;
+                }
+                this.display();
+              }).open();
+            });
+          });
+        }
       });
 
     const defaultLanguage = langListRaw.find(
@@ -547,32 +738,17 @@ export class ReferenceListSettingsTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName(t('Process citations in links'))
+      .setName(t('Process linked citations'))
       .setDesc(
         t(
-          'Include [[@pandoc]] citations in the reference list and format them as inline citations in live preview mode.'
+          'Recognize [[@key]] and [[@key|see @, p. 6]] linked citations: include them in the reference list and render them as formatted inline citations in live preview. The @@ placeholder inside an alias expands to the link\'s own citekey. Aliases without a citekey (e.g. [[@key|Just a label]]) are left untouched. On by default — this is the plugin\'s core feature.'
         )
       )
       .addToggle((text) =>
         text
-          .setValue(!!this.plugin.settings.renderLinkCitations)
+          .setValue(this.plugin.settings.renderLinkCitations !== false)
           .onChange((value) => {
             this.plugin.settings.renderLinkCitations = value;
-            this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName(t('Format link aliases as Pandoc citations'))
-      .setDesc(
-        t(
-          'When enabled, aliased citation links like [[@key|see also @@, 6]] are parsed as Pandoc citations and rendered as [see also @key, 6] instead of a plain link label. Use @@ inside the alias as a shortcut for the link\'s own citekey. Aliases without a citekey (e.g. [[@key|Just a label]]) are left untouched. Requires "Process citations in links".'
-        )
-      )
-      .addToggle((text) =>
-        text
-          .setValue(!!this.plugin.settings.formatLinkAliases)
-          .onChange((value) => {
             this.plugin.settings.formatLinkAliases = value;
             this.plugin.saveSettings();
           })
@@ -631,60 +807,153 @@ export class ReferenceListSettingsTab extends PluginSettingTab {
           })
       );
 
+    const showDeco = this.plugin.settings.showCitationDecorations ?? true;
+
     new Setting(containerEl)
       .setName(t('Citation decoration'))
       .setDesc(
         t(
-          'Highlight citation keys with colors and underlines in the editor. Colors and underline styles can be customized with the Style Settings plugin.'
+          'Underline citation keys in the editor to show their status at a glance: pandoc citations get a faint dotted underline, [[@linked]] citations with a literature note get a coloured underline, and [[@linked]] citations without one get a different colour. Use the colour pickers below to customise each state.'
         )
       )
       .addToggle((toggle) =>
         toggle
-          .setValue(this.plugin.settings.showCitationDecorations ?? true)
+          .setValue(showDeco)
           .onChange((value) => {
             this.plugin.settings.showCitationDecorations = value;
             this.plugin.saveSettings();
+            this.display();
           })
       );
 
+    // ── Decoration color pickers (only when decoration is on) ───────────────
+    if (showDeco) {
+      const makeColorPicker = (
+        name: string,
+        desc: string,
+        settingKey: 'decorationColorUnlinked' | 'decorationColorLinked' | 'decorationColorUnimported',
+        cssVar: string
+      ) => {
+        new Setting(containerEl)
+          .setName(t(name))
+          .setDesc(t(desc))
+          .then((setting) => {
+            const savedVal: string | undefined = (this.plugin.settings as any)[settingKey];
+            const cssVal = savedVal ??
+              getComputedStyle(document.body).getPropertyValue(cssVar).trim();
+            const m = cssVal.match(/^(#[0-9a-fA-F]{3,8})/);
+            const hexRaw = m ? m[1] : '#888888';
+            const expandHex = (h: string) => {
+              if (h.length === 4) return '#' + h[1].repeat(2) + h[2].repeat(2) + h[3].repeat(2);
+              if (h.length === 5) return '#' + h[1].repeat(2) + h[2].repeat(2) + h[3].repeat(2);
+              return h.slice(0, 7);
+            };
+
+            const colorInput = setting.controlEl.createEl('input') as HTMLInputElement;
+            colorInput.type = 'color';
+            colorInput.value = expandHex(hexRaw);
+            Object.assign(colorInput.style, {
+              width: '2.4em', height: '1.8em', padding: '1px 2px', cursor: 'pointer',
+              border: '1px solid var(--background-modifier-border)',
+              borderRadius: 'var(--radius-s)',
+              background: 'var(--background-modifier-form-field)',
+              marginRight: '6px', verticalAlign: 'middle',
+            });
+
+            const textInput = setting.controlEl.createEl('input') as HTMLInputElement;
+            textInput.type = 'text';
+            textInput.value = savedVal ?? cssVal;
+            textInput.setAttribute('spellcheck', 'false');
+            Object.assign(textInput.style, {
+              width: '7em', fontFamily: 'var(--font-monospace)', fontSize: 'var(--font-ui-small)',
+            });
+
+            const applyColor = (val: string) => {
+              (this.plugin.settings as any)[settingKey] = val;
+              document.body.style.setProperty(cssVar, val);
+              this.plugin.saveSettings();
+            };
+
+            colorInput.addEventListener('input', () => {
+              textInput.value = colorInput.value;
+              applyColor(colorInput.value);
+            });
+
+            textInput.addEventListener('change', () => {
+              const val = textInput.value.trim();
+              const m6 = val.match(/^#([0-9a-fA-F]{6})$/);
+              const m3 = val.match(/^#([0-9a-fA-F]{3})$/);
+              if (m6) colorInput.value = val;
+              else if (m3) colorInput.value = '#' + m3[1][0].repeat(2) + m3[1][1].repeat(2) + m3[1][2].repeat(2);
+              applyColor(val);
+            });
+          });
+      };
+
+      makeColorPicker(
+        'Pandoc citation underline color',
+        'Underline color for unlinked [@pandoc] citations in the editor.',
+        'decorationColorUnlinked', '--lc-citation-underline-color-unlinked'
+      );
+      makeColorPicker(
+        'Linked [[@]] citation underline — has note',
+        'Underline color for [[@key]] citations that have a matching literature note.',
+        'decorationColorLinked', '--lc-wikilink-linked-color'
+      );
+      makeColorPicker(
+        'Linked [[@]] citation underline — no note yet',
+        'Underline color for [[@key]] citations that do not yet have a literature note.',
+        'decorationColorUnimported', '--lc-wikilink-unimported-color'
+      );
+    }
+
+    // ── Decoration preview: source markup → reading-mode output ─────────────
     {
       const row = containerEl.createDiv({ cls: 'setting-item' });
       const info = row.createDiv({ cls: 'setting-item-info' });
       info.createDiv({ cls: 'setting-item-name', text: t('Preview') });
       info.createDiv({
         cls: 'setting-item-description',
-        text: t('citation · wikilink citation · unresolved'),
+        text: t('Editor markup (left) → reading-mode output (right).'),
       });
       const control = row.createDiv({ cls: 'setting-item-control' });
       const preview = control.createDiv({
-        cls: 'lc-decorations lc-decoration-preview',
+        cls: 'lc-deco-preview' + (showDeco ? ' lc-decorations' : ''),
       });
 
-      // [@smith2020] — resolved citation
-      preview.createSpan({ cls: 'cm-pandoc-citation-formatting bracket', text: '[' });
-      preview.createSpan({ cls: 'cm-pandoc-citation-formatting at is-resolved', text: '@' });
-      preview.createSpan({ cls: 'cm-pandoc-citation pandoc-citation is-resolved', text: 'smith2020' });
-      preview.createSpan({ cls: 'cm-pandoc-citation-formatting bracket', text: ']' });
+      // Helper: one row of markup (plain left) → rendered text (decorated right).
+      // keyCls carries the status class (lc-prev-pandoc etc.); the CSS decoration
+      // is applied to the RIGHT span so the raw markup stays undecorated.
+      const addRow = (
+        open: string, key: string, close: string,
+        keyCls: string,
+        rendered: string, renderedCls = ''
+      ) => {
+        const r = preview.createDiv({ cls: 'lc-prev-row' });
+        const left = r.createSpan({ cls: 'lc-prev-left' });
+        left.createSpan({ cls: 'lc-prev-bracket', text: open });
+        left.createSpan({ cls: 'lc-prev-key', text: key });
+        left.createSpan({ cls: 'lc-prev-bracket', text: close });
+        r.createSpan({ cls: 'lc-prev-arrow', text: '→' });
+        // keyCls on the rendered span so CSS decoration targets the right side.
+        r.createSpan({ cls: `lc-prev-rendered ${keyCls} ${renderedCls}`.trim(), text: rendered });
+      };
 
-      preview.createSpan({ cls: 'lc-preview-sep', text: '·' });
-
-      // [[@jones2021]] — wikilink citation (shown as rendered widget)
-      preview.createSpan({ cls: 'pandoc-citation is-resolved is-link', text: '(Jones, 2021)' });
-
-      preview.createSpan({ cls: 'lc-preview-sep', text: '·' });
-
-      // [@unknown] — unresolved
-      preview.createSpan({ cls: 'cm-pandoc-citation-formatting bracket', text: '[' });
-      preview.createSpan({ cls: 'cm-pandoc-citation-formatting at is-unresolved', text: '@' });
-      preview.createSpan({ cls: 'cm-pandoc-citation pandoc-citation is-unresolved', text: 'unknown' });
-      preview.createSpan({ cls: 'cm-pandoc-citation-formatting bracket', text: ']' });
+      // [@jones1999] — pandoc citation, resolved (unlinked)
+      addRow('[', '@jones1999', ']', 'lc-prev-pandoc', '(Jones 1999)');
+      // [[@smith2000|@, has note]] — wikilink, has literature note
+      addRow('[[', '@smith2000|@, has note', ']]', 'lc-prev-linked', '(Smith 2000, has note)');
+      // [[@sanchez2001|@, no note]] — wikilink, no literature note yet
+      addRow('[[', '@sanchez2001|@, no note', ']]', 'lc-prev-unimported', '(Sanchez 2001, no note)');
+      // [[@nothing1899]] — unresolved citekey
+      addRow('[[', '@nothing1899', ']]', 'lc-prev-unresolved-key', '@nothing1899', 'lc-prev-unresolved-val');
     }
 
     new Setting(containerEl)
       .setName(t('Show citekey tooltips'))
       .setDesc(
         t(
-          'When enabled, hovering over citekeys will open a tooltip containing a formatted citation.'
+          'Hovering over a citekey opens a tooltip showing the formatted citation, an abstract preview, and buttons to open the item in Zotero, open its PDF, and create or navigate to its literature note.'
         )
       )
       .addToggle((text) =>

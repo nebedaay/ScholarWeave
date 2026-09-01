@@ -110,6 +110,22 @@ settings:
         value: dashed
       - label: None
         value: none
+  -
+    id: lc-wikilink-linked-color
+    title: Linked [[@]] citation underline — has literature note
+    description: 'Underline color for [[@key]] citations that have a literature note'
+    type: variable-themed-color
+    format: hex
+    default-light: '#44aaff'
+    default-dark: '#44aaff'
+  -
+    id: lc-wikilink-unimported-color
+    title: Linked [[@]] citation underline — no literature note yet
+    description: 'Underline color for [[@key]] citations that do not yet have a literature note'
+    type: variable-themed-color
+    format: hex
+    default-light: '#cc55ffa8'
+    default-dark: '#cc55ffa8'
 */
 
 body {
@@ -117,6 +133,9 @@ body {
   --lc-tooltip-font-size: 14px;
   --lc-citation-color: var(--text-accent);
   --lc-citation-color-missing: var(--text-normal);
+  --lc-wikilink-linked-color: #44aaff;
+  --lc-wikilink-unimported-color: #cc55ffa8;
+  --lc-citation-underline-color-unlinked: #555a;
   --lc-citation-color-link: var(--link-color);
   --lc-citation-underline-color: var(--text-accent);
   --lc-citation-underline-color-missing: transparent;
@@ -274,7 +293,7 @@ body {
 
 .lc-tooltip.collapsed-links a,
 .lc-reference-list.collapsed-links a {
-  font-size: 0;
+  display: none;
 }
 
 .lc-tooltip.collapsed-links a::after,
@@ -427,6 +446,24 @@ body {
   text-decoration-color: var(--lc-citation-underline-color-link);
 }
 
+/* Wikilink underline states — also used by the settings preview. */
+.lc-decorations
+  > :is(.pandoc-citation, .at).is-wikilink {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-thickness: 2px;
+}
+
+.lc-decorations
+  > :is(.pandoc-citation, .at).is-wikilink.has-lit-note {
+  text-decoration-color: var(--lc-wikilink-linked-color);
+}
+
+.lc-decorations
+  > :is(.pandoc-citation, .at).is-wikilink:not(.has-lit-note) {
+  text-decoration-color: var(--lc-wikilink-unimported-color);
+}
+
 .pandoc-citation > * {
   pointer-events: none;
 }
@@ -437,7 +474,124 @@ body {
   text-decoration: inherit;
 }
 
-.lc-decoration-preview {
+/* ── Style mapping list (settings page) ─────────────────────────────────── */
+
+.lc-mapping-list {
+  margin: var(--size-4-2) 0 var(--size-4-1);
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-1);
+}
+
+.lc-mapping-empty {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  margin: 0;
+}
+
+.lc-mapping-row {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+}
+
+.lc-mapping-row input[type="checkbox"] {
+  flex: 0 0 auto;
+}
+
+.lc-mapping-input {
+  flex: 1;
+  font-size: var(--font-ui-small);
+}
+
+.lc-mapping-style {
+  flex: 1.4;
+}
+
+.lc-mapping-arrow {
+  color: var(--text-faint);
+  flex: 0 0 auto;
+  font-size: var(--font-ui-small);
+}
+
+.lc-mapping-del {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  opacity: 0.5;
+}
+
+.lc-mapping-del:hover {
+  opacity: 1;
+}
+
+.lc-mapping-add {
+  margin-top: var(--size-4-2);
+  font-size: var(--font-ui-small);
+}
+
+/* ── Mapping section in export modal ────────────────────────────────────── */
+
+.lc-mapping-details {
+  margin-top: 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  padding: 6px 10px;
+}
+
+.lc-mapping-details summary {
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.lc-mapping-details summary::before {
+  content: '▶';
+  font-size: 0.65em;
+  transition: transform 0.15s;
+  display: inline-block;
+}
+
+.lc-mapping-details[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.lc-mapping-modal-list {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lc-mapping-modal-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-ui-small);
+}
+
+.lc-mapping-modal-row label {
+  flex: 1;
+  color: var(--text-normal);
+}
+
+.lc-mapping-modal-note {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-style: italic;
+  margin-top: 4px;
+}
+
+/* ── Settings decoration preview (source markup → reading-mode output) ───── */
+
+.lc-deco-preview {
   font-family: var(--font-monospace);
   font-size: var(--font-ui-small);
   padding: var(--size-4-2) var(--size-4-3);
@@ -445,14 +599,100 @@ body {
   border-radius: var(--radius-s);
   background: var(--background-primary);
   display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 0;
+  flex-direction: column;
+  gap: var(--size-4-2);
 }
 
-.lc-decoration-preview .lc-preview-sep {
+.lc-prev-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--size-4-2);
+}
+
+.lc-prev-left {
+  flex: 0 0 auto;
+}
+
+.lc-prev-bracket {
+  color: var(--text-muted);
+}
+
+.lc-prev-key {
+  color: var(--text-normal);
+}
+
+.lc-prev-arrow {
   color: var(--text-faint);
-  padding: 0 var(--size-4-2);
+  flex: 0 0 auto;
+  padding: 0 var(--size-4-1);
+}
+
+.lc-prev-rendered {
+  color: var(--text-normal);
+  font-family: var(--font-text);
+  flex: 1;
+}
+
+/* Unresolved key in source view — keep monospace; rendered output uses link-unresolved color */
+.lc-prev-unresolved-key {
+  color: var(--lc-citation-color-missing);
+}
+
+.lc-prev-unresolved-val {
+  color: var(--link-unresolved-color, var(--lc-citation-color-missing));
+  font-family: var(--font-monospace);
+}
+
+/* Underline decorations in reading mode — gate on body.lc-decorations.
+   The settings preview widget (lc-deco-preview) uses lc-prev-* classes for
+   its mock rows; real post-processor output uses pandoc-citation instead. */
+
+/* Settings preview widget — decoration on the RENDERED (right) side only.
+   The left side shows plain raw markup; the right side shows the styled output. */
+.lc-deco-preview.lc-decorations .lc-prev-rendered.lc-prev-pandoc {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-thickness: 2px;
+  text-decoration-color: var(--lc-citation-underline-color-unlinked);
+}
+.lc-deco-preview.lc-decorations .lc-prev-rendered.lc-prev-linked {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-thickness: 2px;
+  text-decoration-color: var(--lc-wikilink-linked-color);
+}
+.lc-deco-preview.lc-decorations .lc-prev-rendered.lc-prev-unimported {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-thickness: 2px;
+  text-decoration-color: var(--lc-wikilink-unimported-color);
+}
+
+/* Actual reading-mode view: pandoc-style citations */
+body.lc-decorations .markdown-preview-view .pandoc-citation.is-resolved:not(.is-link) {
+  text-decoration-line: underline;
+  text-decoration-style: var(--lc-citation-underline-style);
+  text-decoration-thickness: 2px;
+  text-decoration-color: var(--lc-citation-underline-color);
+}
+
+/* Actual reading-mode view: link-style citations [[@key]] — must target the
+   inner <a> directly because Obsidian's own link styles can override text-
+   decoration set on the parent span, even via the existing "inherit" rule. */
+body.lc-decorations .markdown-preview-view .pandoc-citation.is-resolved.is-link,
+body.lc-decorations .markdown-preview-view .pandoc-citation.is-resolved.is-link > a.internal-link {
+  text-decoration-line: underline;
+  text-decoration-style: var(--lc-citation-underline-style-link);
+  text-decoration-thickness: 2px;
+  text-decoration-color: var(--lc-citation-underline-color-link);
+}
+
+/* Actual reading-mode view: unresolved citations */
+body.lc-decorations .markdown-preview-view .pandoc-citation.is-unresolved {
+  text-decoration-line: underline;
+  text-decoration-style: var(--lc-citation-underline-style);
+  text-decoration-thickness: 2px;
+  text-decoration-color: var(--lc-citation-underline-color-missing);
 }
 
 .lc-success {
@@ -690,18 +930,16 @@ body {
 }
 
 /* ══ Citation decoration: linked/unlinked/unimported dotted underlines ══════
-   Per the desired formatting in "_1 General/Test Alias Citations.md":
-     linked     -> dotted underline #4aff  ([[@key]] wikilink + note exists)
-     unlinked   -> dotted underline #555a  (plain [@citekey] bracket)
-     unimported -> dotted underline #c5fa  ([[@key]] wikilink, no note yet)
-   All three keep the DEFAULT text color (no theme link blue). Scoped to the
-   editor (.markdown-source-view) so READING MODE and EXPORT stay plain text.
-   The plugin marks each citation widget with:
-     .pandoc-citation.is-wikilink.has-lit-note            linked
-     .pandoc-citation:not(.is-wikilink)                   unlinked
-     .pandoc-citation.is-wikilink:not(.has-lit-note)      unimported */
+   Gated on body.lc-decorations (toggled by the "Citation decoration" setting)
+   so that when the option is off, source view shows plain unstyled text.
+   Only fires in the editor (.markdown-source-view); reading mode and export
+   stay plain text regardless of the setting (see reading-view block below).
+   The plugin marks each citation span with:
+     .pandoc-citation.is-wikilink.has-lit-note   linked (has lit note)
+     .pandoc-citation:not(.is-wikilink)           unlinked (plain [@key])
+     .pandoc-citation.is-wikilink:not(.has-lit-note)  unimported (no note yet) */
 
-.markdown-source-view
+.lc-decorations .markdown-source-view
   :not(.cm-hmd-internal-link, .cm-link-alias)
   > :is(.pandoc-citation, .at).is-resolved {
   color: var(--text-normal) !important;
@@ -710,48 +948,46 @@ body {
   text-decoration-thickness: 2px;
 }
 
-.markdown-source-view
+.lc-decorations .markdown-source-view
   :not(.cm-hmd-internal-link, .cm-link-alias)
   > :is(.pandoc-citation, .at).is-wikilink.has-lit-note {
-  text-decoration-color: #4aff;
+  text-decoration-color: var(--lc-wikilink-linked-color);
 }
 
-.markdown-source-view
+.lc-decorations .markdown-source-view
   :not(.cm-hmd-internal-link, .cm-link-alias)
   > :is(.pandoc-citation, .at):not(.is-wikilink) {
-  text-decoration-color: #555a;
+  text-decoration-color: var(--lc-citation-underline-color-unlinked);
 }
 
-.markdown-source-view
+.lc-decorations .markdown-source-view
   :not(.cm-hmd-internal-link, .cm-link-alias)
   > :is(.pandoc-citation, .at).is-wikilink:not(.has-lit-note) {
-  text-decoration-color: #c5fa;
+  text-decoration-color: var(--lc-wikilink-unimported-color);
 }
 
 /* Multi-work containers: each member is its own .pandoc-citation-member span
    carrying the same state classes, so a glance at "[ (A); (B); (C) ]" shows
    each work's linked/unlinked/unimported status. */
-.markdown-source-view .pandoc-citation .pandoc-citation-member {
+.lc-decorations .markdown-source-view .pandoc-citation .pandoc-citation-member {
   color: var(--text-normal) !important;
   text-decoration-line: underline;
   text-decoration-style: dotted;
   text-decoration-thickness: 2px;
 }
-.markdown-source-view .pandoc-citation .pandoc-citation-member.is-wikilink.has-lit-note {
-  text-decoration-color: #4aff;
+.lc-decorations .markdown-source-view .pandoc-citation .pandoc-citation-member.is-wikilink.has-lit-note {
+  text-decoration-color: var(--lc-wikilink-linked-color);
 }
-.markdown-source-view .pandoc-citation .pandoc-citation-member:not(.is-wikilink) {
-  text-decoration-color: #555a;
+.lc-decorations .markdown-source-view .pandoc-citation .pandoc-citation-member:not(.is-wikilink) {
+  text-decoration-color: var(--lc-citation-underline-color-unlinked);
 }
-.markdown-source-view .pandoc-citation .pandoc-citation-member.is-wikilink:not(.has-lit-note) {
-  text-decoration-color: #c5fa;
+.lc-decorations .markdown-source-view .pandoc-citation .pandoc-citation-member.is-wikilink:not(.has-lit-note) {
+  text-decoration-color: var(--lc-wikilink-unimported-color);
 }
 
 /* Reading mode + export: citations are plain text — no dotted underline,
-   and no theme link styling on the internal anchor. In reading mode a
-   citekey with no literature note renders as Obsidian's "unresolved" link
-   (gray); force ALL citation anchors — resolved or not — to the default
-   text color, because in reading mode the citation is content, not a link. */
+   and no theme link styling on the internal anchor. Applies unconditionally
+   (even when lc-decorations is on) because reading mode is for reading. */
 .markdown-reading-view .pandoc-citation,
 .markdown-reading-view .pandoc-citation a.internal-link,
 .markdown-reading-view .pandoc-citation a.internal-link.is-unresolved,
@@ -760,12 +996,12 @@ body {
   text-decoration: none !important;
 }
 
-/* Formatting marks around citations (brackets, @, commas, locator labels)
-   keep default text color in live preview. */
-.markdown-source-view
+/* Formatting marks (brackets, @, commas, locators) stay default text color
+   in live preview, only when decorations are on (otherwise nothing to reset). */
+.lc-decorations .markdown-source-view
   :not(.cm-formatting-link)
   > .cm-pandoc-citation-formatting:not(.at),
-.markdown-source-view
+.lc-decorations .markdown-source-view
   :not(.cm-hmd-internal-link, .cm-link-alias)
   > .cm-pandoc-citation-extra {
   color: var(--text-normal) !important;

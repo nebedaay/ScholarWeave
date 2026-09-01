@@ -1,10 +1,10 @@
 --[[
-  lc-zotero.lua
+  sw-zotero.lua
   Derived from Better BibTeX's zotero-live-citations Pandoc filter.
   Original author: Emiliano Heyns <emiliano.heyns@iris-advies.com>
   Source: https://retorque.re/zotero-better-bibtex/exporting/
   License: GNU Affero General Public License v3.0 (AGPL-3.0)
-  Modifications: integrated into Linked Citations plugin for Obsidian.
+  Modifications: integrated into ScholarWeave plugin for Obsidian.
 --]]
 
   print('zotero-live-citations 199d652')

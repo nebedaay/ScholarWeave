@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-lc_export_merge.py — Linked Citations export merge.
+sw_export_merge.py — ScholarWeave export merge.
 
-Takes the clean docx produced by pandoc (via the lc-*.lua filters) and the
+Takes the clean docx produced by pandoc (via the sw-*.lua filters) and the
 target Export Template (book2/article2/document), and copies the pandoc body
 into the template's XML, RETAINING the template's frontmatter structure:
   - title block (Title/Subtitle/Author/Date/Abstract/Note) filled from YAML
@@ -25,7 +25,7 @@ Reuses hardened helpers from iafr_template_pipeline.py (style mapping,
 cleanup, paraId minting) rather than reinventing them.
 
 Usage:
-    python3 scripts/lc_export_merge.py \
+    python3 scripts/sw_export_merge.py \
         --template "Export Templates/book2.docx" \
         --input "path/to/clean.docx" \
         --output "path/to/final.docx" \
@@ -36,6 +36,7 @@ Usage:
 import argparse
 import copy
 import datetime
+import json
 import re
 import sys
 import os
@@ -43,11 +44,44 @@ import zipfile
 from lxml import etree
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from lc_merge_helpers import (
+from sw_merge_helpers import (
     tag, get_style, set_style, collect_ids, mint_id, ensure_para_id,
+    split_paragraphs, find_bibliography_range, strip_bibliography, ZOTERO_BIBL_INSTR,
 )
 
 W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+
+_ABSTRACTKEYWORDS_STYLE_ID = 'Abstractkeywordsheading'
+
+# Words that stay lowercase in title-case (prepositions, conjunctions, articles,
+# and the infinitive marker 'to').
+_TITLE_CASE_LOWER = frozenset({
+    'a', 'an', 'the',                                     # articles
+    'and', 'but', 'or', 'nor', 'for', 'yet', 'so',       # coordinating conjunctions
+    'as', 'at', 'by', 'in', 'of', 'on', 'to', 'up',      # short prepositions
+    'via', 'per',
+})
+
+def _title_case(key):
+    """Convert a YAML key (e.g. 'sw-note-to-readers') to display title case.
+    Strips a leading 'sw-' prefix, replaces hyphens with spaces, and capitalises
+    each word except small prepositions/conjunctions/articles (and 'to'), unless
+    that word is first in the phrase.
+
+    Examples:
+        'note'               → 'Note'
+        'sw-alert'           → 'Alert'
+        'sw-note-to-readers' → 'Note to Readers'
+    """
+    key = re.sub(r'^sw-', '', key)
+    words = key.split('-')
+    result = []
+    for idx, word in enumerate(words):
+        if idx == 0 or word.lower() not in _TITLE_CASE_LOWER:
+            result.append(word.capitalize())
+        else:
+            result.append(word.lower())
+    return ' '.join(result)
 
 # ── cover-value resolution ───────────────────────────────────────────────────
 
@@ -164,9 +198,18 @@ def extract_template_layout(template_path):
         if _is_sect_para(c):
             first_sect_idx = i
             break
+    has_section_breaks = first_sect_idx is not None
     if first_sect_idx is None:
         first_sect_idx = len(children)
-    title_block = [copy.deepcopy(c) for c in children[:first_sect_idx]]
+    # When the template has no inline section breaks (a simple reference-doc
+    # style, e.g. article.docx used just to carry styles) don't use the whole
+    # body as a "title block" — that would prepend the entire template content
+    # before the note.  Set title_block = [] and let the pandoc content's own
+    # Title/Author paragraphs through instead.
+    if has_section_breaks:
+        title_block = [copy.deepcopy(c) for c in children[:first_sect_idx]]
+    else:
+        title_block = []
 
     # 2. Locate TOC/ToF headings and field paragraphs anywhere in the body.
     #    We keep the heading paras verbatim but build FRESH field paragraphs
@@ -184,7 +227,7 @@ def extract_template_layout(template_path):
         style = get_style(c)
         text = _para_text(c)
         instrs = _para_instrs(c)
-        if toc_heading is None and style == 'Heading1-excludefromTOC':
+        if toc_heading is None and style in ('Heading1-excludefromTOC', 'TOCHeading'):
             toc_heading = copy.deepcopy(c)
         elif toc_heading is None and style == 'Heading1' and is_toc_heading(text):
             toc_heading = copy.deepcopy(c)
@@ -335,6 +378,67 @@ def make_section_break(sectpr_kind, rsid='00DE2936'):
         nr.set(tag('val'), 'eachSect')
     ppr.append(sect)
     return p
+
+def _make_chapter_break(continue_sectpr, new_page, restart):
+    """Build the inter-chapter paragraph break according to user settings.
+
+    continue_sectpr — the template's 'continue' sectPr element, or None for
+                      simple reference-doc templates with no structured sections.
+    new_page        — True: each chapter starts on a new page.
+    restart         — True: footnote numbering restarts at each chapter.
+
+    The four cases:
+      restart + new_page  → section break (nextPage type) with footnote restart
+      restart + !new_page → continuous section break with footnote restart
+      !restart + new_page → simple page-break paragraph (no section)
+      !restart + !new_page→ None (no element inserted)
+
+    Returns a <w:p> element, or None.
+    """
+    if restart:
+        if continue_sectpr is None:
+            # No template sectPr to base on — fall back to a page break when
+            # new_page is set, else skip (can't do footnote restart without sectPr).
+            if new_page:
+                p = etree.Element(tag('p'))
+                r = etree.SubElement(p, tag('r'))
+                br = etree.SubElement(r, tag('br'))
+                br.set(tag('type'), 'page')
+                return p
+            return None
+        p = make_section_break(continue_sectpr)
+        if not new_page:
+            # Override the template's page-break type to continuous so the section
+            # boundary carries footnote restart without starting a new page.
+            sect = p.find('.//' + tag('sectPr'))
+            if sect is not None:
+                type_el = sect.find(tag('type'))
+                if type_el is None:
+                    type_el = etree.Element(tag('type'))
+                    sect.insert(0, type_el)
+                type_el.set(tag('val'), 'continuous')
+        return p
+    elif new_page:
+        # Simple page break — no section element, so no footnote restart side-effect.
+        p = etree.Element(tag('p'))
+        r = etree.SubElement(p, tag('r'))
+        br = etree.SubElement(r, tag('br'))
+        br.set(tag('type'), 'page')
+        return p
+    else:
+        return None  # no break at all
+
+def _set_continuous(sect_para):
+    """Patch a section-break paragraph's sectPr to use continuous type (no new page).
+    Used to preserve page-numbering section boundaries without forcing a page break."""
+    sect = sect_para.find('.//' + tag('sectPr'))
+    if sect is not None:
+        type_el = sect.find(tag('type'))
+        if type_el is None:
+            type_el = etree.Element(tag('type'))
+            sect.insert(0, type_el)
+        type_el.set(tag('val'), 'continuous')
+    return sect_para
 
 # ── body parsing ─────────────────────────────────────────────────────────────
 
@@ -605,7 +709,9 @@ def _resize_figures_full_width(doc):
 
 # ── build output body ────────────────────────────────────────────────────────
 
-def build_body(template_body, layout, sections, used, has_figures, toc=False):
+def build_body(template_body, layout, sections, used, has_figures, toc=False,
+               new_page_headings=True, restart_footnotes=True,
+               extra_sections=None, has_bibliography=False):
     """
     Rebuild the template body:
       1. title block (cover values filled by the caller)
@@ -624,18 +730,31 @@ def build_body(template_body, layout, sections, used, has_figures, toc=False):
         template_body.remove(c)
 
     # 1. Title block + its own section closer.
-    for p in layout['title_block']:
-        template_body.append(p)
-    template_body.append(make_section_break(kinds['title']))
+    # Only prepend when the template has structured sections (book-style).
+    # For simple reference-doc templates (no inline section breaks),
+    # title_block is [] and this section is skipped entirely.
+    if layout['title_block']:
+        for p in layout['title_block']:
+            template_body.append(p)
+        template_body.append(make_section_break(kinds['title']))
 
     # 2. TOC section — heading + fresh field (from the template's code),
     #    then its closer. Only when the user wants a TOC; --no-toc removes
     #    the template's TOC section entirely (the checkbox overrides the
     #    template-aware default).
-    if toc and layout['toc_heading'] is not None and layout['toc_instr']:
-        template_body.append(layout['toc_heading'])
+    #
+    #    For structured (book-style) templates the TOC goes here, right after
+    #    the title block.  For simple reference-doc templates (title_block is
+    #    []) the pandoc Title/Author paragraphs arrive as frontmatter content
+    #    in step 4, so we defer the TOC and inject it just before the first
+    #    main section — after frontmatter but before body text.
+    if toc and layout['toc_instr'] and layout['title_block']:
+        if layout['toc_heading'] is not None:
+            template_body.append(layout['toc_heading'])
         template_body.append(make_field_paragraph('TOC1', layout['toc_instr']))
         template_body.append(make_section_break(kinds['toc']))
+    # Flag for deferred TOC injection in the content loop (simple templates).
+    toc_deferred = toc and bool(layout['toc_instr']) and not layout['title_block']
 
     # 3. ToF section — only when figures are present.
     if has_figures and layout['tof_heading'] is not None and layout['tof_instr']:
@@ -644,12 +763,21 @@ def build_body(template_body, layout, sections, used, has_figures, toc=False):
         template_body.append(make_section_break(kinds['tof']))
 
     # 4. Content sections.
+    # For simple templates: track whether we have injected an abstract heading
+    # before pandoc's "Abstract"-styled body paragraph(s).  Structured templates
+    # already carry the heading in their title_block, so we skip injection there.
+    _abstract_heading_injected = bool(layout['title_block'])
+
     seen_main = False
     content_sections = []
     skipped_bookmark_ids = set()
     for kind, blocks in sections:
-        # Skip the leading title/author block if it's the first section.
-        if content_sections == [] and blocks and blocks[0].tag == tag('p') \
+        # Skip the leading title/author block if it's the first section —
+        # but only when the template has its own title block (book-style).
+        # For simple reference-doc templates (title_block is []), let pandoc's
+        # Title/Author paragraphs through so the note title renders normally.
+        if layout['title_block'] and content_sections == [] and blocks \
+                and blocks[0].tag == tag('p') \
                 and get_style(blocks[0]) in ('Title', 'Author'):
             # Collect any bookmarkStart ids from the skipped block so we can
             # remove orphaned bookmarkEnds from the remaining content.
@@ -673,46 +801,163 @@ def build_body(template_body, layout, sections, used, has_figures, toc=False):
                             parent.remove(el)
 
     for idx, (kind, blocks) in enumerate(content_sections):
+        # Deferred TOC for simple templates: emit just before the first real
+        # content heading (any Heading 1 that isn't a TOC/ToF heading), so
+        # the TOC lands after Title/Author/frontmatter text but before body.
+        # We do NOT restrict to kind=='main': is_main_start matches only a
+        # handful of names, so most document headings stay 'frontmatter' and
+        # the TOC would never fire if we gated on kind.
+        if toc_deferred and blocks and blocks[0].tag == tag('p') \
+                and get_style(blocks[0]) == 'Heading1':
+            h1_text = _para_text(blocks[0])
+            if not is_toc_heading(h1_text) and not is_tof_heading(h1_text):
+                # Remove the preceding bare page-break paragraph (emitted as the
+                # frontmatter section break) so the TOC heading can carry the page
+                # break itself via <w:pageBreakBefore/>, avoiding a blank paragraph.
+                if len(template_body) > 0:
+                    _prev = template_body[-1]
+                    _brs  = list(_prev.iter(tag('br')))
+                    _is_bare_pb = (
+                        _prev.tag == tag('p')
+                        and any(b.get(tag('type'), '') == 'page' for b in _brs)
+                        and _prev.find('.//' + tag('sectPr')) is None
+                        and not any(el.text for el in _prev.iter(tag('t')))
+                    )
+                    if _is_bare_pb:
+                        template_body.remove(_prev)
+                if layout['toc_heading'] is not None:
+                    toc_h = layout['toc_heading']
+                    # Embed the page break so no separate blank paragraph is needed.
+                    _ppr = toc_h.find(tag('pPr'))
+                    if _ppr is None:
+                        _ppr = etree.Element(tag('pPr'))
+                        toc_h.insert(0, _ppr)
+                    if _ppr.find(tag('pageBreakBefore')) is None:
+                        etree.SubElement(_ppr, tag('pageBreakBefore'))
+                    template_body.append(toc_h)
+                else:
+                    # No heading in template — use a bare page-break paragraph.
+                    _pb  = etree.Element(tag('p'))
+                    _pbr = etree.SubElement(_pb, tag('r'))
+                    _pbb = etree.SubElement(_pbr, tag('br'))
+                    _pbb.set(tag('type'), 'page')
+                    template_body.append(_pb)
+                template_body.append(
+                    make_field_paragraph('TOC1', layout['toc_instr']))
+                # Page break after the TOC so the first content section
+                # starts on its own page, not immediately below the TOC.
+                _toc_brk = etree.Element(tag('p'))
+                _toc_r   = etree.SubElement(_toc_brk, tag('r'))
+                _toc_b   = etree.SubElement(_toc_r,   tag('br'))
+                _toc_b.set(tag('type'), 'page')
+                template_body.append(_toc_brk)
+                toc_deferred = False
         for b in blocks:
             # Remap pandoc-specific styles to template names.
             if b.tag == tag('p'):
                 st = get_style(b)
                 remap = {
-                    # Pandoc emits blockquotes as "Block Text"; the book
-                    # template styles them "Block quote".
-                    'BlockText': 'Blockquote',
+                    # Pandoc emits blockquotes as "Block Text" (styleId BlockText);
+                    # also, any direct Blockquote references map to the template's
+                    # Block Text style (which exists in all templates).
+                    'Blockquote': 'BlockText',
                     'FirstParagraph': 'BodyText',
                 }
                 if st in remap:
                     set_style(b, remap[st])
+                elif st == 'Abstract' and not _abstract_heading_injected:
+                    # Pandoc emits the YAML 'abstract:' field as one or more
+                    # paragraphs with "Abstract" paragraph style.  For simple
+                    # reference-doc templates (title_block is []) no heading
+                    # precedes them, so we inject one here using the template's
+                    # Abstractkeywordsheading style before the first such paragraph.
+                    _abstract_heading_injected = True
+                    h = etree.Element(tag('p'))
+                    hpr = etree.SubElement(h, tag('pPr'))
+                    hstyle = etree.SubElement(hpr, tag('pStyle'))
+                    hstyle.set(tag('val'), _ABSTRACTKEYWORDS_STYLE_ID)
+                    hr = etree.SubElement(h, tag('r'))
+                    ht = etree.SubElement(hr, tag('t'))
+                    ht.text = 'Abstract'
+                    template_body.append(h)
             template_body.append(b)
+        # For simple reference-doc templates (no structured title block),
+        # inject note/sw-* extra sections after the first frontmatter section
+        # (Title/Author/Abstract area) so they appear between the cover and the
+        # first heading rather than replacing the title entirely.
+        if extra_sections and not layout['title_block'] and idx == 0 \
+                and kind == 'frontmatter':
+            _extra_buf = []
+            _append_extra_sections(_extra_buf, extra_sections)
+            for _ep in _extra_buf:
+                template_body.append(_ep)
         if idx == len(content_sections) - 1:
             break  # final section closed by final_sect
+        has_template_sects = bool(layout['title_block'])
         if kind == 'frontmatter':
-            brk = make_section_break(kinds['roman'])
+            if has_template_sects:
+                # Book template: use roman sectPr (lowerRoman page numbering).
+                # Between frontmatter sections, respect new_page_headings.
+                # At the frontmatter→main boundary, always force a new page
+                # because the numbering system changes (roman→arabic).
+                next_kind = content_sections[idx + 1][0]
+                brk = make_section_break(kinds['roman'])
+                if next_kind == 'frontmatter' and not new_page_headings:
+                    _set_continuous(brk)
+                template_body.append(brk)
+            else:
+                # Simple document template: no page-numbering sections, so treat
+                # frontmatter breaks the same as chapter breaks — user-controlled.
+                brk = _make_chapter_break(None, new_page_headings, restart_footnotes)
+                if brk is not None:
+                    template_body.append(brk)
         elif not seen_main:
-            brk = make_section_break(kinds['first_main'])
+            # First main section: sets arabic page numbering (first_main break).
+            # This break falls between Chapter 1 and Chapter 2 (same numbering
+            # system), so it respects new_page_headings like any other chapter.
             seen_main = True
+            if has_template_sects:
+                brk = make_section_break(kinds['first_main'])
+                if not new_page_headings:
+                    _set_continuous(brk)
+                template_body.append(brk)
+            else:
+                # Simple template: apply user-controlled break before first chapter.
+                brk = _make_chapter_break(None, new_page_headings, restart_footnotes)
+                if brk is not None:
+                    template_body.append(brk)
         else:
-            brk = make_section_break(kinds['continue'])
-        template_body.append(brk)
+            # Subsequent chapters: apply user-controlled new-page / restart settings.
+            brk = _make_chapter_break(
+                kinds.get('continue') if has_template_sects else None,
+                new_page_headings, restart_footnotes)
+            if brk is not None:
+                template_body.append(brk)
 
-    # 5. Bibliography section (from the template), if present — a Heading 1
-    #    "Bibliography" followed by a fresh, EMPTY Zotero bibliography field
-    #    (no cached content; Zotero populates it on refresh). The template's
-    #    own cached bibliography entries are dropped.
-    if layout['bibl_heading'] is not None:
-        # If the previous section's break hasn't been emitted (last content
-        # section was closed by the final sectPr), we still want the
-        # bibliography in its own section — emit a continue break before it.
-        template_body.append(make_section_break(kinds['continue']))
-        template_body.append(layout['bibl_heading'])
-        bibl_field = make_field_paragraph(
+    # 5. Bibliography section — appended when the pandoc output contained a
+    #    bibliography (pandoc's plain-text entries were stripped in merge() via
+    #    _strip_bibliography_from_sections so that a fresh Zotero field is used
+    #    instead, giving consistent output regardless of template structure).
+    if has_bibliography:
+        _has_template_sects = bool(layout['title_block'])
+        if _has_template_sects and kinds.get('continue'):
+            template_body.append(make_section_break(kinds['continue']))
+        else:
+            _bbrk = _make_chapter_break(None, new_page_headings, restart_footnotes)
+            if _bbrk is not None:
+                template_body.append(_bbrk)
+        _bh = etree.Element(tag('p'))
+        _bhpr = etree.SubElement(_bh, tag('pPr'))
+        _bhst = etree.SubElement(_bhpr, tag('pStyle'))
+        _bhst.set(tag('val'), 'Heading1')
+        _bhr = etree.SubElement(_bh, tag('r'))
+        _bht = etree.SubElement(_bhr, tag('t'))
+        _bht.text = 'Bibliography'
+        template_body.append(_bh)
+        template_body.append(make_field_paragraph(
             'Bibliography',
-            layout['bibl_instr'] or
-            'ADDIN ZOTERO_BIBL {"uncited":[],"omitted":[],"custom":[]} CSL_BIBLIOGRAPHY',
-            'Refresh Zotero to view this content.')
-        template_body.append(bibl_field)
+            ZOTERO_BIBL_INSTR,
+            'Refresh Zotero to view this content.'))
 
     # 6. Final body sectPr.
     template_body.append(final_sect)
@@ -721,7 +966,8 @@ def build_body(template_body, layout, sections, used, has_figures, toc=False):
 
 def merge(template_path, input_path, output_path, title=None, author=None,
           subtitle=None, date_val=None, toc=False, short_title=None,
-          basename=None, abstract=None, note=None):
+          basename=None, abstract=None, extra_sections=None,
+          new_page_headings=True, restart_footnotes=True):
     with zipfile.ZipFile(template_path) as z:
         tmpl_doc = etree.fromstring(z.read('word/document.xml'))
     tmpl_body = tmpl_doc.find(tag('body'))
@@ -734,6 +980,11 @@ def merge(template_path, input_path, output_path, title=None, author=None,
     layout = extract_template_layout(template_path)
 
     sections = classify_blocks(pdc_children)
+
+    # Strip the bibliography section (pandoc plain-text entries) so the merge
+    # can append a fresh Zotero field at the end instead.  This mirrors the ODT
+    # approach and ensures both formats use identical bibliography handling.
+    sections, _has_bibliography = _strip_bibliography_from_sections(sections)
 
     # Figure captions → template caption layout; decides ToF presence.
     has_figures = transform_figures(sections)
@@ -748,9 +999,30 @@ def merge(template_path, input_path, output_path, title=None, author=None,
     # Fill the title block (layout['title_block'] are the copies build_body
     # will append, so fill them in place).
     _fill_title_block(layout['title_block'], title, subtitle, author, date_val,
-                      abstract=abstract, note=note)
+                      abstract=abstract)
+    # Note: save whether the template has a structured title block BEFORE
+    # extra sections are appended.  For simple reference-doc templates
+    # (title_block is [] because no inline section breaks exist), appending
+    # extra sections here would make the block non-empty, causing build_body
+    # to skip pandoc's Title/Author paragraphs and emit the note sections
+    # instead of the title — the note replaces the title.  We only append to
+    # the title block for structured (book-style) templates; for simple
+    # templates we pass extra_sections into build_body, which injects them
+    # into the content stream right after the first frontmatter section.
+    _has_structured_title = bool(layout['title_block'])
+    if _has_structured_title:
+        _append_extra_sections(layout['title_block'], extra_sections or [])
+    elif abstract:
+        # Simple reference-doc template (no structured title block): abstract
+        # was not handled by _fill_title_block, so prepend it to extra_sections
+        # so build_body injects it into the content stream after the title area.
+        extra_sections = [('abstract', abstract)] + (extra_sections or [])
 
-    build_body(tmpl_body, layout, sections, used, has_figures, toc=toc)
+    build_body(tmpl_body, layout, sections, used, has_figures, toc=toc,
+               new_page_headings=new_page_headings,
+               restart_footnotes=restart_footnotes,
+               extra_sections=extra_sections if not _has_structured_title else None,
+               has_bibliography=_has_bibliography)
 
     # Remove ORPHANED bookmarkEnd elements: any end whose matching
     # bookmarkStart is absent from the final body. This happens when a
@@ -811,7 +1083,7 @@ def merge(template_path, input_path, output_path, title=None, author=None,
                 subtitle=subtitle, input_path=input_path)
 
 def _fill_title_block(title_block, title, subtitle, author, date_val,
-                      abstract=None, note=None):
+                      abstract=None):
     """Replace placeholder text in the template title block (a list of deep
     copies used by build_body):
       - Title / Subtitle styles → resolved values
@@ -849,25 +1121,46 @@ def _fill_title_block(title_block, title, subtitle, author, date_val,
                 date_done = True
             i += 1
         elif style == 'Abstractkeywordsheading':
-            # Drop the section (heading + following BodyText) if no content.
-            has_content = (cur.strip().lower() == 'abstract' and abstract) or \
-                          (cur.strip().lower() == 'note' and note)
-            if has_content:
-                value = abstract if cur.strip().lower() == 'abstract' else note
-                _replace_text(p, cur)          # keep heading text
-                # replace the next BodyText (the abstract/note body),
-                # converting any markdown formatting to docx runs.
+            # Abstract (and keywords/note) heading style used by article/book templates.
+            # Only the "Abstract" heading is filled; other keyword headings (dropped
+            # by this branch) are handled separately by _append_extra_sections().
+            is_abstract_heading = cur.strip().lower() == 'abstract'
+            if is_abstract_heading and abstract:
+                _replace_text(p, cur)          # keep heading text "Abstract"
+                # Fill the following body paragraph(s).  Templates may use either
+                # BodyText (book.docx) or Abstract (document.docx) for the body.
+                # Support multi-paragraph abstracts: split on blank lines and
+                # clone the template paragraph for each additional chunk.
                 j = i + 1
-                while j < len(title_block) and get_style(title_block[j]) == 'BodyText':
-                    _fill_markdown_text(title_block[j], value)
-                    break
+                while j < len(title_block):
+                    body_style = get_style(title_block[j])
+                    if body_style in ('BodyText', 'Abstract'):
+                        paras = split_paragraphs(abstract)
+                        _fill_markdown_text(title_block[j], paras[0])
+                        insert_pos = j + 1
+                        for extra_para in paras[1:]:
+                            clone = copy.deepcopy(title_block[j])
+                            _fill_markdown_text(clone, extra_para)
+                            title_block.insert(insert_pos, clone)
+                            insert_pos += 1
+                        i = insert_pos - 1  # outer i += 1 moves past last inserted
+                        break
+                    j += 1
                 i += 1
             else:
-                # Drop this heading AND the following BodyText paragraph(s).
+                # No abstract content, or a non-abstract keyword heading: drop heading
+                # and its following body paragraph(s) (BodyText or Abstract style).
                 title_block.pop(i)
-                while i < len(title_block) and get_style(title_block[i]) == 'BodyText':
+                while i < len(title_block) and get_style(title_block[i]) in ('BodyText', 'Abstract'):
                     title_block.pop(i)
                 continue
+        elif style == 'Abstract':
+            # Standalone abstract body paragraph (document.docx template style).
+            # Only reached when no preceding Abstractkeywordsheading paired with it
+            # (e.g. the heading was absent or already processed for a simple template).
+            # Drop it — it is a template placeholder.
+            title_block.pop(i)
+            continue
         else:
             i += 1
     # No subtitle in this template: fall back to the first empty/'Author' slot.
@@ -881,6 +1174,94 @@ def _fill_title_block(title_block, title, subtitle, author, date_val,
                 elif not date_done and cur == 'Date':
                     _replace_text(p, date_val)
                     date_done = True
+
+def _strip_bibliography_from_sections(sections):
+    """Remove the section whose first block is a Heading1 'Bibliography' paragraph.
+
+    DOCX content comes pre-split into (kind, blocks) sections at each Heading1,
+    so the bibliography section is self-contained.  Returns (cleaned, found).
+    Scans from the end so the bibliography (always last) is found quickly.
+    The shared strip_bibliography helper is used for flat ODT element lists;
+    this companion handles the DOCX section-list structure.
+    """
+    for i in range(len(sections) - 1, -1, -1):
+        kind, blocks = sections[i]
+        if not blocks:
+            continue
+        first = blocks[0]
+        if first.tag == tag('p') and get_style(first) == 'Heading1':
+            if _para_text(first).strip().lower() == 'bibliography':
+                return list(sections[:i]), True
+    return list(sections), False
+
+
+def _append_extra_sections(title_block, extra_sections):
+    """Append heading + body paragraph pairs to title_block for each
+    (key, value) pair in extra_sections (note/sw-* properties collected from
+    YAML in document order).
+
+    The heading uses the Abstractkeywordsheading style (bold + italic, matching
+    the abstract/keywords section); the body uses BodyText style. Markdown in
+    value is processed to bold/italic/code runs.
+    """
+    for key, value in extra_sections:
+        label = _title_case(key)
+        # Heading paragraph with Abstractkeywordsheading style.
+        h = etree.Element(tag('p'))
+        hpr = etree.SubElement(h, tag('pPr'))
+        hstyle = etree.SubElement(hpr, tag('pStyle'))
+        hstyle.set(tag('val'), _ABSTRACTKEYWORDS_STYLE_ID)
+        hr = etree.SubElement(h, tag('r'))
+        ht = etree.SubElement(hr, tag('t'))
+        ht.text = label
+        title_block.append(h)
+        # Body paragraph(s) with BodyText style. split_paragraphs handles the
+        # \n\n splitting shared with the ODT merge via sw_merge_helpers.
+        for chunk in split_paragraphs(value):
+            b = etree.Element(tag('p'))
+            bpr = etree.SubElement(b, tag('pPr'))
+            bstyle = etree.SubElement(bpr, tag('pStyle'))
+            bstyle.set(tag('val'), 'BodyText')
+            title_block.append(b)
+            _fill_markdown_text(b, chunk)
+
+def _ensure_abstractkeywords_style(data):
+    """Inject the Abstractkeywordsheading paragraph style into word/styles.xml
+    if it is not already present. This ensures user-supplied templates that lack
+    the style can still render dynamic note/sw-* sections correctly.
+
+    The injected style: based on Normal, with bold + italic run formatting
+    (default document font), matching how the style appears in the bundled
+    templates.
+    """
+    styles_key = 'word/styles.xml'
+    if styles_key not in data:
+        return
+    W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+
+    def wtag(n):
+        return '{%s}%s' % (W_NS, n)
+
+    root = etree.fromstring(data[styles_key])
+    # Check if style already present.
+    for s in root.findall(wtag('style')):
+        if s.get(wtag('styleId')) == _ABSTRACTKEYWORDS_STYLE_ID:
+            return  # already there
+    # Build and append a minimal style definition.
+    style = etree.SubElement(root, wtag('style'))
+    style.set(wtag('type'), 'paragraph')
+    style.set(wtag('styleId'), _ABSTRACTKEYWORDS_STYLE_ID)
+    name_el = etree.SubElement(style, wtag('name'))
+    name_el.set(wtag('val'), 'Abstract keywords heading')
+    based = etree.SubElement(style, wtag('basedOn'))
+    based.set(wtag('val'), 'Normal')
+    rpr = etree.SubElement(style, wtag('rPr'))
+    etree.SubElement(rpr, wtag('b'))
+    etree.SubElement(rpr, wtag('bCs'))
+    etree.SubElement(rpr, wtag('i'))
+    etree.SubElement(rpr, wtag('iCs'))
+    data[styles_key] = etree.tostring(
+        root, xml_declaration=True, encoding='UTF-8', standalone=True)
 
 def _strip_markdown(text):
     """Remove markdown delimiters (*italic*, **bold**, `code`) from a string,
@@ -1095,7 +1476,7 @@ def _remove_orphan_bookmark_ends(doc):
 def normalize_headers_footers(zipdata, short_title=None, author=None,
                               title=None, subtitle=None):
     """
-    Patch header/footer XML parts to match the Linked Citations spec:
+    Patch header/footer XML parts to match the ScholarWeave header/footer spec:
       - even-page header (header1): Author – Short Title, LEFT aligned,
         WITHOUT the vestigial STYLEREF "Heading 1 - frontmatter"
       - odd-page headers (header2 TOC / header4 chapters): RIGHT aligned
@@ -1247,6 +1628,88 @@ def normalize_headers_footers(zipdata, short_title=None, author=None,
                     root.remove(prop)
         zipdata['docProps/custom.xml'] = etree.tostring(root, xml_declaration=True, encoding='UTF-8', standalone=True)
 
+
+def _merge_numbering(data, pdc_num_bytes, doc_root):
+    """Merge pandoc's list numbering definitions into the template's
+    numbering.xml and rewrite numId references in doc_root in-place.
+
+    Pandoc generates abstractNum/num entries for bullet and numbered lists in
+    its own numbering.xml.  Without this merge those numIds don't exist in the
+    template's numbering, so Word falls back to its default (often numbered)
+    for every list type, turning bullets into numbers.
+    """
+    pdc_num = etree.fromstring(pdc_num_bytes)
+
+    tmpl_num_xml = data.get('word/numbering.xml')
+    if not tmpl_num_xml:
+        return  # template has no numbering.xml — skip (uncommon)
+    tmpl_num = etree.fromstring(tmpl_num_xml)
+
+    # Max abstractNumId / numId already in the template.
+    max_abstract = max(
+        (int(an.get(tag('abstractNumId'), -1))
+         for an in tmpl_num.findall(tag('abstractNum'))),
+        default=-1)
+    max_num = max(
+        (int(n.get(tag('numId'), -1))
+         for n in tmpl_num.findall(tag('num'))),
+        default=-1)
+
+    # Map pandoc abstractNumId → new id; collect remapped elements.
+    abstract_map = {}
+    new_abstracts = []
+    for an in pdc_num.findall(tag('abstractNum')):
+        old_id = an.get(tag('abstractNumId'))
+        if old_id is None:
+            continue
+        new_id = str(max_abstract + 1 + len(abstract_map))
+        abstract_map[old_id] = new_id
+        new_an = copy.deepcopy(an)
+        new_an.set(tag('abstractNumId'), new_id)
+        new_abstracts.append(new_an)
+
+    # Map pandoc numId → new id.
+    num_map = {}
+    new_nums = []
+    for n in pdc_num.findall(tag('num')):
+        old_numid = n.get(tag('numId'))
+        if old_numid is None or old_numid == '0':
+            continue
+        ani_el = n.find(tag('abstractNumId'))
+        if ani_el is None:
+            continue
+        new_abstract = abstract_map.get(ani_el.get(tag('val')))
+        if new_abstract is None:
+            continue
+        new_numid = str(max_num + 1 + len(num_map))
+        num_map[old_numid] = new_numid
+        new_n = copy.deepcopy(n)
+        new_n.set(tag('numId'), new_numid)
+        new_n.find(tag('abstractNumId')).set(tag('val'), new_abstract)
+        new_nums.append(new_n)
+
+    if not num_map:
+        return
+
+    # Insert abstractNums before the first existing w:num (OPC ordering req).
+    children = list(tmpl_num)
+    insert_at = next(
+        (i for i, c in enumerate(children) if c.tag == tag('num')),
+        len(children))
+    for i, an in enumerate(new_abstracts):
+        tmpl_num.insert(insert_at + i, an)
+    for n in new_nums:
+        tmpl_num.append(n)
+
+    # Rewrite numId references in the merged document body.
+    for numid_el in doc_root.iter(tag('numId')):
+        old_val = numid_el.get(tag('val'))
+        if old_val and old_val in num_map:
+            numid_el.set(tag('val'), num_map[old_val])
+
+    data['word/numbering.xml'] = etree.tostring(
+        tmpl_num, xml_declaration=True, encoding='UTF-8', standalone=True)
+
 def _write_docx(template_path, output_path, new_document_xml, new_footnotes_xml=None,
                 short_title=None, author=None, title=None, subtitle=None,
                 input_path=None):
@@ -1261,6 +1724,7 @@ def _write_docx(template_path, output_path, new_document_xml, new_footnotes_xml=
     with zipfile.ZipFile(template_path) as zin:
         names = zin.namelist()
         data = {n: zin.read(n) for n in names}
+    _ensure_abstractkeywords_style(data)
     data['word/document.xml'] = etree.tostring(
         new_document_xml, xml_declaration=True, encoding='UTF-8', standalone=True
     )
@@ -1364,6 +1828,18 @@ def _write_docx(template_path, output_path, new_document_xml, new_footnotes_xml=
                 data[rels_path] = etree.tostring(
                     out_rels, xml_declaration=True, encoding='UTF-8',
                     standalone=True)
+
+            # Merge pandoc's list numbering so bullet/numbered lists render
+            # correctly.  The template's numbering.xml is the base; pandoc's
+            # abstractNum/num entries are appended with remapped IDs and the
+            # merged document body's numId references are rewritten to match.
+            if 'word/numbering.xml' in in_names:
+                _merge_numbering(
+                    data, zin.read('word/numbering.xml'), new_document_xml)
+                # Re-serialize: numId values in the tree were rewritten above.
+                data['word/document.xml'] = etree.tostring(
+                    new_document_xml, xml_declaration=True,
+                    encoding='UTF-8', standalone=True)
 
             # Keep word/endnotes.xml (with the template's separator entries)
             # in the package. Word requires the part to be present even when
@@ -1515,11 +1991,38 @@ def main():
     ap.add_argument('--shorttitle', default=None)
     ap.add_argument('--basename', default=None)
     ap.add_argument('--abstract', default=None)
-    ap.add_argument('--note', default=None)
+    ap.add_argument('--extra-sections', default=None, dest='extra_sections',
+                    help='JSON array of [key, value] pairs for note/sw-* sections')
+    ap.add_argument('--note', default=None,
+                    help='Backward-compat: single note value (treated as [["note", value]])')
+    ap.add_argument('--new-page-headings', action='store_true', default=True,
+                    dest='new_page_headings',
+                    help='Start each top-level heading on a new page (default: on)')
+    ap.add_argument('--no-new-page-headings', action='store_true',
+                    dest='no_new_page_headings',
+                    help='Do not insert page breaks before top-level headings')
+    ap.add_argument('--no-global-footnotes', action='store_true',
+                    dest='no_global_footnotes',
+                    help='Restart footnote numbering at each top-level heading/chapter')
+    ap.add_argument('--global-footnotes', action='store_true',
+                    dest='global_footnotes',
+                    help='Continuous footnote numbering across the whole document')
     args = ap.parse_args()
+    extra_sections = None
+    if args.extra_sections:
+        try:
+            extra_sections = json.loads(args.extra_sections)
+        except (json.JSONDecodeError, ValueError):
+            extra_sections = None
+    elif args.note:
+        extra_sections = [['note', args.note]]
+    new_page_headings = not args.no_new_page_headings
+    restart_footnotes = args.no_global_footnotes  # --no-global-footnotes = restart per chapter
     merge(args.template, args.input, args.output, args.title, args.author,
           args.subtitle, args.date_val, args.toc, args.shorttitle, args.basename,
-          args.abstract, args.note)
+          args.abstract, extra_sections,
+          new_page_headings=new_page_headings,
+          restart_footnotes=restart_footnotes)
     print(f'Merged: {args.output}')
 
 if __name__ == '__main__':

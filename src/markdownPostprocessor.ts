@@ -286,7 +286,29 @@ export function processCiteKeys(plugin: ReferenceList) {
                   : `[[@${key}|${aText}]]`
               );
               runNodes.push(next);
-              const after = next.nextSibling;
+              // Advance past any run of adjacent anchors rendered without a
+              // text node between them (e.g. ⟦[[@a]][[@b]]⟧ with no spaces).
+              let after: ChildNode | null = next.nextSibling;
+              while (
+                after &&
+                after.nodeType === Node.ELEMENT_NODE &&
+                (after as Element).nodeName === 'A'
+              ) {
+                const nextA = after as HTMLAnchorElement;
+                const nextKey = getLinkCiteKey(nextA);
+                if (!nextKey) { valid = false; break; }
+                pieces.push(''); // implicit empty separator between adjacent anchors
+                anchors++;
+                const nextAText = (nextA.textContent ?? '').trim();
+                pieces.push(
+                  nextAText === '@' + nextKey
+                    ? `[[@${nextKey}]]`
+                    : `[[@${nextKey}|${nextAText}]]`
+                );
+                runNodes.push(after);
+                after = after.nextSibling;
+              }
+              if (!valid) break;
               if (!after || after.nodeType !== Node.TEXT_NODE) {
                 valid = false;
                 break;

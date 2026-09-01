@@ -144,8 +144,8 @@ export default {
 
   // src/main.ts
   'Show reference list': 'Show reference list',
-  'Compile and export a book (outline or markdown)':
-    'Compile and export a book (outline or markdown)',
+  'Compile and export a document (outline or markdown)':
+    'Compile and export a document (outline or markdown)',
   'Convert pandoc citations to linked citations (current note)':
     'Convert pandoc citations to linked citations (current note)',
   'Update stale citekeys and literature note filenames (vault)': 'Update stale citekeys and literature note filenames (vault)',
@@ -172,7 +172,7 @@ export default {
   'Filter references…': 'Filter references…',
 
   // src/settings.tsx — Book Compiler (outline → markdown → docx)
-  'Path to Python 3 (for Book Compiler)': 'Path to Python 3 (for Book Compiler)',
+  'Path to Python 3 (for Document Compiler)': 'Path to Python 3 (for Document Compiler)',
   'Absolute path to the python3 interpreter used by the "Compile outline…" and "Compile + export to docx" commands. Leave blank to auto-detect (python3 on PATH, then common install locations).':
     'Absolute path to the python3 interpreter used by the "Compile outline…" and "Compile + export to docx" commands. Leave blank to auto-detect (python3 on PATH, then common install locations).',
   'Docx export templates directory (optional)': 'Docx export templates directory (optional)',

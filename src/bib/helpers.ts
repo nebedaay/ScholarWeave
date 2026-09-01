@@ -203,7 +203,13 @@ export async function getCSLStyle(
     return raw;
   }
 
-  const filename = pathBasename(url);
+  // Normalize bare ids (e.g. "chicago-author-date") to full Zotero repository
+  // URLs. Older data.json files stored only the id; passing the raw id to
+  // requestUrl() throws "TypeError: Invalid URL" on Obsidian 1.13+.
+  const ZOTERO_STYLE_BASE = 'https://www.zotero.org/styles/';
+  const fullUrl = url.startsWith('http') ? url : `${ZOTERO_STYLE_BASE}${url}`;
+
+  const filename = pathBasename(fullUrl);
   const cachePath = normalizePath(`${CACHE_DIR}/${filename}`);
 
   await ensureVaultDir(CACHE_DIR);
@@ -218,9 +224,9 @@ export async function getCSLStyle(
     await app.vault.adapter.remove(cachePath);
   }
 
-  const resp = await requestUrl({ url, throw: false });
+  const resp = await requestUrl({ url: fullUrl, throw: false });
   if (resp.status !== 200) {
-    throw new Error(`Error downloading CSL style: HTTP ${resp.status} from ${url}`);
+    throw new Error(`Error downloading CSL style: HTTP ${resp.status} from ${fullUrl}`);
   }
   const str = resp.text;
   await app.vault.adapter.write(cachePath, str);

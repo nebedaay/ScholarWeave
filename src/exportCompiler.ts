@@ -1,5 +1,7 @@
 import { TFile } from 'obsidian';
 import type ReferenceList from './main';
+import type { ExportFormat } from './exportModal';
+import type { StyleMapping } from './settings';
 import { findPandoc } from './bib/pandoc';
 
 // esbuild outputs this file in CJS format where `require` is available at
@@ -137,17 +139,32 @@ export interface CompileResult {
   ok: boolean;
   stdout: string;
   stderr: string;
+  /** Absolute path of the produced file (last stdout line on success). */
+  outputPath?: string;
 }
 
 export interface CompilerOptions {
-  export: boolean;
+  /** Output format: 'md' = compile only (no pandoc), 'docx', 'odt', or 'pdf' = export. */
+  format: ExportFormat;
+  /** Template name chosen in the modal (no extension). Overrides frontmatter. */
+  template?: string;
   /** Explicit TOC choice (checkbox). Overrides template-aware default. */
   toc: boolean;
-  /** Explicit footnote numbering choice: true = global, false = per-chapter. */
-  globalFootnotes: boolean;
-  /** Output folder (vault-relative or absolute, ~ expanded); '' = same
-   *  folder as the source file. */
+  /** true = restart footnote numbering at each top-level heading; false = continuous. */
+  restartFootnotes: boolean;
+  /** true = top-level headings start on a new page. */
+  newPageHeadings: boolean;
+  /** Output folder (vault-relative or absolute, ~ expanded); '' = same folder as source. */
   outputDir?: string;
+  /** Desired output filename (basename.ext). When set and different from the
+   *  compiler's default name, the output file is renamed after compilation. */
+  outputFilename?: string;
+  /** PDF only: keep the intermediate docx/odt after PDF conversion. */
+  keepIntermediate?: boolean;
+  /** PDF only: intermediate format ('odt' default, 'docx' alternative). */
+  pdfIntermediate?: 'docx' | 'odt';
+  /** IDs of StyleMappings to apply on this export (subset of settings.styleMappings). */
+  enabledMappingIds?: string[];
 }
 
 /** Convert a user-supplied folder (vault-relative, absolute, or ~) to an
@@ -164,14 +181,14 @@ function resolveFolder(
 }
 
 /**
- * Run the bundled BookCompiler.py (compile outline → markdown, and with
- * `export: true` → docx) on the given note. Desktop only.
+ * Run the bundled DocumentCompiler.py (compile outline → markdown, and with
+ * `export: true` → docx / odt / pdf) on the given note. Desktop only.
  *
  * The interpreter is resolved here (with lxml/docx verification) and the
- * resolved python/node/pandoc paths are handed to the script via LC_* env
+ * resolved python/node/pandoc paths are handed to the script via SW_* env
  * vars, because Electron's renderer doesn't inherit the shell PATH.
  */
-export async function runBookCompiler(
+export async function runDocumentCompiler(
   plugin: ReferenceList,
   file: TFile,
   opts: CompilerOptions
@@ -200,24 +217,66 @@ export async function runBookCompiler(
   const adapter = plugin.app.vault.adapter as any;
   const vaultBase = adapter.getBasePath() as string;
   const absMaster = `${vaultBase}/${file.path}`;
+  const isExport = opts.format !== 'md';
+
+  // Template name: modal selection takes priority over frontmatter.
+  // Fall back to frontmatter for callers that don't supply opts.template.
+  let templateName = opts.template ?? '';
+  if (!templateName) {
+    const cache = plugin.app.metadataCache.getFileCache(file);
+    const rawTpl = (cache?.frontmatter as Record<string, unknown> | undefined)
+      ?.template;
+    templateName =
+      typeof rawTpl === 'string' ? rawTpl.replace(/\.(docx|odt)$/i, '') : '';
+  }
 
   const args = [absMaster];
-  if (opts.export) args.push('--export');
+  if (isExport) {
+    args.push('--export');
+    args.push('--format', opts.format); // 'docx', 'odt', or 'pdf'
+    if (opts.format === 'pdf') {
+      args.push('--pdf-intermediate', opts.pdfIntermediate ?? 'odt');
+      if (opts.keepIntermediate) args.push('--keep-intermediate');
+    }
+  }
   args.push(opts.toc ? '--toc' : '--no-toc');
-  args.push(opts.globalFootnotes ? '--global-footnotes' : '--no-global-footnotes');
+  args.push(opts.restartFootnotes ? '--no-global-footnotes' : '--global-footnotes');
+  args.push(opts.newPageHeadings ? '--new-page-headings' : '--no-new-page-headings');
+
+  // Pass the Obsidian account display name as a fallback author so the
+  // merge script can set dc:creator even when `author:` is absent from YAML.
+  const accountName: string | undefined =
+    (plugin.app as any).account?.name ?? undefined;
+  if (accountName) args.push('--default-author', accountName);
+
+  // Always pass --templates-dir; fall back to <vault>/Export Templates/ when
+  // the setting is empty so Python doesn't have to guess the vault root.
   const templateDir = resolveFolder(
-    plugin.settings.exportTemplatesDir,
+    plugin.settings.exportTemplatesDir || 'Export Templates',
     vaultBase
   );
-  if (opts.export && templateDir) args.push('--templates-dir', templateDir);
+  args.push('--templates-dir', templateDir);
+  if (templateName) args.push('--template', templateName);
   const outputDir = resolveFolder(opts.outputDir, vaultBase);
   if (outputDir) args.push('--output-dir', outputDir);
 
-  const script = `${scriptsDir}/BookCompiler.py`;
+  // Resolve enabled style mappings and pass as JSON.
+  if (isExport && opts.enabledMappingIds && opts.enabledMappingIds.length > 0) {
+    const allMappings: StyleMapping[] = plugin.settings.styleMappings ?? [];
+    const enabledSet = new Set(opts.enabledMappingIds);
+    const activeMappings = allMappings
+      .filter(m => enabledSet.has(m.id) && m.source && m.styleName)
+      .map(m => ({ source: m.source, styleName: m.styleName }));
+    if (activeMappings.length > 0) {
+      args.push('--mappings', JSON.stringify(activeMappings));
+    }
+  }
+
+  const script = `${scriptsDir}/DocumentCompiler.py`;
   // Pass resolved tool paths through so the script doesn't depend on PATH.
   const baseEnv = (globalThis.process?.env ?? {}) as Record<string, string>;
-  const env: Record<string, string | undefined> = { ...baseEnv, LC_PYTHON: py };
-  if (opts.export) {
+  const env: Record<string, string | undefined> = { ...baseEnv, SW_PYTHON: py };
+  if (isExport) {
     const node = await findNode();
     if (!node) {
       return {
@@ -226,7 +285,7 @@ export async function runBookCompiler(
         stderr: 'Node.js not found. Install it (nodejs.org or Homebrew).',
       };
     }
-    env.LC_NODE = node;
+    env.SW_NODE = node;
     const pandoc = plugin.settings.pathToPandoc?.trim() || (await findPandoc());
     if (!pandoc) {
       return {
@@ -235,12 +294,38 @@ export async function runBookCompiler(
         stderr: 'Pandoc not found. Set its path in the plugin settings.',
       };
     }
-    env.LC_PANDOC = pandoc;
+    env.SW_PANDOC = pandoc;
   }
 
   try {
     const res = await execFileAsync(py, [script, ...args], { env });
-    return { ok: true, stdout: res.stdout, stderr: res.stderr };
+    const rawOutputPath = res.stdout.trim().split('\n').pop() ?? '';
+
+    // Optionally rename to the user-supplied filename.
+    let finalOutputPath = rawOutputPath;
+    if (
+      opts.outputFilename &&
+      rawOutputPath &&
+      require('path').basename(rawOutputPath) !== opts.outputFilename
+    ) {
+      try {
+        const path = require('path') as typeof import('path');
+        const fs = require('fs') as typeof import('fs');
+        const renamed = path.join(path.dirname(rawOutputPath), opts.outputFilename);
+        fs.renameSync(rawOutputPath, renamed);
+        finalOutputPath = renamed;
+      } catch (renameErr) {
+        console.warn('[scholar-weave] Could not rename output file:', renameErr);
+        // Non-fatal — still report the original path.
+      }
+    }
+
+    return {
+      ok: true,
+      stdout: res.stdout,
+      stderr: res.stderr,
+      outputPath: finalOutputPath || undefined,
+    };
   } catch (e) {
     const err = e as any;
     return {

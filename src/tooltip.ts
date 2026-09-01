@@ -267,6 +267,7 @@ export class TooltipManager {
     }
 
     el.addEventListener('pointerover', (evt) => {
+      if (!this.plugin.settings.showCitekeyTooltips) return;
       evt.view.clearTimeout(this.previewDBTimer);
       evt.view.clearTimeout(this.previewDBTimerClose);
       this.previewDBTimer = evt.view.setTimeout(() => {

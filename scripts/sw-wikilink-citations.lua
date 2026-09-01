@@ -1,26 +1,20 @@
--- wikilink-citations.lua
+-- sw-wikilink-citations.lua
 --
--- Converts Obsidian citation wikilinks into pandoc Cite elements so that
--- Better BibTeX's zotero.lua (zotero-live-citations) filter can turn them
--- into native Zotero citations on export (docx/odt fields, markdown citation
--- syntax).
+-- SUPERSEDED — kept for reference only.
 --
--- Rules (per the vault owner's spec):
---   * [[@key|see also @@, 3]]    -> cite @key, prefix "see also", locator 3
---                                   (@@ expands to the link's own citekey)
---   * [[@key|@other, p. 5]]      -> @other is REPLACED by the link's key:
---                                   any @token in the alias becomes @key
---   * [[@key|here]]              -> literal text "here" followed by the
---                                   citation (plain label, no citation material)
---   * [[@key|@key -]]            -> author-in-text citation (trailing " -" is
---                                   a flag; requires --metadata
---                                   zotero-author-in-text=true for zotero.lua)
---   * [[@key|-@key]]             -> suppressed-author citation (pandoc syntax)
---   * ⟦[[@a]]; [[@b]]⟧             -> ONE citation with both works (container;
---                                   alias rules apply inside; >=2 links)
--- The link element itself is always removed.
+-- This filter is no longer part of the active ScholarWeave export pipeline.
+-- The current pipeline uses scripts/convert-citations.mjs (the plugin's own
+-- TypeScript parser, compiled by esbuild) to convert citation wikilinks to
+-- native pandoc citations BEFORE pandoc runs — which gives a single source of
+-- truth between the Obsidian renderer and the exported document.
 --
--- Must run BEFORE zotero.lua in the --lua-filter chain.
+-- Original purpose: convert Obsidian citation wikilinks to pandoc Cite elements
+-- so that Better BibTeX's sw-zotero.lua filter could turn them into native
+-- Zotero citations on export. This was used when "Enhancing Export" (a
+-- third-party Obsidian plugin) was driving single-note exports; that workflow
+-- is now fully superseded by ScholarWeave's built-in export modal.
+--
+-- Must run BEFORE sw-zotero.lua in the --lua-filter chain (historical).
 -- Links whose target does not start with '@' are left untouched.
 
 local stringify = pandoc.utils.stringify
