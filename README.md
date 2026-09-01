@@ -4,14 +4,16 @@ An Obsidian plugin that weaves together your universe of interlinked Obsidian no
 
 ScholarWeave's signature feature is **linked citations**: `[[@citekey|see @, p. 25]]` is simultaneously a formatted inline citation *and* a real wikilink to the literature note for that source. Citations stay connected to your note network — they're not just text.
 
-This is a fork and expansion of **[Bripey Citation Suite](https://github.com/112345brian/bripey-citation-suite)** (which itself descends from [Pandoc Reference List](https://github.com/community-archive/obsidian-pandoc-reference-list)), renamed to reflect its distinct and more comprehensive functionality.
+Additionally, ScholarWeave links your writing inside Obsidian to the world beyond Obsidian, importing and exporting DOCX and ODT documents while preserving citations. It can compile a note or an outline linking to a series of notes into a publication-ready book, article, or other document with working Zotero references.
+
+This plugin started as a fork of **[Bripey Citation Suite](https://github.com/112345brian/bripey-citation-suite)** (which itself descends from [Pandoc Reference List](https://github.com/community-archive/obsidian-pandoc-reference-list)), renamed to reflect its distinctive and more comprehensive functionality.
 
 ## Features
 
-- **Linked citations** — `[[@key|alias]]` wikilinks render as formatted citations while linking to literature notes, making them part of your Obsidian thought universe; `[@citekey]` pandoc-style citations work too. 
-- **Convenient syntax for representing pandoc-style citations in link aliases** — inside the alias of a wikilink containing a `@citekey`, the citekey can be shortened to `@`: `[[@smith1992|see @, p. 6]]` → (Smith 1992, 6)
-- **Live reference sidebar** — filterable list of all citations in the current note, with copy and jump-to buttons
-- **No Pandoc required for citations** — pure-JS BibTeX/BibLaTeX parser built in; Pandoc is opt-in for bibliography processing. (Pandoc is required for document import and export commands.)
+- **Linked citations** — `[[@smith1992|see @, p. 6]]` → (see Smith 1992, 6): a simple, pandoc-derived citation format that solves the heretofore impossible problem of **linking** to literature notes using real Obsidian wikilinks ***and*** rendering **publication-ready formatted citations**. This is the only way to reconcile true links and formatted citations. Conventional `[@citekey]` pandoc-style citations still work and can be converted to and from the linked citation format.
+- **Document compiler and exporter (desktop only)** — export a note or multi-note project as compiled markdown, ODT, DOCX, or PDF with one command. An export dialogue provides fine-grained control over the output format and options (TOC, per-chapter footnotes, figure captions, Zotero citation fields). The plugin combines the features of Pandoc export and long-form plugins but with far greater flexibility in converting simple and complex writing projects to publication-ready output.
+- **Live reference sidebar** — searchable list of all citations in the current note, with copy and jump-to buttons.
+- **No Pandoc required to format citations and references** — built-in pure-JS BibTeX/BibLaTeX parser; Pandoc is opt-in for bibliography processing. (Pandoc and Python are required for document import and export commands.)
 - **Multiple bibliography sources** — any number of `.bib` files plus Zotero, all merged; Zotero wins on conflicts
 - **Native Zotero 7/8 API** — no Better BibTeX required (BBT still supported for Zotero 6)
 - **Mobile support** — works on iOS and Android; tap citations in reading mode for a bottom-sheet card; long-press in editor mode to view a citation without interrupting editing.
@@ -19,41 +21,59 @@ This is a fork and expansion of **[Bripey Citation Suite](https://github.com/112
 - **Full-text search with `@@`** — typing `@@` switches to title/author full-text search over your entire library. Uses ZotLit's SQLite database when ZotLit is installed; falls back to the plugin's own title-biased index when ZotLit is absent.
 - **Smart bracket insertion** — `⌘↵` wraps citations in `[@key]`, detects existing brackets so it never double-wraps.
 - **Diacritic-insensitive search** — "Muller" finds "Müller", "Cezanne" finds "Cézanne".
-- **Citation decoration** — subtly color-coded citation decorations help you distinguish between unlinked citations, citations that have literature notes, and citations that link to yet-to-be-created literature notes
-- **Citekey tooltips** — hover over any citekey for a formatted citation preview, a link to view or add the literature note, and a link to open the item in Zotero; links are inserted for both linked and unlinked citations
+- **Citation decoration** — subtly color-coded citation decorations help you distinguish between unlinked citations, citations that have literature notes, and citations that link to yet-to-be-created literature notes.
+- **Citation tooltips** — hover over any citation for a formatted bibliographic reference preview, a link to view or add the literature note, and a link to open the item in Zotero; links are inserted for both linked and unlinked citations.
 - **Bibliography snapshot** — save a note's citations as a `.bib` file; colour-coded by sync status
-- **Literature note creation** — create literature notes from the sidebar or tooltip, using ZotLit's templates when available or the plugin's own basic template otherwise; commands available for the current note or the whole vault
-- **Insert bibliography at cursor** — dump the full formatted reference list into the note
-- **Link citations to literature notes** — rendered `[@citekey]` citations become clickable links when a matching note exists
-- **Convert between formats** — commands to convert pandoc citations (`[@key]`) to linked citations (`[[@key]]`) and back, for the current note or the entire vault
-- **Citekey sync** — when a Zotero citekey changes, update all citations across the vault with one command; optional sync of literature note filenames to match
-- **Document Compiler** — compile a bulleted outline of notes into a single markdown document, then export to Word `.docx` or `.odt` (TOC, per-chapter footnotes, figure captions, Zotero citation fields) via one command with a modal for all options (desktop only)
+- **Literature note creation** — create literature notes for cited works from the reference sidebar, tooltip, or command palette. Uses ZotLit's templates when available or the plugin's own basic template otherwise. Use commands to import missing notes for all citations in the current note or the whole vault.
+- **Insert bibliography at cursor** — dump the full formatted reference list into the note.
+- **Convert between formats** — commands to convert pandoc citations (`[see @key, p. 25]`) to linked citations (`[[@key|see @, p. 25]]`) and back, for the current note or the entire vault.
+- **Citekey sync** — when a Zotero citekey changes, update all citations across the vault with one command; optional sync of literature note filenames to match.
 
 ## Install via BRAT
 
 1. Install [BRAT](https://github.com/TfTHacker/obsidian42-brat)
-2. In BRAT settings, add: `nebedaay/ScholarWeave`
+2. In BRAT settings, add: `nebedaay/ScholarWeave` to the **Beta plugin list**.
 
 ## Companion plugins
 
 ScholarWeave works alongside [ZotLit](https://github.com/PKM-er/obsidian-zotlit): when ZotLit is present, literature note creation uses ZotLit's templates, and `@@` autocomplete draws on ZotLit's full-text SQLite database for richer results. Neither plugin requires the other.
 
-## Document Compiler (outline → markdown → Word)
+## Linked citation syntax
 
-This plugin includes a command that can export a markdown note or outline that links to notes as a publication-ready `.docx` or `.odt` book or article with live Zotero citations. This is designed to allow you to compose longer works using shorter notes. It is designed to be more flexible than other long-form and export plugins to accommodate the more complex requirements of academic documents.
+| Wikilink form           | Rendered as                    | Pandoc equivalent           |
+| ----------------------- | ------------------------------ | --------------------------- |
+| `[[@key]]`              | (Author Year)                  | `[@key]`                    |
+| `[[@key\|@]]`           | (Author Year)                  | `[@key]`                    |
+| `[[@key\|@ -]]`         | Author (Year)                  | `@key` (narrative)          |
+| `[[@key\|-@]]`          | (Year)                         | `[-@key]` (suppress author) |
+| `[[@key\|see @, p. 6]]` | (see Author Year, p. 6)        | `[see @key, p. 6]`          |
+| `[[@key\|-@, p. 6]]`    | (Year, p. 6)                   | `[-@key, p. 6]`             |
+| `[ [[@a]]; [[@b]] ]`    | (Author A Year; Author B Year) | `[@a; @b]` (multi-work)     |
+
+Inside an alias, `@` is a proxy for the link's own citekey. The convert commands translate between linked and pandoc forms losslessly.
+
+See https://pandoc.org/demo/example33/8.20-citation-syntax.html#citation-syntax on pandoc citation formatting.
+
+## Document Compiler and Exporter (outline/markdown → markdown → Word/ODT/PDF)
+
+This plugin includes a command that can export a markdown note or outline that links to a series of notes as a publication-ready `.docx`, `.odt`, or `.pdf` book or article with live Zotero citations. This is designed to allow you to compose longer works using shorter notes, and it can also quickly export a shorter note using the template and options of your choice. It more flexible than other long-form and export plugins to accommodate the more complex requirements of academic documents.
 
 Run **"Compile and export a book, article, or other document (outline or markdown)"** from the command palette (desktop only) with a markdown note open. A dialogue box appears with:
 
+- **Output format**: Markdown, DOCX, ODT, or PDF
+- **Template**: Auto-selects the template corresponding to the YAML property, but this can be changed at export time.
+- **Document type**: book, article, custom. Applies the defaults for the selected type, which can then be customized
+- **Output filename and directory**
 - **TOC checkbox** — on by default for `book*` templates, off for `article*` and `document`
-- **Global footnotes checkbox** — per-chapter numbering (default for `book*`) or continuous numbering across the document (default for `article*`)
-- **Output folder** — vault-relative, absolute, or `~/…`; blank uses the source file's own folder
-- **Two buttons** — "Compile to markdown" or "Compile & export to docx"
+- **Restart footnotes per chapter checkbox** — per-chapter numbering (default for `book*`) or continuous numbering across the document (default for `article*`)
+- **Chapters/top-level sections start on a new page**: On by default for books.
+- **Predefined style mappings** from markdown to the export format (managed in the plugin’s settings dialogue, selectable here)
 
-The input note's `template` property can specify an included or user-defined template. Notes with a `book*` template are processed as books with TOC and chapters. Notes with an `article*` template are treated as shorter works with sections.
+The input note's `template` property can specify an included or user-defined template. Notes with a `book*` template are by default processed as books with TOC and chapters. Notes with an `article*` template are treated as shorter works with sections. But these settings can be overridden in the export dialogue.
 
 ### Outline grammar
 
-The same rules apply at every bullet level:
+When compiling a bullet list of notes, the same rules apply at every bullet level:
 
 | Bullet form | Output |
 |---|---|
@@ -73,15 +93,15 @@ Inline linked `[[@key|alias]]` and pandoc-style `[see @key, p. 25]` citations be
 
 ### Available templates
 
-The template used for `.docx` export is set by the `template:` YAML property:
+The templates used for `.docx` and `.odt` export is set by the `template:` YAML property, or it can be changed in the export settings dialogue during the export process:
 
-| Template name | Description |
-|---|---|
-| `book2` | Book with TOC, chapter headings, per-chapter footnotes |
-| `article2` | Article with continuous footnotes, no TOC |
-| `document` | General-purpose document |
+| Template name | Description                                            |
+| ------------- | ------------------------------------------------------ |
+| `book`        | Book with TOC, chapter headings, per-chapter footnotes |
+| `article`     | Article with continuous footnotes, no TOC              |
+| `document`    | General-purpose document                               |
 
-Set `template: compile-book2` (or `compile-article2`, etc.) in the YAML of an outline note to mark it as an outline — after compilation the prefix is stripped and the compiled file carries `template: book2`.
+Put "compile-" before the template name (`template: compile-book`, `compile-article`, etc.) in an outline note to mark it as an outline — after compilation the prefix is stripped and the compiled file carries `template: book`.
 
 Template lookup order: your configured templates directory → `<vault>/Export Templates/` → the templates bundled with the plugin.
 
@@ -103,8 +123,8 @@ The Document Compiler requires:
 
 - **Pandoc** — for markdown-to-docx conversion; set its path in settings if auto-detection fails
 - **Python 3** with `lxml` and `python-docx` (`pip install lxml python-docx`) — for template merging
-- **Node.js** — for citation conversion; bundled with Obsidian Desktop, so this requirement is automatically met on desktop
-- **Zotero** with Better BibTeX or native citation-key support
+- **Node.js (bundled with Obsidian Desktop)** — for citation conversion, automatically met on desktop
+- **Zotero** with Better BibTeX or native citation-key support if using Zotero for references.
 
 Because the Compile command is only available on desktop (where Node.js is present), no manual Node.js installation is needed. Pandoc and Python 3 must be installed separately.
 
@@ -136,20 +156,6 @@ if (plugin?.api?.version === 1) {
   const citekeys = await plugin.api.getCitekeysForFile(app.workspace.getActiveFile() ?? undefined);
 }
 ```
-
-## Linked citation syntax
-
-| Wikilink form | Rendered as | Pandoc equivalent |
-|---|---|---|
-| `[[@key]]` | (Author Year) | `[@key]` |
-| `[[@key\|@]]` | (Author Year) | `[@key]` |
-| `[[@key\|@ -]]` | Author (Year) | `@key` (narrative) |
-| `[[@key\|-@]]` | (Year) | `[-@key]` (suppress author) |
-| `[[@key\|see @, p. 6]]` | (see Author Year, p. 6) | `[see @key, p. 6]` |
-| `[[@key\|-@, p. 6]]` | (Year, p. 6) | `[-@key, p. 6]` |
-| `[ [[@a]]; [[@b]] ]` | (Author A Year; Author B Year) | `[@a; @b]` (multi-work) |
-
-Inside an alias, `@` is a proxy for the link's own citekey. The convert commands translate between linked and pandoc forms losslessly.
 
 ## Credits
 
