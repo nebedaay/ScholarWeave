@@ -18,6 +18,50 @@ const prod = (process.argv[2] === "production");
 
 // Resolve "src/..." imports as if the project root contains a "src" directory.
 // Mirrors TypeScript "paths": { "src/*": ["./src/*"] } without tsconfig.
+// Reads every file in scripts/ and templates/ at build time and exposes them
+// as a virtual module `bundled:assets`. Text files are stored as UTF-8
+// strings; binary files (docx, odt) are stored as base64 strings. The plugin
+// runtime (src/assetSetup.ts) decodes and writes them to the plugin directory
+// on first load / version change so non-technical users never have to touch
+// GitHub manually.
+const bundleAssetsPlugin = {
+	name: 'bundle-assets',
+	setup(build) {
+		build.onResolve({ filter: /^bundled:assets$/ }, (args) => ({
+			path: args.path,
+			namespace: 'bundled-assets-ns',
+		}));
+
+		build.onLoad({ filter: /.*/, namespace: 'bundled-assets-ns' }, async () => {
+			const binaryExts = new Set(['.docx', '.odt', '.pdf', '.png', '.jpg', '.jpeg']);
+			const skipPrefixes = ['__', '.'];
+			const assets = {};
+
+			const readDir = async (subdir) => {
+				const dir = path.resolve(__dirname, subdir);
+				if (!fs.existsSync(dir)) return;
+				for (const file of fs.readdirSync(dir)) {
+					if (skipPrefixes.some((p) => file.startsWith(p))) continue;
+					const ext = path.extname(file).toLowerCase();
+					const buf = fs.readFileSync(path.join(dir, file));
+					assets[`${subdir}/${file}`] = {
+						content: binaryExts.has(ext) ? buf.toString('base64') : buf.toString('utf-8'),
+						binary: binaryExts.has(ext),
+					};
+				}
+			};
+
+			await readDir('scripts');
+			await readDir('templates');
+
+			return {
+				contents: `export const BUNDLED_ASSETS = ${JSON.stringify(assets)};`,
+				loader: 'js',
+			};
+		});
+	},
+};
+
 const srcAliasPlugin = {
 	name: "src-alias",
 	setup(build) {
@@ -76,7 +120,7 @@ const options = {
 	sourcemap: prod ? false : "inline",
 	treeShaking: true,
 	outfile: "main.js",
-	plugins: [srcAliasPlugin],
+	plugins: [srcAliasPlugin, bundleAssetsPlugin],
 };
 
 if (prod) {

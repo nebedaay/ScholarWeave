@@ -44,6 +44,7 @@ import { ImportModal } from './importModal';
 import { CitekeyRenameModal } from './modals/citekeyRenameModal';
 import { convertActiveNote, convertVault } from './pandocToLinked';
 import { convertNoteToPandoc, convertVaultToPandoc } from './linkedToPandoc';
+import { setupAssets } from './assetSetup';
 
 const bibliographyExtensions = new Set(['bib', 'json', 'yaml', 'yml']);
 
@@ -153,6 +154,10 @@ export default class ReferenceList extends Plugin {
     const { app } = this;
 
     await this.loadSettings();
+
+    // Extract bundled scripts and templates into the plugin directory so
+    // users who installed via BRAT get everything they need automatically.
+    await setupAssets(this);
 
     this.registerView(
       viewType,
