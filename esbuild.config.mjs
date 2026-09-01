@@ -42,8 +42,10 @@ const bundleAssetsPlugin = {
 				if (!fs.existsSync(dir)) return;
 				for (const file of fs.readdirSync(dir)) {
 					if (skipPrefixes.some((p) => file.startsWith(p))) continue;
+					const fullPath = path.join(dir, file);
+					if (!fs.statSync(fullPath).isFile()) continue;
 					const ext = path.extname(file).toLowerCase();
-					const buf = fs.readFileSync(path.join(dir, file));
+					const buf = fs.readFileSync(fullPath);
 					assets[`${subdir}/${file}`] = {
 						content: binaryExts.has(ext) ? buf.toString('base64') : buf.toString('utf-8'),
 						binary: binaryExts.has(ext),
