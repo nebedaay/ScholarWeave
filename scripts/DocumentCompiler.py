@@ -2024,14 +2024,14 @@ def main():
         effective_tpl = args.template or yaml_tpl
     effective_tpl = re.sub(r'\.(docx|odt)$', '', effective_tpl or 'document', flags=re.IGNORECASE)
 
-    # Template-aware defaults:
-    #   book*    -> TOC on, footnotes restart per chapter
-    #   article* -> TOC off, footnotes global (Heading 1 is a section, not a
-    #               chapter)
+    # Template-aware defaults (match the export modal's document-type presets):
+    #   book*         -> TOC on,  footnote + figure numbering restart per chapter
+    #   anything else -> TOC off, global footnote + figure numbering
+    # (Heading 1 is a chapter only in a book; elsewhere it is a section.)
     is_book = effective_tpl.startswith('book')
     is_article = effective_tpl.startswith('article')
     use_toc = is_book
-    use_global = is_article
+    use_global = not is_book
     if args.toc:
         use_toc = True
     if args.no_toc:

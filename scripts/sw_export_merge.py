@@ -46,7 +46,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sw_merge_helpers import (
     tag, get_style, set_style, collect_ids, mint_id, ensure_para_id,
     split_paragraphs, find_bibliography_range, strip_bibliography, ZOTERO_BIBL_INSTR,
-    resize_images, STYLE_REMAP, resolve_cover,
+    resize_images, STYLE_REMAP, resolve_cover, process_figures,
     title_case as _title_case, strip_markdown as _strip_markdown,
     is_main_start, is_toc_heading, is_tof_heading,
 )
@@ -117,8 +117,16 @@ def extract_template_layout(template_path):
     """
     with zipfile.ZipFile(template_path) as z:
         doc = etree.fromstring(z.read('word/document.xml'))
+        try:
+            _styles_xml = z.read('word/styles.xml').decode('utf-8', 'replace')
+        except KeyError:
+            _styles_xml = ''
     body = doc.find(tag('body'))
     children = list(body)
+
+    # Does the template define the caption-Alt-text style? Only book.docx does;
+    # document/article don't, so we skip the "Alt-text." paragraph for those.
+    has_alttext_style = 'w:styleId="caption-Alt-text"' in _styles_xml
 
     # 1. Title block = children before the first sectPr-carrying paragraph.
     first_sect_idx = None
@@ -159,7 +167,8 @@ def extract_template_layout(template_path):
             toc_heading = copy.deepcopy(c)
         elif toc_heading is None and style == 'Heading1' and is_toc_heading(text):
             toc_heading = copy.deepcopy(c)
-        elif tof_heading is None and style == 'Heading1' and is_tof_heading(text):
+        elif tof_heading is None and (style == 'TOFHeading'
+                or (style == 'Heading1' and is_tof_heading(text))):
             tof_heading = copy.deepcopy(c)
         elif bibl_heading is None and style == 'Heading1' and \
                 text.strip().lower() == 'bibliography':
@@ -255,6 +264,7 @@ def extract_template_layout(template_path):
         'kinds': kinds,
         'final_sect': final_sect,
         'chapter_numid': chapter_numid,
+        'has_alttext_style': has_alttext_style,
     }
 
 def make_field_paragraph(pstyle_val, instr_text, placeholder='Right-click to '
@@ -487,30 +497,32 @@ def _make_field_run(para, instr_text, cached=''):
     fc = etree.SubElement(r, tag('fldChar'))
     fc.set(tag('fldCharType'), 'end')
 
-def _strip_figure_prefix(desc):
-    """Remove a leading 'Figure', 'Figure 2', 'Figure 2.4', 'Figure.' from a
-    caption description (disregard any figure number in the original)."""
-    return re.sub(r'^\s*figure\s*\d+(?:[.:-]\d+)*\s*[.:-]?\s*',
-                  '', desc, flags=re.IGNORECASE).strip()
+def _make_figure_caption(description, number, chapter_scoped):
+    """Build a Caption-style paragraph 'Figure {number}. {description}'.
 
-def _make_figure_caption(description):
-    """Build a Caption-style paragraph:
-    'Figure {STYLEREF 1 \s}.{SEQ Figure \* ARABIC \s 1}. {description}'
-    Text runs that lead/trail whitespace need xml:space="preserve" or Word
-    trims them ('Figure 0.1' would render 'Figure0.1')."""
+    The number (computed by process_figures) is written as the field's CACHED
+    value so the exported file shows the right number immediately — previously
+    every caption cached '0.1'. The SEQ / STYLEREF field is kept so Ctrl+A→F9
+    still renumbers in Word.
+      chapter_scoped=True  (book): 'Figure {STYLEREF 1 \\s}.{SEQ Figure \\s 1}'
+      chapter_scoped=False       : 'Figure {SEQ Figure \\* ARABIC}'
+    Runs with leading/trailing spaces need xml:space="preserve" or Word trims
+    them ('Figure 0.1' would render 'Figure0.1')."""
     p = etree.Element(tag('p'))
     ppr = etree.SubElement(p, tag('pPr'))
-    ps = etree.SubElement(ppr, tag('pStyle'))
-    ps.set(tag('val'), 'Caption')
+    etree.SubElement(ppr, tag('pStyle')).set(tag('val'), 'Caption')
     r = etree.SubElement(p, tag('r'))
     t = etree.SubElement(r, tag('t'))
     t.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
     t.text = 'Figure '
-    _make_field_run(p, 'STYLEREF 1 \\s', '0')
-    r = etree.SubElement(p, tag('r'))
-    t = etree.SubElement(r, tag('t'))
-    t.text = '.'
-    _make_field_run(p, 'SEQ Figure \\* ARABIC \\s 1', '1')
+    if chapter_scoped:
+        chap, _, fnum = number.partition('.')
+        _make_field_run(p, 'STYLEREF 1 \\s', chap)
+        r = etree.SubElement(p, tag('r'))
+        etree.SubElement(r, tag('t')).text = '.'
+        _make_field_run(p, 'SEQ Figure \\* ARABIC \\s 1', fnum or '1')
+    else:
+        _make_field_run(p, 'SEQ Figure \\* ARABIC', number)
     r = etree.SubElement(p, tag('r'))
     t = etree.SubElement(r, tag('t'))
     t.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
@@ -518,80 +530,54 @@ def _make_figure_caption(description):
     return p
 
 def _make_alttext_para(alt_text):
-    """Build a 'Caption - Alt-text' style paragraph: 'Alt-text.' + text, or a
-    blank 'Alt-text.' label when there is no alt text."""
+    """Build a 'caption-Alt-text' style paragraph: 'Alt-text.' + text, or a
+    blank 'Alt-text.' label when there is no alt text. Emitted only when the
+    template defines the caption-Alt-text style (see transform_figures)."""
     p = etree.Element(tag('p'))
     ppr = etree.SubElement(p, tag('pPr'))
-    ps = etree.SubElement(ppr, tag('pStyle'))
-    ps.set(tag('val'), 'caption-Alt-text')
+    etree.SubElement(ppr, tag('pStyle')).set(tag('val'), 'caption-Alt-text')
     r = etree.SubElement(p, tag('r'))
     t = etree.SubElement(r, tag('t'))
     t.text = 'Alt-text.' + (' ' + alt_text if alt_text else '')
     return p
 
-_ALT_TEXT_RE = re.compile(r'^\s*alt[- ]?text\s*[:.-]?\s*(.*)$', re.IGNORECASE)
+def transform_figures(sections, chapter_scoped, has_alttext_style):
+    """Convert pandoc figure blocks in `sections` to the template's caption
+    layout via the shared sw_merge_helpers.process_figures (the walk logic is
+    identical for DOCX and ODT). Also restyles pandoc TableCaption paragraphs
+    to plain Caption (not numbered, not in the ToF).
 
-def transform_figures(sections):
-    """Walk content sections; convert pandoc figure blocks into the template's
-    caption layout:
-      - CaptionedFigure (image) → BodyText (drawing kept)
-      - ImageCaption (text)     → Caption with STYLEREF/SEQ fields
-      - following 'Alt-text: …' BodyText → 'Caption - Alt-text' (normalized)
-        or a blank 'Alt-text.' label if none
-      - TableCaption            → plain Caption (no fields, not in ToF)
-    Returns True if any figures were found (→ keep the template's ToF section).
+      chapter_scoped    — number captions 'C.N' (book) vs 'N' (sequential)
+      has_alttext_style — template defines caption-Alt-text; emit alt-text paras
+    Returns True if any figures were found (→ keep the ToF section).
     """
-    has_figures = False
-    for kind, blocks in sections:
-        out = []
-        i = 0
-        while i < len(blocks):
-            b = blocks[i]
-            if b.tag != tag('p'):
-                out.append(b)
-                i += 1
-                continue
-            style = get_style(b)
-            if style == 'CaptionedFigure':
-                set_style(b, 'BodyText')
-                out.append(b)
-                has_figures = True
-                i += 1
-            elif style == 'ImageCaption':
-                # Description: use a following "Figure N. …" BodyText if
-                # present (the vault convention: ![[img]] then a separate
-                # "Figure 1. …" caption line); otherwise the ImageCaption
-                # text itself. Any figure number in the description is
-                # disregarded (Word supplies 0.1/1.1/… via the fields).
-                desc = _strip_figure_prefix(_para_text(b))
-                i += 1
-                nxt = blocks[i] if i < len(blocks) else None
-                if nxt is not None and nxt.tag == tag('p') \
-                        and get_style(nxt) in ('BodyText', 'FirstParagraph') \
-                        and re.match(r'^\s*figure\b', _para_text(nxt), re.IGNORECASE):
-                    desc = _strip_figure_prefix(_para_text(nxt))
-                    i += 1
-                out.append(_make_figure_caption(desc))
-                has_figures = True
-                # Consume a following 'Alt-text: …' BodyText paragraph.
-                alt_text = None
-                if i < len(blocks) and blocks[i].tag == tag('p'):
-                    nxt_style = get_style(blocks[i])
-                    if nxt_style in ('BodyText', 'FirstParagraph'):
-                        m = _ALT_TEXT_RE.match(_para_text(blocks[i]))
-                        if m:
-                            alt_text = m.group(1).strip()
-                            i += 1
-                out.append(_make_alttext_para(alt_text))
-            elif style == 'TableCaption':
+    for _kind, blocks in sections:
+        for b in blocks:
+            if b.tag == tag('p') and get_style(b) == 'TableCaption':
                 set_style(b, 'Caption')
-                out.append(b)
-                i += 1
-            else:
-                out.append(b)
-                i += 1
-        blocks[:] = out
-    return has_figures
+
+    def _make_caption(desc, number, _ordinal):
+        return _make_figure_caption(desc, number, chapter_scoped)
+
+    def _make_alttext(alt):
+        return _make_alttext_para(alt) if has_alttext_style else None
+
+    state = None
+    any_figs = False
+    for _kind, blocks in sections:
+        new_blocks, hf, state = process_figures(
+            blocks,
+            get_style=get_style, get_text=_para_text,
+            set_body_style=lambda el: set_style(el, 'BodyText'),
+            is_heading1=lambda el: el.tag == tag('p') and get_style(el) == 'Heading1',
+            image_styles={'CaptionedFigure'},
+            caption_styles={'ImageCaption'},
+            body_styles={'BodyText', 'FirstParagraph'},
+            make_caption=_make_caption, make_alttext=_make_alttext,
+            chapter_scoped=chapter_scoped, start_state=state)
+        blocks[:] = new_blocks
+        any_figs = any_figs or hf
+    return any_figs
 
 
 # ── build output body ────────────────────────────────────────────────────────
@@ -649,8 +635,11 @@ def build_body(template_body, layout, sections, used, has_figures, toc=False,
     # Flag for deferred TOC injection in the content loop (simple templates).
     toc_deferred = toc and bool(layout['toc_instr']) and not layout['title_block']
 
-    # 3. ToF section — only when figures are present.
-    if has_figures and layout['tof_heading'] is not None and layout['tof_instr']:
+    # 3. ToF section — only when figures are present. Structured (book) templates
+    #    only; for simple templates the ToF is injected in the deferred path
+    #    alongside the TOC (see below).
+    if has_figures and layout['title_block'] \
+            and layout['tof_heading'] is not None and layout['tof_instr']:
         template_body.append(layout['tof_heading'])
         template_body.append(make_field_paragraph('TableofFigures', layout['tof_instr']))
         _brk = make_section_break(kinds['tof'])
@@ -884,7 +873,10 @@ def merge(template_path, input_path, output_path, title=None, author=None,
     sections, _has_bibliography = _strip_bibliography_from_sections(sections)
 
     # Figure captions → template caption layout; decides ToF presence.
-    has_figures = transform_figures(sections)
+    # Chapter-scoped numbering (Figure C.N) tracks the footnote-restart setting
+    # (both are the "per chapter" behaviour); otherwise captions are 'Figure N'.
+    has_figures = transform_figures(
+        sections, restart_footnotes, layout['has_alttext_style'])
 
     # Chapter numbering: strip literal "Chapter N:" and let Word number.
     apply_chapter_numbering(sections, layout['chapter_numid'])

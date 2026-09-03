@@ -281,6 +281,137 @@ def find_bibliography_range(elements, heading_text_fn, is_bibl_entry_fn):
             return i, i + 1, j
     return None, None, None
 
+# ── figure captions (shared for DOCX and ODT) ────────────────────────────────
+
+#: A caption line begins with the word "Figure" (the vault convention is a
+#: paragraph "Figure. <desc>" or "Figure N. <desc>" right after an image embed).
+_FIGURE_CAPTION_RE = re.compile(r'^\s*figure\b', re.IGNORECASE)
+
+#: Leading "Figure" / "Figure." / "Figure 3." / "Figure 2.4:" token to strip so
+#: the merge can supply its own (computed) number. Requires the word "Figure"
+#: followed by an optional number and/or a separator — plain "Figures of speech"
+#: is left alone (\b stops "figure" matching inside "figures").
+_FIGURE_PREFIX_RE = re.compile(
+    r'^\s*figure\b[ \t]*\d*(?:[.:]\d+)*[ \t]*[.:]?[ \t]*', re.IGNORECASE)
+
+#: An "Alt-text: <text>" line following a caption.
+_ALT_TEXT_RE = re.compile(r'^\s*alt[- ]?text\s*[:.\-]?\s*(.*)$',
+                          re.IGNORECASE | re.DOTALL)
+
+
+def looks_like_caption(text):
+    """True when a paragraph's text begins with the word 'Figure'."""
+    return bool(_FIGURE_CAPTION_RE.match(text or ''))
+
+
+def strip_figure_prefix(text):
+    """Strip a leading 'Figure' / 'Figure.' / 'Figure 3.' / 'Figure 2.4:' token
+    from a caption line, returning just the description. Any number in the
+    original is discarded — the merge computes the real figure number."""
+    return _FIGURE_PREFIX_RE.sub('', text or '', count=1).strip()
+
+
+def parse_chapter_number(text):
+    """Return the leading chapter number of a Heading 1's text ('Chapter 3: X'
+    or '3. X' → 3), or 0 when the heading carries no number (Preface,
+    Introduction, Conclusion, …). Used to compute chapter-scoped figure
+    numbers identically for DOCX and ODT."""
+    m = re.match(r'^\s*(?:chapter\s+)?(\d+)\b', text or '', re.IGNORECASE)
+    return int(m.group(1)) if m else 0
+
+
+def process_figures(elements, *, get_style, get_text, set_body_style,
+                    is_heading1, image_styles, caption_styles, body_styles,
+                    make_caption, make_alttext, chapter_scoped, start_state=None):
+    """Walk a flat list of body paragraphs and turn pandoc's figure blocks into
+    the export template's caption layout. Shared by DOCX and ODT — the walk
+    (finding the vault 'Figure. …' caption line after an image, discarding
+    pandoc's auto filename caption, stripping any existing number, computing the
+    real number, consuming a trailing 'Alt-text: …' line, chapter tracking,
+    has_figures detection) lives here; the two make_* callbacks build the
+    format-specific caption / alt-text elements.
+
+    start_state : opaque tuple from a previous call's return, so a caller that
+                  processes the body in several chunks (the DOCX merge works on
+                  a list of sections) keeps continuous figure numbering across
+                  them. Returns (new_elements, has_figures, end_state).
+
+    Parameters
+    ----------
+    elements        : list — body paragraphs (mutated copies are fine)
+    get_style(el)   : -> str  paragraph style name ('' if none)
+    get_text(el)    : -> str  concatenated text, stripped
+    set_body_style(el)        : restyle an image paragraph to the template body style
+    is_heading1(el) : -> bool
+    image_styles    : set — pandoc's image-paragraph styles
+    caption_styles  : set — pandoc's auto caption styles (filename; discarded)
+    body_styles     : set — body-text styles (for the caption + alt-text lines)
+    make_caption(desc, number_str, ordinal) : -> element  (ordinal is 1-based)
+    make_alttext(alt_text_or_None)          : -> element or None; pass None to
+                        skip alt-text paragraphs entirely (template lacks the style)
+    chapter_scoped  : bool — True → number 'C.N' (book); False → 'N' (sequential)
+
+    Returns (new_elements, has_figures, end_state).
+    """
+    out = []
+    i = 0
+    n = len(elements)
+    chapter, fig_in_chapter, fig_global = start_state or (0, 0, 0)
+    has_figures = False
+
+    while i < n:
+        el = elements[i]
+        if is_heading1(el):
+            chapter = parse_chapter_number(get_text(el))
+            fig_in_chapter = 0
+            out.append(el)
+            i += 1
+            continue
+
+        if get_style(el) in image_styles:
+            set_body_style(el)
+            out.append(el)
+            has_figures = True
+            i += 1
+            # Discard pandoc's auto caption paragraph (holds the image filename).
+            fallback_desc = None
+            if i < n and get_style(elements[i]) in caption_styles:
+                fallback_desc = strip_figure_prefix(get_text(elements[i]))
+                i += 1
+            # The real caption is the vault's "Figure. …" line, if present.
+            desc = None
+            if i < n and get_style(elements[i]) in body_styles \
+                    and looks_like_caption(get_text(elements[i])):
+                desc = strip_figure_prefix(get_text(elements[i]))
+                i += 1
+            elif fallback_desc:
+                desc = fallback_desc
+            if desc is None:
+                continue  # image with no caption — leave it uncaptioned
+
+            fig_in_chapter += 1
+            fig_global += 1
+            number = ('%d.%d' % (chapter, fig_in_chapter) if chapter_scoped
+                      else str(fig_global))
+            out.append(make_caption(desc, number, fig_global))
+
+            alt = None
+            if i < n and get_style(elements[i]) in body_styles:
+                m = _ALT_TEXT_RE.match(get_text(elements[i]))
+                if m:
+                    alt = m.group(1).strip() or None
+                    i += 1
+            if make_alttext is not None:
+                node = make_alttext(alt)
+                if node is not None:
+                    out.append(node)
+            continue
+
+        out.append(el)
+        i += 1
+
+    return out, has_figures, (chapter, fig_in_chapter, fig_global)
+
 # ── image sizing (shared for DOCX and ODT) ────────────────────────────────────
 
 def resize_images(doc_root, format_name, template_zip_data=None):
