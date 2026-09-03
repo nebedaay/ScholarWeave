@@ -75700,16 +75700,17 @@ def resolve_embed_links(content: str) -> str:
     """
     img_ext = r'(?:png|jpe?g|gif|bmp|tiff?|webp|svg)'
     def repl(m):
-        target = m.group(1).strip()
-        if not re.search(rf'\\.{img_ext}$', target, re.IGNORECASE):
-            return m.group(0)
         # Obsidian pipe syntax: ![[img.png|alt text]] (alt) and
         # ![[img.png|454]] / ![[img.png|454x300]] (display size in px).
-        # A pipe segment that is purely numeric (optionally NxN) is a size;
-        # anything else is alt text. Without this, "454" leaks into the alt
-        # text / caption and pandoc renders no image.
-        parts = [p.strip() for p in target.split('|')]
+        # Split on '|' FIRST \u2014 the filename/extension is only in the first
+        # segment; a purely numeric (optionally NxN) segment is a size, any
+        # other segment is alt text. Without this the whole "name|454" string
+        # fails the extension check, "454" leaks into the caption, and pandoc
+        # renders no image.
+        parts = [p.strip() for p in m.group(1).split('|')]
         target = parts[0].strip()
+        if not re.search(rf'\\.{img_ext}$', target, re.IGNORECASE):
+            return m.group(0)
         alt_bits, width, height = [], None, None
         for seg in parts[1:]:
             dm = re.fullmatch(r'(\\d+)(?:x(\\d+))?', seg)
@@ -75728,7 +75729,9 @@ def resolve_embed_links(content: str) -> str:
             dims = ['width=%spx' % width]
             if height:
                 dims.append('height=%spx' % height)
-            attrs = ' {%s}' % ' '.join(dims)
+            # No space before '{' \u2014 pandoc only reads it as an image attribute
+            # when it is directly adjacent to the ')'.
+            attrs = '{%s}' % ' '.join(dims)
         return f'![{alt or target}]({rel}){attrs}'
     return re.sub(r'!\\[\\[([^\\]]+)\\]\\]', repl, content)
 
