@@ -12,6 +12,7 @@ ZOTERO_BIBL_INSTR = (
     'ADDIN ZOTERO_BIBL {"uncited":[],"omittedItems":[],"custom":[]} CSL_BIBLIOGRAPHY'
 )
 
+import datetime
 import random
 import re
 from lxml import etree
@@ -37,6 +38,87 @@ STYLE_REMAP = {
         'Block_20_Text':                 'Quotations',
     },
 }
+
+
+# ── cover-value resolution + text helpers (shared) ──────────────────────────
+
+# Words that stay lowercase in title-case: articles, coordinating conjunctions,
+# short prepositions, and the infinitive marker 'to'.
+_TITLE_CASE_LOWER = frozenset({
+    'a', 'an', 'the',
+    'and', 'but', 'or', 'nor', 'for', 'yet', 'so',
+    'as', 'at', 'by', 'in', 'of', 'on', 'to', 'up',
+    'via', 'per',
+})
+
+
+def title_case(key):
+    """Convert a YAML key (e.g. 'sw-note-to-readers') to display title case.
+    Strips a leading 'sw-' prefix, replaces hyphens with spaces, and capitalises
+    each word except small prepositions/conjunctions/articles (and 'to'), unless
+    that word is first in the phrase.
+
+        'note'               → 'Note'
+        'sw-alert'           → 'Alert'
+        'sw-note-to-readers' → 'Note to Readers'
+
+    Used by both merge scripts for note/sw-* section headings.
+    """
+    key = re.sub(r'^sw-', '', key)
+    words = key.split('-')
+    result = []
+    for idx, word in enumerate(words):
+        if idx == 0 or word.lower() not in _TITLE_CASE_LOWER:
+            result.append(word.capitalize())
+        else:
+            result.append(word.lower())
+    return ' '.join(result)
+
+
+def strip_markdown(text):
+    """Remove markdown delimiters (*italic*, **bold**, `code`) from a string,
+    keeping the content. Used for plain-text-only targets (docProps, meta.xml)
+    by both merge scripts."""
+    if not text:
+        return text or ''
+    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
+    text = re.sub(r'__([^_]+)__', r'\1', text)
+    text = re.sub(r'\*([^*]+)\*', r'\1', text)
+    text = re.sub(r'_([^_]+)_', r'\1', text)
+    text = re.sub(r'`([^`]+)`', r'\1', text)
+    return text
+
+
+def resolve_cover(title, subtitle, author, date_val, basename):
+    """Resolve cover values per spec, identically for DOCX and ODT:
+      Title    = whole 'title' property when a 'subtitle' property is given
+                 (e.g. "Title: A Study of Important Things" stays whole, so the
+                 document can have subtitle "A manuscript submitted to
+                 University Press"); otherwise before ':' → whole title →
+                 basename before '-'/'–' → full basename
+      Subtitle = 'subtitle' property → (else) after ':' of title → none
+      Author   = 'author' property → "Joseph Hill"
+      Date     = current date "Month DD, YYYY"
+    """
+    if title:
+        if subtitle is not None:
+            # Subtitle property given: Title stays the WHOLE title property.
+            title = title.strip()
+        elif ':' in title:
+            main, _, sub = title.partition(':')
+            title = main.strip()
+            subtitle = sub.strip() or None
+        else:
+            title = title.strip()
+    if not title:
+        base = basename or ''
+        m = re.split(r'\s*[-–]\s*', base, maxsplit=1)
+        title = (m[0].strip() if m and m[0].strip() else base)
+    author = author or 'Joseph Hill'
+    if not date_val:
+        today = datetime.date.today()
+        date_val = f"{today.strftime('%B')} {today.day}, {today.year}"
+    return title, subtitle, author, date_val
 
 
 # ── format-agnostic helpers ───────────────────────────────────────────────────

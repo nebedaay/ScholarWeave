@@ -33,7 +33,6 @@ Standalone CLI:
 
 import argparse
 import copy
-import datetime
 import json
 import re
 import sys
@@ -43,7 +42,8 @@ from lxml import etree
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sw_merge_helpers import (split_paragraphs, find_bibliography_range,
-    strip_bibliography, ZOTERO_BIBL_INSTR, resize_images, STYLE_REMAP)
+    strip_bibliography, ZOTERO_BIBL_INSTR, resize_images, STYLE_REMAP,
+    resolve_cover, title_case as _title_case, strip_markdown as _strip_markdown)
 
 # ── ODF namespace constants ───────────────────────────────────────────────────
 
@@ -87,37 +87,9 @@ _PANDOC_FRONTMATTER_STYLES = frozenset({
 # sw_merge_helpers.STYLE_REMAP so DOCX and ODT stay in sync.
 _STYLE_REMAPS = STYLE_REMAP['odt']
 
-# Words that stay lowercase in title-case (mirrors sw_export_merge.py).
-_TITLE_CASE_LOWER = frozenset({
-    'a', 'an', 'the', 'and', 'but', 'or', 'nor', 'for', 'yet', 'so',
-    'as', 'at', 'by', 'in', 'of', 'on', 'to', 'up', 'via', 'per',
-})
-
 # ── helpers ───────────────────────────────────────────────────────────────────
-
-def _title_case(key):
-    """Convert a YAML key ('sw-note-to-readers') to display title case.
-    Identical logic to sw_export_merge._title_case."""
-    key = re.sub(r'^sw-', '', key)
-    words = key.split('-')
-    result = []
-    for idx, word in enumerate(words):
-        if idx == 0 or word.lower() not in _TITLE_CASE_LOWER:
-            result.append(word.capitalize())
-        else:
-            result.append(word.lower())
-    return ' '.join(result)
-
-def _strip_markdown(text):
-    """Remove markdown delimiters (*italic*, **bold**, `code`) from plain text."""
-    if not text:
-        return text or ''
-    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
-    text = re.sub(r'__([^_]+)__', r'\1', text)
-    text = re.sub(r'\*([^*]+)\*', r'\1', text)
-    text = re.sub(r'_([^_]+)_', r'\1', text)
-    text = re.sub(r'`([^`]+)`', r'\1', text)
-    return text
+# _title_case, _strip_markdown, resolve_cover come from sw_merge_helpers
+# (shared verbatim with the DOCX merge).
 
 def _get_sn(el):
     """Get the text:style-name attribute of an ODF element."""
@@ -178,29 +150,6 @@ def _set_markdown_text(el, markdown):
             el.text = (el.text or '') + suffix
         else:
             last.tail = (last.tail or '') + suffix
-
-# ── cover-value resolution ────────────────────────────────────────────────────
-
-def resolve_cover(title, subtitle, author, date_val, basename):
-    """Resolve cover values per spec (mirrors sw_export_merge.resolve_cover)."""
-    if title:
-        if subtitle is not None:
-            title = title.strip()
-        elif ':' in title:
-            main, _, sub = title.partition(':')
-            title = main.strip()
-            subtitle = sub.strip() or None
-        else:
-            title = title.strip()
-    if not title:
-        base = basename or ''
-        m = re.split(r'\s*[-–]\s*', base, maxsplit=1)
-        title = (m[0].strip() if m and m[0].strip() else base)
-    author = author or 'Joseph Hill'
-    if not date_val:
-        today = datetime.date.today()
-        date_val = f"{today.strftime('%B')} {today.day}, {today.year}"
-    return title, subtitle, author, date_val
 
 # ── template layout extraction ────────────────────────────────────────────────
 
