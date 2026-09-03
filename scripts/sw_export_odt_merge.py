@@ -44,7 +44,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sw_merge_helpers import (split_paragraphs, find_bibliography_range,
     strip_bibliography, ZOTERO_BIBL_INSTR, resize_images, STYLE_REMAP,
     resolve_cover, title_case as _title_case, strip_markdown as _strip_markdown,
-    is_toc_heading)
+    is_toc_heading, process_figures)
 
 # ── ODF namespace constants ───────────────────────────────────────────────────
 
@@ -76,6 +76,10 @@ _DATE_STYLE       = 'Date'
 _AKH_STYLE        = 'Abstract_20__26__20_keywords_20_heading'
 _BODY_STYLE       = 'Text_20_body'
 _TOCHEADING_STYLE = 'TOCHeading'
+_FIGCAPTION_STYLE = 'FigureCaption'                       # pandoc's + our caption
+_FIGIMAGE_STYLE   = 'FigureWithCaption'                   # pandoc's image paragraph
+_ALTTEXT_STYLE    = 'caption_20_-_20_Alt-text'            # "caption - Alt-text" (book.odt only)
+_TOF_HEADING_STYLE = 'Figure_20_Index_20_Heading'         # "Figure Index Heading"
 
 # Styles emitted by pandoc for YAML frontmatter (all dropped from pandoc body
 # since they duplicate what the template's title block already provides).
@@ -152,10 +156,52 @@ def _set_markdown_text(el, markdown):
         else:
             last.tail = (last.tail or '') + suffix
 
+# ── figure caption builders (used by the shared process_figures walk) ────────
+
+def _make_figure_caption(desc, number, ordinal, chapter_scoped, style=_FIGCAPTION_STYLE):
+    """Build a figure caption paragraph: 'Figure <seq>. <desc>'. The <text:sequence>
+    named "Figure" is what <text:illustration-index> collects for the ToF; its
+    cached text is the number computed by process_figures (LibreOffice
+    recalculates on Tools ▸ Update ▸ Fields). `style` is the template's caption
+    style (FigureCaption when defined, else Caption)."""
+    p = etree.Element(T('p'))
+    p.set(T('style-name'), style)
+    p.text = 'Figure '
+    seq = etree.SubElement(p, T('sequence'))
+    seq.set(T('ref-name'), 'refFigure%d' % (ordinal - 1))
+    seq.set(T('name'), 'Figure')
+    seq.set(T('formula'), 'ooow:Figure+1')
+    seq.set(S('num-format'), '1')
+    if chapter_scoped:
+        seq.set(T('display-outline-level'), '1')
+        seq.set(T('separation-character'), '.')
+    seq.text = number
+    seq.tail = '. ' + desc
+    return p
+
+
+def _make_alttext_para(alt_text):
+    """Build a 'caption - Alt-text' paragraph. Emitted only when the template
+    defines the style (book.odt), matching the DOCX merge."""
+    p = etree.Element(T('p'))
+    p.set(T('style-name'), _ALTTEXT_STYLE)
+    p.text = 'Alt-text.' + ((' ' + alt_text) if alt_text else '')
+    return p
+
+
 # ── template layout extraction ────────────────────────────────────────────────
 
 def _is_toc_element(el):
     return el.tag == T('table-of-content')
+
+def _is_illustration_index(el):
+    return el.tag == T('illustration-index')
+
+def _looks_like_tof_heading(el):
+    """True if the element looks like a Table of Figures heading paragraph."""
+    if _get_sn(el) == _TOF_HEADING_STYLE:
+        return True
+    return _elem_text(el).strip().lower() in ('table of figures', 'figure index')
 
 def _looks_like_toc_heading(el):
     """True if the element looks like a TOC heading paragraph."""
@@ -229,10 +275,47 @@ def extract_template_layout(template_path):
     else:
         toc_element = None
 
+    # Table of Figures: <text:illustration-index> + its heading paragraph.
+    tof_element = tof_heading = None
+    tof_idx = next((i for i, el in enumerate(children)
+                    if _is_illustration_index(el)), None)
+    if tof_idx is None:
+        for i, el in enumerate(children):
+            if el.find('.//' + T('illustration-index')) is not None:
+                tof_idx = i
+                break
+    if tof_idx is not None:
+        raw = children[tof_idx]
+        tof_element = copy.deepcopy(raw if _is_illustration_index(raw)
+                                   else raw.find('.//' + T('illustration-index')))
+        # Drop the template's stale cached entry list; LibreOffice rebuilds it
+        # (Tools ▸ Update ▸ Fields), and an empty body is cleaner than a wrong one.
+        _body = tof_element.find(T('index-body'))
+        if _body is not None:
+            for _c in list(_body):
+                _body.remove(_c)
+        for i in range(tof_idx - 1, -1, -1):
+            el = children[i]
+            if el.tag in (T('h'), T('p')):
+                if _looks_like_tof_heading(el):
+                    tof_heading = copy.deepcopy(el)
+                break
+
+    has_alttext_style = ('style:name="%s"' % _ALTTEXT_STYLE).encode() in styles_bytes
+    # FigureCaption when the template defines it (document.odt), else Caption
+    # (book.odt) — both exist in the bundled templates.
+    caption_style = (_FIGCAPTION_STYLE
+                     if ('style:name="%s"' % _FIGCAPTION_STYLE).encode() in styles_bytes
+                     else 'Caption')
+
     return {
         'title_block': title_block,
         'toc_heading': toc_heading,
         'toc_element': toc_element,
+        'tof_heading': tof_heading,
+        'tof_element': tof_element,
+        'has_alttext_style': has_alttext_style,
+        'caption_style': caption_style,
         'content_bytes': content_bytes,
         'styles_bytes': styles_bytes,
     }
@@ -539,6 +622,22 @@ def _ensure_toc_heading_pb_style(auto_styles):
     pp = etree.SubElement(style_el, S('paragraph-properties'))
     pp.set(F('break-before'), 'page')
 
+_TOF_H_PB_STYLE = 'SW_FigureIndexHeading_Pagebreak'
+
+def _ensure_tof_heading_pb_style(auto_styles):
+    """Inject SW_FigureIndexHeading_Pagebreak: inherits the ToF heading style +
+    fo:break-before=page, so the Table of Figures heading starts a new page
+    without a separate spacer paragraph."""
+    for child in auto_styles:
+        if child.get(S('name')) == _TOF_H_PB_STYLE:
+            return
+    style_el = etree.SubElement(auto_styles, S('style'))
+    style_el.set(S('name'),              _TOF_H_PB_STYLE)
+    style_el.set(S('family'),            'paragraph')
+    style_el.set(S('parent-style-name'), _TOF_HEADING_STYLE)
+    pp = etree.SubElement(style_el, S('paragraph-properties'))
+    pp.set(F('break-before'), 'page')
+
 def make_toc_pagebreak_para(tmpl_root):
     """Return a blank page-break paragraph using the SW_TOC_Pagebreak auto-style.
     Used only when there is no TOC heading paragraph to attach the break to."""
@@ -741,6 +840,25 @@ def merge_odt(template_path, input_path, output_path,
     # ── Classify pandoc body ───────────────────────────────────────────────
     body_elements = classify_pandoc_body(pdc_text)
 
+    # ── Figure captions (shared walk with the DOCX merge) ──────────────────
+    # Chapter-scoped numbering (Figure C.N) follows the footnote-restart
+    # setting; otherwise captions are 'Figure N'.
+    def _odt_caption(desc, number, ordinal):
+        return _make_figure_caption(desc, number, ordinal, restart_footnotes,
+                                    style=layout['caption_style'])
+    _odt_alttext = (_make_alttext_para if layout['has_alttext_style'] else None)
+    body_elements, has_figures, _ = process_figures(
+        body_elements,
+        get_style=_get_sn, get_text=_elem_text,
+        set_body_style=lambda el: el.set(T('style-name'), _BODY_STYLE),
+        is_heading1=lambda el: el.tag == T('h')
+                    and el.get(T('outline-level'), '') == '1',
+        image_styles={_FIGIMAGE_STYLE},
+        caption_styles={_FIGCAPTION_STYLE},
+        body_styles={_BODY_STYLE, 'First_20_paragraph'},
+        make_caption=_odt_caption, make_alttext=_odt_alttext,
+        chapter_scoped=restart_footnotes)
+
     # ── Merge pandoc auto-styles into template (before moving elements) ────
     name_map = _merge_auto_styles(tmpl_root, pdc_root, styles_root)
     _rewrite_style_refs(body_elements, name_map)
@@ -792,6 +910,28 @@ def merge_odt(template_path, input_path, output_path,
         h.set(T('outline-level'), '1')
         h.text = 'Table of Contents'
         tmpl_text.append(h)
+
+    # 2b. Table of Figures — heading + <text:illustration-index>, only when the
+    #     document has figures and the template provides the index element.
+    #     Mirrors the DOCX ToF; LibreOffice regenerates the entry list on
+    #     Tools ▸ Update ▸ Fields.
+    if has_figures and layout['tof_element'] is not None:
+        if new_page_headings:
+            auto = tmpl_root.find('.//' + O('automatic-styles'))
+            if auto is not None:
+                _ensure_tof_heading_pb_style(auto)
+        if layout['tof_heading'] is not None:
+            tof_h = copy.deepcopy(layout['tof_heading'])
+            if new_page_headings:
+                tof_h.set(T('style-name'), _TOF_H_PB_STYLE)
+            tmpl_text.append(tof_h)
+        else:
+            th = etree.Element(T('p'))
+            th.set(T('style-name'),
+                   _TOF_H_PB_STYLE if new_page_headings else _TOF_HEADING_STYLE)
+            th.text = 'Table of Figures'
+            tmpl_text.append(th)
+        tmpl_text.append(copy.deepcopy(layout['tof_element']))
 
     # 3. Strip the bibliography section (pandoc plain-text entries) so a fresh
     #    Zotero section can be appended at the end.  Mirrors the DOCX approach:
