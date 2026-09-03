@@ -47,6 +47,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sw_merge_helpers import (
     tag, get_style, set_style, collect_ids, mint_id, ensure_para_id,
     split_paragraphs, find_bibliography_range, strip_bibliography, ZOTERO_BIBL_INSTR,
+    resize_images, STYLE_REMAP,
 )
 
 W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
@@ -665,47 +666,6 @@ def transform_figures(sections):
         blocks[:] = out
     return has_figures
 
-# ── figure sizing ───────────────────────────────────────────────────────────
-
-# Full text width = 6.5 in (8.5 in page − 2×1 in margins), in EMU
-# (914400 EMU = 1 in).
-_FULL_TEXT_WIDTH_EMU = int(6.5 * 914400)
-
-def _resize_figures_full_width(doc):
-    """Scale every drawing in `doc` to the full text width (6.5 in),
-    preserving the source aspect ratio.
-
-    Pandoc embeds figures at their native size (pixel size ÷ DPI of the
-    source image), which is almost never the full text width. Word uses the
-    `wp:extent` (and the graphic's `a:extent`) for the rendered size, so we
-    set cx = full text width and scale cy proportionally on BOTH extent
-    elements (they must agree or Word's zoom-to-fit can disagree).
-    """
-    WP = '{http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing}'
-    A = '{http://schemas.openxmlformats.org/drawingml/2006/main}'
-    target = _FULL_TEXT_WIDTH_EMU
-    # wp:extent (inline/anchor), a:extent (graphic), and a:ext (inside the
-    # pic:spPr a:xfrm) all carry cx/cy and should agree — Word uses
-    # wp:extent for the rendered size, but the drawing-level a:ext is what
-    # some inspectors (and LibreOffice) read.
-    for el in doc.iter():
-        if el.tag not in (WP + 'extent', A + 'extent', A + 'ext'):
-            continue
-        cx = el.get('cx')
-        cy = el.get('cy')
-        if not cx or not cy:
-            continue
-        try:
-            cx_i = int(cx)
-            cy_i = int(cy)
-        except ValueError:
-            continue
-        if cx_i <= 0 or cy_i <= 0 or cx_i == target:
-            continue
-        # Scale cy to preserve aspect ratio at the new full width.
-        new_cy = int(round(cy_i * target / cx_i))
-        el.set('cx', str(target))
-        el.set('cy', str(new_cy))
 
 # ── build output body ────────────────────────────────────────────────────────
 
@@ -736,7 +696,10 @@ def build_body(template_body, layout, sections, used, has_figures, toc=False,
     if layout['title_block']:
         for p in layout['title_block']:
             template_body.append(p)
-        template_body.append(make_section_break(kinds['title']))
+        _brk = make_section_break(kinds['title'])
+        if not new_page_headings:
+            _set_continuous(_brk)
+        template_body.append(_brk)
 
     # 2. TOC section — heading + fresh field (from the template's code),
     #    then its closer. Only when the user wants a TOC; --no-toc removes
@@ -752,7 +715,10 @@ def build_body(template_body, layout, sections, used, has_figures, toc=False,
         if layout['toc_heading'] is not None:
             template_body.append(layout['toc_heading'])
         template_body.append(make_field_paragraph('TOC1', layout['toc_instr']))
-        template_body.append(make_section_break(kinds['toc']))
+        _brk = make_section_break(kinds['toc'])
+        if not new_page_headings:
+            _set_continuous(_brk)
+        template_body.append(_brk)
     # Flag for deferred TOC injection in the content loop (simple templates).
     toc_deferred = toc and bool(layout['toc_instr']) and not layout['title_block']
 
@@ -760,7 +726,10 @@ def build_body(template_body, layout, sections, used, has_figures, toc=False,
     if has_figures and layout['tof_heading'] is not None and layout['tof_instr']:
         template_body.append(layout['tof_heading'])
         template_body.append(make_field_paragraph('TableofFigures', layout['tof_instr']))
-        template_body.append(make_section_break(kinds['tof']))
+        _brk = make_section_break(kinds['tof'])
+        if not new_page_headings:
+            _set_continuous(_brk)
+        template_body.append(_brk)
 
     # 4. Content sections.
     # For simple templates: track whether we have injected an abstract heading
@@ -856,13 +825,11 @@ def build_body(template_body, layout, sections, used, has_figures, toc=False,
             # Remap pandoc-specific styles to template names.
             if b.tag == tag('p'):
                 st = get_style(b)
-                remap = {
-                    # Pandoc emits blockquotes as "Block Text" (styleId BlockText);
-                    # also, any direct Blockquote references map to the template's
-                    # Block Text style (which exists in all templates).
-                    'Blockquote': 'BlockText',
-                    'FirstParagraph': 'BodyText',
-                }
+                # Pandoc emits blockquotes as "Block Text" (styleId BlockText)
+                # and first paragraphs as FirstParagraph; remap both onto the
+                # template's styles. Table shared with ODT via
+                # sw_merge_helpers.STYLE_REMAP.
+                remap = STYLE_REMAP['docx']
                 if st in remap:
                     set_style(b, remap[st])
                 elif st == 'Abstract' and not _abstract_heading_injected:
@@ -941,7 +908,10 @@ def build_body(template_body, layout, sections, used, has_figures, toc=False,
     if has_bibliography:
         _has_template_sects = bool(layout['title_block'])
         if _has_template_sects and kinds.get('continue'):
-            template_body.append(make_section_break(kinds['continue']))
+            _bbrk = make_section_break(kinds['continue'])
+            if not new_page_headings:
+                _set_continuous(_bbrk)
+            template_body.append(_bbrk)
         else:
             _bbrk = _make_chapter_break(None, new_page_headings, restart_footnotes)
             if _bbrk is not None:
@@ -1068,12 +1038,13 @@ def merge(template_path, input_path, output_path, title=None, author=None,
         new_footnotes = etree.tostring(fn_root, xml_declaration=True,
                                        encoding='UTF-8', standalone=True)
 
-    # Scale figures to full text width (6.5 in), preserving aspect ratio —
-    # pandoc embeds images at native size, which is rarely the text width.
-    _resize_figures_full_width(tmpl_doc)
+    # Cap images to template text area dimensions, preserving aspect ratio.
+    n_scaled = resize_images(tmpl_doc, 'docx')
+    if n_scaled:
+        print(f'DOCX: capped {n_scaled} image extent(s) to text area')
     if new_footnotes is not None:
         fn_root = etree.fromstring(new_footnotes)
-        _resize_figures_full_width(fn_root)
+        resize_images(fn_root, 'docx')  # footnotes: A4 fallback (no sectPr)
         new_footnotes = etree.tostring(fn_root, xml_declaration=True,
                                        encoding='UTF-8', standalone=True)
 
@@ -1710,6 +1681,9 @@ def _merge_numbering(data, pdc_num_bytes, doc_root):
     data['word/numbering.xml'] = etree.tostring(
         tmpl_num, xml_declaration=True, encoding='UTF-8', standalone=True)
 
+
+# ── image size capping (DOCX) ─────────────────────────────────────────────────
+
 def _write_docx(template_path, output_path, new_document_xml, new_footnotes_xml=None,
                 short_title=None, author=None, title=None, subtitle=None,
                 input_path=None):
@@ -1763,7 +1737,7 @@ def _write_docx(template_path, output_path, new_document_xml, new_footnotes_xml=
                 for r in in_rels:
                     rid = r.get('Id')
                     rtype = r.get('Type') or ''
-                    if 'image' not in rtype or not rid:
+                    if not rid or ('image' not in rtype and 'hyperlink' not in rtype):
                         continue
                     target = r.get('Target') or ''
                     if rid not in existing:
@@ -1771,12 +1745,13 @@ def _write_docx(template_path, output_path, new_document_xml, new_footnotes_xml=
                         existing.add(rid)
                         rid_map[rid] = rid
                     else:
-                        # renumber: rIdImg1, rIdImg2, …
+                        # renumber: rIdImg1/rIdHlnk1, … to avoid collisions
+                        _pfx = 'rIdHlnk' if 'hyperlink' in rtype else 'rIdImg'
                         n = 1
-                        new_rid = f'rIdImg{n}'
+                        new_rid = f'{_pfx}{n}'
                         while new_rid in existing:
                             n += 1
-                            new_rid = f'rIdImg{n}'
+                            new_rid = f'{_pfx}{n}'
                         r2 = copy.deepcopy(r)
                         r2.set('Id', new_rid)
                         out_rels.append(r2)
@@ -1793,6 +1768,14 @@ def _write_docx(template_path, output_path, new_document_xml, new_footnotes_xml=
                             old = el.get(attr)
                             if old in rid_map:
                                 el.set(attr, rid_map[old])
+                                changed = True
+                        # Rewrite r:id on w:hyperlink elements so external
+                        # links point to the remapped hyperlink rel, not to
+                        # whatever the template had at that same rId number.
+                        if el.tag == '{%s}hyperlink' % W:
+                            _hrid = el.get('{%s}id' % R)
+                            if _hrid and _hrid in rid_map:
+                                el.set('{%s}id' % R, rid_map[_hrid])
                                 changed = True
                     if changed:
                         data['word/document.xml'] = etree.tostring(

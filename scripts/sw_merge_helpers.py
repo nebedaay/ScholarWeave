@@ -13,7 +13,30 @@ ZOTERO_BIBL_INSTR = (
 )
 
 import random
+import re
 from lxml import etree
+
+
+# ── pandoc → template style remaps (shared) ──────────────────────────────────
+
+#: Pandoc emits generic paragraph styles (a "first paragraph" variant, a
+#: plain/default paragraph style, its own block-quote style) that need to be
+#: mapped onto the export template's named styles so body text is visually
+#: consistent.  Both merge scripts do this; the names differ only because DOCX
+#: uses OOXML style IDs and ODT uses ODF-encoded style names, so the two tables
+#: live here side by side rather than being reinvented in each script.
+STYLE_REMAP = {
+    'docx': {
+        'Blockquote':     'BlockText',
+        'FirstParagraph': 'BodyText',
+    },
+    'odt': {
+        'First_20_paragraph':            'Text_20_body',
+        'Default_20_Paragraph_20_Style': 'Text_20_body',
+        'Default Paragraph Style':       'Text_20_body',
+        'Block_20_Text':                 'Quotations',
+    },
+}
 
 
 # ── format-agnostic helpers ───────────────────────────────────────────────────
@@ -149,3 +172,156 @@ def find_bibliography_range(elements, heading_text_fn, is_bibl_entry_fn):
         if j > i + 1:
             return i, i + 1, j
     return None, None, None
+
+# ── image sizing (shared for DOCX and ODT) ────────────────────────────────────
+
+def resize_images(doc_root, format_name, template_zip_data=None):
+    """Cap images to fit within the template's text area, preserving aspect ratio.
+    Images that exceed the text width or height are scaled down proportionally.
+    Images smaller than the text area are left at their native size.
+
+    doc_root          — lxml Element: tmpl_doc (DOCX) or content.xml root (ODT)
+    format_name       — 'docx' or 'odt'
+    template_zip_data — dict {filename: bytes}; required for ODT (styles.xml);
+                        unused for DOCX (geometry is read from doc_root's sectPr)
+
+    Returns the count of image elements that were scaled (0 = nothing changed).
+    Both DOCX and ODT are handled in one body so that any change to sizing
+    logic (what to cap, how to preserve aspect ratio) is automatically applied
+    to both formats.
+    """
+    if format_name == 'docx':
+        # ── DOCX: all dimensions in EMU (914400 per inch) ─────────────────────
+        WNS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+        WP  = 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing'
+        A   = 'http://schemas.openxmlformats.org/drawingml/2006/main'
+        TWIPS_TO_EMU = 635  # 1440 twips/inch ÷ 914400 EMU/inch ≈ 635 EMU/twip
+
+        def _w(n): return '{%s}%s' % (WNS, n)
+
+        # Read page geometry from sectPr in the merged document body.
+        # tmpl_doc always carries the template's final sectPr after build_body.
+        # Footnote XML has no sectPr — falls back to A4 text area.
+        MM_TO_EMU = 914400 / 25.4
+        text_w = int(160 * MM_TO_EMU)   # A4 fallback: 160 mm text width
+        text_h = int(247 * MM_TO_EMU)   # A4 fallback: 247 mm text height
+        sect = doc_root.find('.//' + _w('sectPr'))
+        if sect is not None:
+            pgsz  = sect.find(_w('pgSz'))
+            pgmar = sect.find(_w('pgMar'))
+            if pgsz is not None and pgmar is not None:
+                try:
+                    pg_w  = int(pgsz.get(_w('w'),      '0') or '0')
+                    pg_h  = int(pgsz.get(_w('h'),      '0') or '0')
+                    mar_l = int(pgmar.get(_w('left'),   '0') or '0')
+                    mar_r = int(pgmar.get(_w('right'),  '0') or '0')
+                    mar_t = int(pgmar.get(_w('top'),    '0') or '0')
+                    mar_b = int(pgmar.get(_w('bottom'), '0') or '0')
+                    if pg_w > 0:
+                        text_w = (pg_w - mar_l - mar_r) * TWIPS_TO_EMU
+                    if pg_h > 0:
+                        text_h = (pg_h - mar_t - mar_b) * TWIPS_TO_EMU
+                except (ValueError, TypeError):
+                    pass
+
+        # Scale all three extent element types — wp:extent and a:extent/a:ext
+        # must agree (Word uses wp:extent for rendered size; a:extent is what
+        # some inspectors and LibreOffice read).
+        changed = 0
+        for el in doc_root.iter():
+            if el.tag not in (
+                '{%s}extent' % WP, '{%s}extent' % A, '{%s}ext' % A,
+            ):
+                continue
+            try:
+                cx = int(el.get('cx', 0) or 0)
+                cy = int(el.get('cy', 0) or 0)
+            except (ValueError, TypeError):
+                continue
+            if cx <= 0 or cy <= 0:
+                continue
+            new_cx, new_cy = cx, cy
+            if new_cx > text_w:
+                new_cy = int(round(new_cy * text_w / new_cx))
+                new_cx = text_w
+            if new_cy > text_h:
+                new_cx = int(round(new_cx * text_h / new_cy))
+                new_cy = text_h
+            if new_cx != cx or new_cy != cy:
+                el.set('cx', str(new_cx))
+                el.set('cy', str(new_cy))
+                changed += 1
+        return changed
+
+    else:  # odt
+        # ── ODT: all dimensions in mm ──────────────────────────────────────────
+        DR  = 'urn:oasis:names:tc:opendocument:xmlns:drawing:1.0'
+        SV  = 'urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0'
+        FO  = 'urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0'
+        STY = 'urn:oasis:names:tc:opendocument:xmlns:style:1.0'
+
+        def _odf_to_mm(val):
+            """Parse an ODF length string ('16cm', '160mm', '6.5in', '864pt') → mm."""
+            if not val:
+                return None
+            m = re.match(r'^\s*([0-9]*\.?[0-9]+)\s*(cm|mm|in|pt|px)?\s*$', val)
+            if not m:
+                return None
+            num, unit = float(m.group(1)), (m.group(2) or 'mm')
+            return {'mm': num, 'cm': num * 10, 'in': num * 25.4,
+                    'pt': num * 25.4 / 72, 'px': num * 25.4 / 96}[unit]
+
+        def _mm_to_odf(mm, unit):
+            """Format mm back to the given ODF unit string."""
+            v = {'mm': mm, 'cm': mm / 10, 'in': mm / 25.4,
+                 'pt': mm * 72 / 25.4, 'px': mm * 96 / 25.4}[unit]
+            return f'{v:.4f}{unit}'
+
+        # Read page geometry from styles.xml (page-layout-properties).
+        # Also accepts margin-start/margin-end (alternate ODF attribute names).
+        text_w, text_h = 160.0, 247.0   # A4 fallback
+        styles_bytes = (template_zip_data or {}).get('styles.xml', b'')
+        if styles_bytes:
+            try:
+                sroot = etree.fromstring(styles_bytes)
+                for pm in sroot.iter('{%s}page-layout-properties' % STY):
+                    pw = _odf_to_mm(pm.get('{%s}page-width'    % FO))
+                    ph = _odf_to_mm(pm.get('{%s}page-height'   % FO))
+                    ml = _odf_to_mm(pm.get('{%s}margin-left'   % FO)
+                                    or pm.get('{%s}margin-start' % FO) or '0mm')
+                    mr = _odf_to_mm(pm.get('{%s}margin-right'  % FO)
+                                    or pm.get('{%s}margin-end'   % FO) or '0mm')
+                    mt = _odf_to_mm(pm.get('{%s}margin-top'    % FO) or '0mm')
+                    mb = _odf_to_mm(pm.get('{%s}margin-bottom' % FO) or '0mm')
+                    if pw and ph:
+                        text_w = pw - (ml or 0) - (mr or 0)
+                        text_h = ph - (mt or 0) - (mb or 0)
+                        break
+            except Exception:
+                pass
+
+        # Scale draw:frame svg:width / svg:height.
+        changed = 0
+        for frame in doc_root.iter('{%s}frame' % DR):
+            w_str = frame.get('{%s}width'  % SV, '')
+            h_str = frame.get('{%s}height' % SV, '')
+            if not w_str or not h_str:
+                continue
+            w_unit = re.sub(r'[0-9. ]', '', w_str) or 'mm'
+            h_unit = re.sub(r'[0-9. ]', '', h_str) or 'mm'
+            w_mm = _odf_to_mm(w_str)
+            h_mm = _odf_to_mm(h_str)
+            if not w_mm or not h_mm or w_mm <= 0 or h_mm <= 0:
+                continue
+            new_w, new_h = w_mm, h_mm
+            if new_w > text_w:
+                new_h = new_h * text_w / new_w
+                new_w = text_w
+            if new_h > text_h:
+                new_w = new_w * text_h / new_h
+                new_h = text_h
+            if abs(new_w - w_mm) > 0.001 or abs(new_h - h_mm) > 0.001:
+                frame.set('{%s}width'  % SV, _mm_to_odf(new_w, w_unit))
+                frame.set('{%s}height' % SV, _mm_to_odf(new_h, h_unit))
+                changed += 1
+        return changed

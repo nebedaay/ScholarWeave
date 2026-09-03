@@ -42,7 +42,8 @@ import zipfile
 from lxml import etree
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from sw_merge_helpers import split_paragraphs, find_bibliography_range, strip_bibliography, ZOTERO_BIBL_INSTR
+from sw_merge_helpers import (split_paragraphs, find_bibliography_range,
+    strip_bibliography, ZOTERO_BIBL_INSTR, resize_images, STYLE_REMAP)
 
 # ── ODF namespace constants ───────────────────────────────────────────────────
 
@@ -82,13 +83,9 @@ _PANDOC_FRONTMATTER_STYLES = frozenset({
     'Abstract', 'Abstract_Body',
 })
 
-# Pandoc-specific → canonical template style remaps (mirrors sw_export_merge.py).
-_STYLE_REMAPS = {
-    'First_20_paragraph':            _BODY_STYLE,
-    'Default_20_Paragraph_20_Style': _BODY_STYLE,
-    'Default Paragraph Style':       _BODY_STYLE,
-    'Block_20_Text':                 'Quotations',
-}
+# Pandoc-specific → canonical template style remaps. Table lives in
+# sw_merge_helpers.STYLE_REMAP so DOCX and ODT stay in sync.
+_STYLE_REMAPS = STYLE_REMAP['odt']
 
 # Words that stay lowercase in title-case (mirrors sw_export_merge.py).
 _TITLE_CASE_LOWER = frozenset({
@@ -657,6 +654,7 @@ def _merge_manifest(z_data, pdc_data):
     except Exception as e:
         print(f'WARNING: could not merge manifest.xml: {e}')
 
+
 # ── metadata update ───────────────────────────────────────────────────────────
 
 def _update_meta(z_data, title, author):
@@ -822,25 +820,28 @@ def merge_odt(template_path, input_path, output_path,
     # auto-style (SW_TOCHeading_Pagebreak, inheriting TOCHeading), so no separate
     # blank spacer paragraph is needed before the heading.
     if toc and layout['toc_element'] is not None:
-        auto = tmpl_root.find('.//' + O('automatic-styles'))
-        if auto is not None:
-            _ensure_toc_heading_pb_style(auto)
+        if new_page_headings:
+            auto = tmpl_root.find('.//' + O('automatic-styles'))
+            if auto is not None:
+                _ensure_toc_heading_pb_style(auto)
         if layout['toc_heading'] is not None:
             toc_h = copy.deepcopy(layout['toc_heading'])
-            toc_h.set(T('style-name'), _TOC_H_PB_STYLE)
+            if new_page_headings:
+                toc_h.set(T('style-name'), _TOC_H_PB_STYLE)
             tmpl_text.append(toc_h)
-        else:
+        elif new_page_headings:
             # No standalone heading in template — fall back to a blank spacer.
             tmpl_text.append(make_toc_pagebreak_para(tmpl_root))
         tmpl_text.append(copy.deepcopy(layout['toc_element']))
     elif toc and layout['toc_element'] is None:
         # Template has no TOC element (unusual). Insert a minimal TOC heading.
         print('WARNING: template has no TOC element; inserting a bare heading.')
-        auto = tmpl_root.find('.//' + O('automatic-styles'))
-        if auto is not None:
-            _ensure_toc_heading_pb_style(auto)
+        if new_page_headings:
+            auto = tmpl_root.find('.//' + O('automatic-styles'))
+            if auto is not None:
+                _ensure_toc_heading_pb_style(auto)
         h = etree.Element(T('h'))
-        h.set(T('style-name'), _TOC_H_PB_STYLE)
+        h.set(T('style-name'), _TOC_H_PB_STYLE if new_page_headings else _H1_PARENT)
         h.set(T('outline-level'), '1')
         h.text = 'Table of Contents'
         tmpl_text.append(h)
@@ -872,11 +873,13 @@ def merge_odt(template_path, input_path, output_path,
     #    output contained a bibliography.  Uses SW_Heading1_Pagebreak so the
     #    heading starts on a new page (same as all other Heading 1 elements).
     if _has_bibliography:
-        auto = tmpl_root.find('.//' + O('automatic-styles'))
-        if auto is not None:
-            _ensure_h1_pagebreak_style(auto)
+        _bibl_style = _H1_PB_STYLE if new_page_headings else _H1_PARENT
+        if new_page_headings:
+            auto = tmpl_root.find('.//' + O('automatic-styles'))
+            if auto is not None:
+                _ensure_h1_pagebreak_style(auto)
         _bh = etree.Element(T('h'))
-        _bh.set(T('style-name'), _H1_PB_STYLE)
+        _bh.set(T('style-name'), _bibl_style)
         _bh.set(T('outline-level'), '1')
         _bh.text = 'Bibliography'
         tmpl_text.append(_bh)
@@ -895,6 +898,11 @@ def merge_odt(template_path, input_path, output_path,
             print('ODT: set footnote numbering to restart per chapter')
             z_data['styles.xml'] = etree.tostring(
                 styles_root, xml_declaration=True, encoding='UTF-8', standalone=True)
+
+    # Cap images to template text area dimensions, preserving aspect ratio.
+    n_scaled = resize_images(tmpl_root, 'odt', template_zip_data=z_data)
+    if n_scaled:
+        print(f'ODT: capped {n_scaled} image(s) to text area')
 
     # ── Serialize updated content.xml ──────────────────────────────────────
     z_data['content.xml'] = etree.tostring(
