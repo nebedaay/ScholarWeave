@@ -75763,15 +75763,31 @@ def strip_wikilinks(text: str) -> str:
     [[Target]]       -> Target (leading order-numbers stripped, extension dropped)
     ![[...]]         -> left untouched (image embeds handled by resolve_embed_links)
     [[@key...]]      -> left untouched (citations already converted before this runs)
+
+    Wikilinks inside fenced code blocks and inline code spans are left VERBATIM
+    (pandoc renders code literally, so a \`[[Note]]\` example must survive).
     """
-    def _replace(m):
-        inner = m.group(1)
+    def _replace_wl(inner):
         if '|' in inner:
             return inner.split('|', 1)[1]
         name = re.sub(r'\\.(md|markdown)$', '', inner, flags=re.I)
         name = re.sub(r'^\\d[\\d.\\-]*\\s+', '', name)
         return name
-    return re.sub(r'(?<!!)\\[\\[([^\\[\\]]+)\\]\\]', _replace, text)
+
+    # One pass over: fenced block | inline code span | wikilink. Only the
+    # wikilink alternative is rewritten; code is emitted unchanged.
+    token = re.compile(
+        r'(?P<fence>^[ \\t]*(?P<f>\`{3,}|~{3,})[^\\n]*\\n.*?^[ \\t]*(?P=f)[ \\t]*$)'
+        r'|(?P<code>(?P<tick>\`+)(?:(?!(?P=tick)).)+(?P=tick))'
+        r'|(?<!!)\\[\\[(?P<wl>[^\\[\\]]+)\\]\\]',
+        re.M | re.S)
+
+    def _sub(m):
+        if m.group('wl') is None:      # matched a fenced block or a code span
+            return m.group(0)
+        return _replace_wl(m.group('wl'))
+
+    return token.sub(_sub, text)
 
 def linkify_bare_urls(text: str) -> str:
     """Convert bare http(s) URLs to [url](url) markdown links.
