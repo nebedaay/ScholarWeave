@@ -89,6 +89,32 @@ def strip_markdown(text):
     return text
 
 
+#: Heading 1 text (case-insensitive, anchored) that begins main matter.
+_MAIN_START_RE = re.compile(
+    r'^(introduction|chapter\s+\d+|prologue|part\s+\d+)\b', re.IGNORECASE
+)
+
+
+def is_main_start(text):
+    """True when a Heading 1's text marks the start of main matter (Introduction,
+    a numbered chapter, Prologue, a numbered part). Everything before the first
+    such heading is frontmatter. Shared by both merge scripts so the
+    frontmatter/main boundary is defined once (drives roman→arabic page
+    numbering in the DOCX merge; will drive the format-agnostic page-numbering
+    feature once written)."""
+    return bool(_MAIN_START_RE.match(text.strip()))
+
+
+def is_toc_heading(text):
+    """True when a Heading 1's text is the Table of Contents heading."""
+    return text.strip().lower() == 'table of contents'
+
+
+def is_tof_heading(text):
+    """True when a Heading 1's text is the Table of Figures heading."""
+    return text.strip().lower() == 'table of figures'
+
+
 def resolve_cover(title, subtitle, author, date_val, basename):
     """Resolve cover values per spec, identically for DOCX and ODT:
       Title    = whole 'title' property when a 'subtitle' property is given

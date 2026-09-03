@@ -48,6 +48,7 @@ from sw_merge_helpers import (
     split_paragraphs, find_bibliography_range, strip_bibliography, ZOTERO_BIBL_INSTR,
     resize_images, STYLE_REMAP, resolve_cover,
     title_case as _title_case, strip_markdown as _strip_markdown,
+    is_main_start, is_toc_heading, is_tof_heading,
 )
 
 W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
@@ -57,22 +58,8 @@ _ABSTRACTKEYWORDS_STYLE_ID = 'Abstractkeywordsheading'
 # _title_case, _strip_markdown, resolve_cover are imported from sw_merge_helpers
 # (shared verbatim with the ODT merge).
 
-# ── section-kind classification ──────────────────────────────────────────────
-
-# Heading 1 text that marks the START of main text (arabic page numbers).
-# Everything before the first such heading is frontmatter (roman).
-_MAIN_START_RE = re.compile(
-    r'^(introduction|chapter\s+\d+|prologue|part\s+\d+)\b', re.IGNORECASE
-)
-
-def is_main_start(text):
-    return bool(_MAIN_START_RE.match(text.strip()))
-
-def is_toc_heading(text):
-    return text.strip().lower() == 'table of contents'
-
-def is_tof_heading(text):
-    return text.strip().lower() == 'table of figures'
+# is_main_start / is_toc_heading / is_tof_heading are imported from
+# sw_merge_helpers (shared heading predicates).
 
 # ── template layout extraction ───────────────────────────────────────────────
 

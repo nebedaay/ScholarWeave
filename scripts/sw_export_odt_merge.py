@@ -43,7 +43,8 @@ from lxml import etree
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sw_merge_helpers import (split_paragraphs, find_bibliography_range,
     strip_bibliography, ZOTERO_BIBL_INSTR, resize_images, STYLE_REMAP,
-    resolve_cover, title_case as _title_case, strip_markdown as _strip_markdown)
+    resolve_cover, title_case as _title_case, strip_markdown as _strip_markdown,
+    is_toc_heading)
 
 # ── ODF namespace constants ───────────────────────────────────────────────────
 
@@ -159,12 +160,9 @@ def _is_toc_element(el):
 def _looks_like_toc_heading(el):
     """True if the element looks like a TOC heading paragraph."""
     sn = _get_sn(el)
-    text = _elem_text(el)
     if sn == _TOCHEADING_STYLE:
         return True
-    if text.strip().lower() == 'table of contents':
-        return True
-    return False
+    return is_toc_heading(_elem_text(el))
 
 def extract_template_layout(template_path):
     """
