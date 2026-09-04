@@ -383,6 +383,12 @@ def strip_figure_prefix(text):
     return _FIGURE_PREFIX_RE.sub('', text or '', count=1).strip()
 
 
+#: A Heading 1 that begins with a literal chapter number: "Chapter 3: Title",
+#: "3. Title", "3) Title". Group 1 is the title without the prefix.
+_CHAPTER_PREFIX_RE = re.compile(
+    r'^\s*(?:chapter\s+)?(\d+)\s*[.):]?\s+(.*)$', re.IGNORECASE | re.DOTALL)
+
+
 def parse_chapter_number(text):
     """Return the leading chapter number of a Heading 1's text ('Chapter 3: X'
     or '3. X' → 3), or 0 when the heading carries no number (Preface,
@@ -390,6 +396,17 @@ def parse_chapter_number(text):
     numbers identically for DOCX and ODT."""
     m = re.match(r'^\s*(?:chapter\s+)?(\d+)\b', text or '', re.IGNORECASE)
     return int(m.group(1)) if m else 0
+
+
+def strip_chapter_prefix(text):
+    """Strip a leading 'Chapter N:' / 'N.' / 'N)' chapter-number prefix from a
+    Heading 1's text, returning the bare title. Unchanged when there is no such
+    prefix. Shared so DOCX (which then supplies the number via Word numPr) and
+    ODT strip the literal prefix identically."""
+    m = _CHAPTER_PREFIX_RE.match(text or '')
+    if m and m.group(2).strip():
+        return m.group(2).strip()
+    return text or ''
 
 
 def process_figures(elements, *, get_style, get_text, set_body_style,

@@ -48,7 +48,7 @@ from sw_merge_helpers import (
     split_paragraphs, find_bibliography_range, strip_bibliography, ZOTERO_BIBL_INSTR,
     resize_images, STYLE_REMAP, resolve_cover, process_figures,
     title_case as _title_case, strip_markdown as _strip_markdown,
-    is_main_start, is_toc_heading, is_tof_heading,
+    is_main_start, is_toc_heading, is_tof_heading, strip_chapter_prefix,
     bundled_template, ensure_docx_styles,
 )
 
@@ -465,15 +465,13 @@ def classify_blocks(children):
 
 # ── chapter numbering ────────────────────────────────────────────────────────
 
-_CHAPTER_NUM_RE = re.compile(r'^(?:chapter\s+)?\d+[.):]?\s+(.*)$', re.IGNORECASE)
-
 def apply_chapter_numbering(sections, numid):
     """For every Heading 1 whose text looks like a numbered chapter
-    ('Chapter 1: Title' or '1. Title'), strip the literal number/prefix and
-    add Word numbering (numPr → numid) so Word supplies the chapter number.
-    Non-numbered headings (Preface, Introduction, Conclusion, ...) keep plain
-    Heading 1. Only Heading 1 is treated; sections (Heading 2+) never get
-    chapter numbers.
+    ('Chapter 1: Title' or '1. Title'), strip the literal number/prefix (via the
+    shared strip_chapter_prefix) and add Word numbering (numPr → numid) so Word
+    supplies the chapter number. Non-numbered headings (Preface, Introduction,
+    Conclusion, ...) keep plain Heading 1. Only Heading 1 is treated; sections
+    (Heading 2+) never get chapter numbers.
     """
     if not numid:
         return
@@ -482,15 +480,15 @@ def apply_chapter_numbering(sections, numid):
             if b.tag != tag('p') or get_style(b) != 'Heading1':
                 continue
             text = _para_text(b)
-            m = _CHAPTER_NUM_RE.match(text)
-            if not m or m.group(1) == text:
+            stripped = strip_chapter_prefix(text)
+            if stripped == text:
                 continue
             # Replace text with the number-stripped remainder.
             for r in list(b.findall(tag('r'))):
                 b.remove(r)
             r = etree.SubElement(b, tag('r'))
             t = etree.SubElement(r, tag('t'))
-            t.text = m.group(1)
+            t.text = stripped
             # Add numPr into pPr (after pStyle).
             ppr = b.find(tag('pPr'))
             if ppr is None:
