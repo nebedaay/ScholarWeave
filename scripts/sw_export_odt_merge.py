@@ -45,7 +45,7 @@ from sw_merge_helpers import (split_paragraphs, find_bibliography_range,
     strip_bibliography, ZOTERO_BIBL_INSTR, resize_images, STYLE_REMAP,
     resolve_cover, title_case as _title_case, strip_markdown as _strip_markdown,
     is_toc_heading, process_figures, bundled_template, ensure_odt_styles,
-    strip_chapter_prefix, parse_chapter_number)
+    strip_chapter_prefix, parse_chapter_number, append_extra_sections)
 
 # ── ODF namespace constants ───────────────────────────────────────────────────
 
@@ -438,24 +438,24 @@ def _fill_title_block(title_block, title, subtitle, author, date_val):
 
 # ── extra sections injection ──────────────────────────────────────────────────
 
+def _make_akh_heading(label):
+    h = etree.Element(T('p'))
+    h.set(T('style-name'), _AKH_STYLE)
+    h.text = label
+    return h
+
+def _make_akh_body(chunk):
+    b = etree.Element(T('p'))
+    b.set(T('style-name'), _BODY_STYLE)
+    _set_markdown_text(b, chunk)
+    return b
+
 def _append_extra_sections(out_list, extra_sections):
-    """Append AKH heading + Text_20_body paragraph(s) for each
-    (key, value) in extra_sections (note/sw-* YAML properties).
-    Multi-paragraph values (e.g. a multi-paragraph abstract split by \\n\\n)
-    produce one body paragraph per chunk, using split_paragraphs() from
-    sw_merge_helpers — the same function used by the DOCX merge so both
-    formats handle paragraphs identically."""
-    for key, value in extra_sections:
-        label = _title_case(key)
-        h = etree.Element(T('p'))
-        h.set(T('style-name'), _AKH_STYLE)
-        h.text = label
-        out_list.append(h)
-        for chunk in split_paragraphs(value):
-            b = etree.Element(T('p'))
-            b.set(T('style-name'), _BODY_STYLE)
-            _set_markdown_text(b, chunk)
-            out_list.append(b)
+    """Append an AKH heading + Text_20_body paragraph(s) for each (key, value)
+    in extra_sections (abstract + note/sw-* YAML properties). Shared loop lives
+    in sw_merge_helpers.append_extra_sections."""
+    append_extra_sections(out_list, extra_sections,
+                          _make_akh_heading, _make_akh_body)
 
 # ── pandoc body classification ────────────────────────────────────────────────
 

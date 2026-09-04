@@ -398,6 +398,18 @@ def parse_chapter_number(text):
     return int(m.group(1)) if m else 0
 
 
+def append_extra_sections(out_list, extra_sections, make_heading, make_body):
+    """For each (key, value) in extra_sections append one heading element
+    (make_heading(label)) then one body element per blank-line-separated chunk
+    (make_body(chunk)). key → label via title_case; value split via
+    split_paragraphs. Shared so DOCX and ODT inject the abstract + note/sw-*
+    sections with identical structure."""
+    for key, value in extra_sections:
+        out_list.append(make_heading(title_case(key)))
+        for chunk in split_paragraphs(value):
+            out_list.append(make_body(chunk))
+
+
 def strip_chapter_prefix(text):
     """Strip a leading 'Chapter N:' / 'N.' / 'N)' chapter-number prefix from a
     Heading 1's text, returning the bare title. Unchanged when there is no such

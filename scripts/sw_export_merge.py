@@ -49,7 +49,7 @@ from sw_merge_helpers import (
     resize_images, STYLE_REMAP, resolve_cover, process_figures,
     title_case as _title_case, strip_markdown as _strip_markdown,
     is_main_start, is_toc_heading, is_tof_heading, strip_chapter_prefix,
-    bundled_template, ensure_docx_styles,
+    bundled_template, ensure_docx_styles, append_extra_sections,
 )
 
 W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
@@ -943,32 +943,27 @@ def merge(template_path, input_path, output_path, title=None, author=None,
     title, subtitle, author, date_val = resolve_cover(
         title, subtitle, author, date_val, basename)
 
-    # Fill the title block (layout['title_block'] are the copies build_body
-    # will append, so fill them in place).
-    _fill_title_block(layout['title_block'], title, subtitle, author, date_val,
-                      abstract=abstract)
-    # Note: save whether the template has a structured title block BEFORE
-    # extra sections are appended.  For simple reference-doc templates
-    # (title_block is [] because no inline section breaks exist), appending
-    # extra sections here would make the block non-empty, causing build_body
-    # to skip pandoc's Title/Author paragraphs and emit the note sections
-    # instead of the title — the note replaces the title.  We only append to
-    # the title block for structured (book-style) templates; for simple
-    # templates we pass extra_sections into build_body, which injects them
-    # into the content stream right after the first frontmatter section.
+    # Fill title/subtitle/author/date into the template title block and DROP
+    # its abstract/keywords placeholder slots. The abstract is then re-injected
+    # like any other extra section (drop-and-reinject) — the same policy the ODT
+    # merge uses, so both formats build the abstract identically.
+    _fill_title_block(layout['title_block'], title, subtitle, author, date_val)
+
+    all_extra = ([('abstract', abstract)] if abstract else []) + (extra_sections or [])
+
+    # Structured (book-style) templates: append the extra sections to the title
+    # block (build_body renders it before the first section break). Simple
+    # reference-doc templates have title_block == [] — appending here would make
+    # build_body skip pandoc's own Title/Author paragraphs, so pass them to
+    # build_body, which injects them into the content stream after the cover.
     _has_structured_title = bool(layout['title_block'])
     if _has_structured_title:
-        _append_extra_sections(layout['title_block'], extra_sections or [])
-    elif abstract:
-        # Simple reference-doc template (no structured title block): abstract
-        # was not handled by _fill_title_block, so prepend it to extra_sections
-        # so build_body injects it into the content stream after the title area.
-        extra_sections = [('abstract', abstract)] + (extra_sections or [])
+        _append_extra_sections(layout['title_block'], all_extra)
 
     build_body(tmpl_body, layout, sections, used, has_figures, toc=toc, tof=tof,
                new_page_headings=new_page_headings,
                restart_footnotes=restart_footnotes,
-               extra_sections=extra_sections if not _has_structured_title else None,
+               extra_sections=all_extra if not _has_structured_title else None,
                has_bibliography=_has_bibliography)
 
     # Remove ORPHANED bookmarkEnd elements: any end whose matching
@@ -1031,16 +1026,16 @@ def merge(template_path, input_path, output_path, title=None, author=None,
                 subtitle=subtitle, input_path=input_path,
                 extra_style_ids=_tof_style_ids)
 
-def _fill_title_block(title_block, title, subtitle, author, date_val,
-                      abstract=None):
+def _fill_title_block(title_block, title, subtitle, author, date_val):
     """Replace placeholder text in the template title block (a list of deep
     copies used by build_body):
       - Title / Subtitle styles → resolved values
       - Subtitle paragraph REMOVED when there is no subtitle
       - first non-Date Body Text after Subtitle → author
       - Body Text 'Date' → date
-      - Abstract / Note heading+text sections dropped when there is no
-        content (template placeholder text never survives)
+      - every Abstract/keywords/Note placeholder slot is DROPPED; the abstract
+        and note/sw-* sections are re-injected by _append_extra_sections (the
+        same drop-and-reinject policy as the ODT merge)
     """
     author_done = not author
     date_done = not date_val
@@ -1070,39 +1065,14 @@ def _fill_title_block(title_block, title, subtitle, author, date_val,
                 date_done = True
             i += 1
         elif style == 'Abstractkeywordsheading':
-            # Abstract (and keywords/note) heading style used by article/book templates.
-            # Only the "Abstract" heading is filled; other keyword headings (dropped
-            # by this branch) are handled separately by _append_extra_sections().
-            is_abstract_heading = cur.strip().lower() == 'abstract'
-            if is_abstract_heading and abstract:
-                _replace_text(p, cur)          # keep heading text "Abstract"
-                # Fill the following body paragraph(s).  Templates may use either
-                # BodyText (book.docx) or Abstract (document.docx) for the body.
-                # Support multi-paragraph abstracts: split on blank lines and
-                # clone the template paragraph for each additional chunk.
-                j = i + 1
-                while j < len(title_block):
-                    body_style = get_style(title_block[j])
-                    if body_style in ('BodyText', 'Abstract'):
-                        paras = split_paragraphs(abstract)
-                        _fill_markdown_text(title_block[j], paras[0])
-                        insert_pos = j + 1
-                        for extra_para in paras[1:]:
-                            clone = copy.deepcopy(title_block[j])
-                            _fill_markdown_text(clone, extra_para)
-                            title_block.insert(insert_pos, clone)
-                            insert_pos += 1
-                        i = insert_pos - 1  # outer i += 1 moves past last inserted
-                        break
-                    j += 1
-                i += 1
-            else:
-                # No abstract content, or a non-abstract keyword heading: drop heading
-                # and its following body paragraph(s) (BodyText or Abstract style).
+            # Abstract/keywords/note placeholder heading (article/book templates).
+            # Always drop it and its following body paragraph(s); the real
+            # abstract + note/sw-* sections are re-injected by
+            # _append_extra_sections.
+            title_block.pop(i)
+            while i < len(title_block) and get_style(title_block[i]) in ('BodyText', 'Abstract'):
                 title_block.pop(i)
-                while i < len(title_block) and get_style(title_block[i]) in ('BodyText', 'Abstract'):
-                    title_block.pop(i)
-                continue
+            continue
         elif style == 'Abstract':
             # Standalone abstract body paragraph (document.docx template style).
             # Only reached when no preceding Abstractkeywordsheading paired with it
@@ -1144,35 +1114,26 @@ def _strip_bibliography_from_sections(sections):
     return list(sections), False
 
 
-def _append_extra_sections(title_block, extra_sections):
-    """Append heading + body paragraph pairs to title_block for each
-    (key, value) pair in extra_sections (note/sw-* properties collected from
-    YAML in document order).
+def _make_akh_heading(label):
+    h = etree.Element(tag('p'))
+    ps = etree.SubElement(etree.SubElement(h, tag('pPr')), tag('pStyle'))
+    ps.set(tag('val'), _ABSTRACTKEYWORDS_STYLE_ID)
+    etree.SubElement(etree.SubElement(h, tag('r')), tag('t')).text = label
+    return h
 
-    The heading uses the Abstractkeywordsheading style (bold + italic, matching
-    the abstract/keywords section); the body uses BodyText style. Markdown in
-    value is processed to bold/italic/code runs.
-    """
-    for key, value in extra_sections:
-        label = _title_case(key)
-        # Heading paragraph with Abstractkeywordsheading style.
-        h = etree.Element(tag('p'))
-        hpr = etree.SubElement(h, tag('pPr'))
-        hstyle = etree.SubElement(hpr, tag('pStyle'))
-        hstyle.set(tag('val'), _ABSTRACTKEYWORDS_STYLE_ID)
-        hr = etree.SubElement(h, tag('r'))
-        ht = etree.SubElement(hr, tag('t'))
-        ht.text = label
-        title_block.append(h)
-        # Body paragraph(s) with BodyText style. split_paragraphs handles the
-        # \n\n splitting shared with the ODT merge via sw_merge_helpers.
-        for chunk in split_paragraphs(value):
-            b = etree.Element(tag('p'))
-            bpr = etree.SubElement(b, tag('pPr'))
-            bstyle = etree.SubElement(bpr, tag('pStyle'))
-            bstyle.set(tag('val'), 'BodyText')
-            title_block.append(b)
-            _fill_markdown_text(b, chunk)
+def _make_akh_body(chunk):
+    b = etree.Element(tag('p'))
+    ps = etree.SubElement(etree.SubElement(b, tag('pPr')), tag('pStyle'))
+    ps.set(tag('val'), 'BodyText')
+    _fill_markdown_text(b, chunk)   # operates on b in place; pPr already set
+    return b
+
+def _append_extra_sections(title_block, extra_sections):
+    """Append an Abstractkeywordsheading heading + BodyText paragraph(s) for
+    each (key, value) in extra_sections (abstract + note/sw-* properties).
+    Shared loop lives in sw_merge_helpers.append_extra_sections."""
+    append_extra_sections(title_block, extra_sections,
+                          _make_akh_heading, _make_akh_body)
 
 def _ensure_abstractkeywords_style(data):
     """Inject the Abstractkeywordsheading paragraph style into word/styles.xml
