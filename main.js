@@ -81206,15 +81206,19 @@ def build_body(template_body, layout, sections, used, has_figures, toc=False,
                         template_body.remove(_prev)
                 if layout['toc_heading'] is not None:
                     toc_h = layout['toc_heading']
-                    # Embed the page break so no separate blank paragraph is needed.
+                    # Only force the TOC onto its own page when the user asked
+                    # for per-heading page breaks; otherwise it flows inline.
                     _ppr = toc_h.find(tag('pPr'))
                     if _ppr is None:
                         _ppr = etree.Element(tag('pPr'))
                         toc_h.insert(0, _ppr)
-                    if _ppr.find(tag('pageBreakBefore')) is None:
+                    _existing_pbb = _ppr.find(tag('pageBreakBefore'))
+                    if new_page_headings and _existing_pbb is None:
                         etree.SubElement(_ppr, tag('pageBreakBefore'))
+                    elif not new_page_headings and _existing_pbb is not None:
+                        _ppr.remove(_existing_pbb)
                     template_body.append(toc_h)
-                else:
+                elif new_page_headings:
                     # No heading in template \u2014 use a bare page-break paragraph.
                     _pb  = etree.Element(tag('p'))
                     _pbr = etree.SubElement(_pb, tag('r'))
@@ -81223,13 +81227,14 @@ def build_body(template_body, layout, sections, used, has_figures, toc=False,
                     template_body.append(_pb)
                 template_body.append(
                     make_field_paragraph('TOC1', layout['toc_instr']))
-                # Page break after the TOC so the first content section
-                # starts on its own page, not immediately below the TOC.
-                _toc_brk = etree.Element(tag('p'))
-                _toc_r   = etree.SubElement(_toc_brk, tag('r'))
-                _toc_b   = etree.SubElement(_toc_r,   tag('br'))
-                _toc_b.set(tag('type'), 'page')
-                template_body.append(_toc_brk)
+                if new_page_headings:
+                    # Page break after the TOC so the first content section
+                    # starts on its own page, not immediately below the TOC.
+                    _toc_brk = etree.Element(tag('p'))
+                    _toc_r   = etree.SubElement(_toc_brk, tag('r'))
+                    _toc_b   = etree.SubElement(_toc_r,   tag('br'))
+                    _toc_b.set(tag('type'), 'page')
+                    template_body.append(_toc_brk)
                 toc_deferred = False
         for b in blocks:
             # Remap pandoc-specific styles to template names.
@@ -82109,11 +82114,27 @@ def _write_docx(template_path, output_path, new_document_xml, new_footnotes_xml=
     if input_path:
         with zipfile.ZipFile(input_path) as zin:
             in_names = zin.namelist()
-            # 1. Copy media files (skip ones already present, e.g. template's
-            #    own sample image).
+            # 1. Copy media files. Pandoc names them after the rId
+            #    (word/media/rId24.png); Word dislikes that and renames them on
+            #    repair, so give them plain image{N} names and remember the
+            #    rename to patch the relationship Targets below.
+            _media_rename = {}   # 'media/rId24.png' -> 'media/image1.png'
+            _img_n = 1
             for n in in_names:
-                if n.startswith('word/media/') and n not in data:
-                    data[n] = zin.read(n)
+                if not (n.startswith('word/media/') and n not in data):
+                    continue
+                base = n.rsplit('/', 1)[-1]
+                ext = base.rsplit('.', 1)[-1].lower() if '.' in base else 'png'
+                newn = n
+                if not re.match(r'^image\\d+\\.', base):
+                    while True:
+                        cand = 'word/media/image%d.%s' % (_img_n, ext)
+                        _img_n += 1
+                        if cand not in data:
+                            newn = cand
+                            break
+                    _media_rename['media/' + base] = 'media/' + newn.rsplit('/', 1)[-1]
+                data[newn] = zin.read(n)
             # 2. Merge image relationships: pandoc names media files after
             #    the rId (word/media/rId22.jpg) and embeds r:embed="rId22".
             #    Keep pandoc's own rIds when possible (no collision), else
@@ -82139,6 +82160,9 @@ def _write_docx(template_path, output_path, new_document_xml, new_footnotes_xml=
                     rtype = r.get('Type') or ''
                     if not rid or ('image' not in rtype and 'hyperlink' not in rtype):
                         continue
+                    # Patch the Target for any media file we renamed above.
+                    if 'image' in rtype and (r.get('Target') or '') in _media_rename:
+                        r.set('Target', _media_rename[r.get('Target')])
                     target = r.get('Target') or ''
                     if rid not in existing:
                         out_rels.append(copy.deepcopy(r))
@@ -82157,109 +82181,77 @@ def _write_docx(template_path, output_path, new_document_xml, new_footnotes_xml=
                         out_rels.append(r2)
                         existing.add(new_rid)
                         rid_map[rid] = new_rid
+                # Rewrite body references to the remapped ids, merge pandoc's
+                # numbering, THEN serialize document.xml ONCE. (Earlier code
+                # serialized after the hyperlink rewrite and again after
+                # _merge_numbering \u2014 the second write clobbered the first, so
+                # colliding pandoc hyperlinks kept pointing at whatever the
+                # template had at that rId, and their renamed rels became
+                # orphans that Word flags as unreadable content.)
+                W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+                R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
                 if rid_map:
-                    # Rewrite r:embed / r:link in the body to the new ids.
-                    W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
-                    R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
-                    body_root = etree.fromstring(data['word/document.xml'])
-                    changed = False
-                    for el in body_root.iter():
-                        for attr in ('{%s}embed' % R, '{%s}link' % R):
+                    _ref_attrs = ('{%s}embed' % R, '{%s}link' % R, '{%s}id' % R)
+                    for el in new_document_xml.iter():
+                        for attr in _ref_attrs:
                             old = el.get(attr)
-                            if old in rid_map:
+                            if old is not None and old in rid_map \\
+                                    and rid_map[old] != old:
                                 el.set(attr, rid_map[old])
-                                changed = True
-                        # Rewrite r:id on w:hyperlink elements so external
-                        # links point to the remapped hyperlink rel, not to
-                        # whatever the template had at that same rId number.
-                        if el.tag == '{%s}hyperlink' % W:
-                            _hrid = el.get('{%s}id' % R)
-                            if _hrid and _hrid in rid_map:
-                                el.set('{%s}id' % R, rid_map[_hrid])
-                                changed = True
-                    if changed:
-                        data['word/document.xml'] = etree.tostring(
-                            body_root, xml_declaration=True, encoding='UTF-8',
-                            standalone=True)
-                # Drop UNREFERENCED image relationships (the template's
-                # leftover sample image, e.g. rId18 \u2192 media/image1.jpeg) and
-                # their media parts. Runs UNCONDITIONALLY (even when pandoc
-                # added no figures): Word flags an image relationship with no
-                # drawing referencing it as unreadable content.
+                # Merge pandoc's list numbering (bullets vs numbers) \u2014 mutates
+                # new_document_xml's numId refs in place.
+                if 'word/numbering.xml' in in_names:
+                    _merge_numbering(
+                        data, zin.read('word/numbering.xml'), new_document_xml)
+                data['word/document.xml'] = etree.tostring(
+                    new_document_xml, xml_declaration=True, encoding='UTF-8',
+                    standalone=True)
+
+                # Drop UNREFERENCED image AND hyperlink relationships: the
+                # template's leftover sample image (rId\u2026 \u2192 media/image1.jpeg),
+                # its sample hyperlink (rId\u2026 \u2192 http://example.com), and any
+                # pandoc hyperlink whose <w:hyperlink> landed in a dropped
+                # block. Word flags a relationship that nothing references as
+                # unreadable content. Structural rels (styles/settings/
+                # numbering/fontTable/theme/footnotes/endnotes/header/footer)
+                # are referenced by OPC convention, not by r:id, and are never
+                # of type image/hyperlink \u2014 so they are untouched.
                 body_text = data['word/document.xml'].decode('utf-8')
-                used = set(re.findall(r'r:(?:embed|link|id)="(rId\\w+)"', body_text))
+                used = set(re.findall(r'r:(?:embed|link|id)="([^"]+)"', body_text))
+                # Header/footer parts can reference image/hyperlink rels too.
+                for _pn, _pd in data.items():
+                    if re.match(r'word/(header|footer)\\d+\\.xml$', _pn):
+                        used |= set(re.findall(
+                            r'r:(?:embed|link|id)="([^"]+)"',
+                            _pd.decode('utf-8', 'replace')))
                 dropped_targets = set()
                 for r in list(out_rels):
                     rid = r.get('Id')
                     rtype = r.get('Type') or ''
-                    if rid and 'image' in rtype and rid not in used:
+                    if rid and ('image' in rtype or 'hyperlink' in rtype) \\
+                            and rid not in used:
                         tgt = r.get('Target') or ''
-                        if tgt:
+                        if tgt and 'image' in rtype:
                             dropped_targets.add(tgt)
                         out_rels.remove(r)
-                # Remove the media parts those rels pointed at (skip the
-                # ones the body actually uses).
-                used_targets = set()
-                for r in out_rels:
-                    rtype = r.get('Type') or ''
-                    if 'image' in rtype and r.get('Target'):
-                        used_targets.add(r.get('Target'))
+                used_targets = {r.get('Target') for r in out_rels
+                                if 'image' in (r.get('Type') or '')
+                                and r.get('Target')}
                 for tgt in dropped_targets:
-                    part = 'word/' + tgt if not tgt.startswith('word/') else tgt
+                    part = tgt if tgt.startswith('word/') else 'word/' + tgt
                     if part in data and tgt not in used_targets:
                         del data[part]
                 data[rels_path] = etree.tostring(
                     out_rels, xml_declaration=True, encoding='UTF-8',
                     standalone=True)
 
-            # Merge pandoc's list numbering so bullet/numbered lists render
-            # correctly.  The template's numbering.xml is the base; pandoc's
-            # abstractNum/num entries are appended with remapped IDs and the
-            # merged document body's numId references are rewritten to match.
-            if 'word/numbering.xml' in in_names:
-                _merge_numbering(
-                    data, zin.read('word/numbering.xml'), new_document_xml)
-                # Re-serialize: numId values in the tree were rewritten above.
-                data['word/document.xml'] = etree.tostring(
-                    new_document_xml, xml_declaration=True,
-                    encoding='UTF-8', standalone=True)
-
-            # Keep word/endnotes.xml (with the template's separator entries)
-            # in the package. Word requires the part to be present even when
-            # no endnotes are used; deleting it causes Word to re-create it
-            # on open and flag the file as repaired. The template already
-            # contains exactly the right minimal content (separator +
-            # continuationSeparator only), so we leave it untouched.
-            # settings.xml: remove w:endnotePr
-            if 'word/settings.xml' in data:
-                s_root = etree.fromstring(data['word/settings.xml'])
-                W2 = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
-                def tag2(n): return '{%s}%s' % (W2, n)
-                changed = False
-                for el in list(s_root.iter(tag2('endnotePr'))):
-                    parent = el.getparent()
-                    if parent is not None:
-                        parent.remove(el)
-                        changed = True
-                if changed:
-                    data['word/settings.xml'] = etree.tostring(
-                        s_root, xml_declaration=True, encoding='UTF-8',
-                        standalone=True)
-            # document.xml: remove w:endnotePr from every sectPr
-            if 'word/document.xml' in data:
-                d_root = etree.fromstring(data['word/document.xml'])
-                W2 = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
-                def tag2(n): return '{%s}%s' % (W2, n)
-                changed = False
-                for el in list(d_root.iter(tag2('endnotePr'))):
-                    parent = el.getparent()
-                    if parent is not None:
-                        parent.remove(el)
-                        changed = True
-                if changed:
-                    data['word/document.xml'] = etree.tostring(
-                        d_root, xml_declaration=True, encoding='UTF-8',
-                        standalone=True)
+            # The endnote chain (word/endnotes.xml + settings.xml <w:endnotePr>
+            # + [Content_Types] + the .rels entry) is left EXACTLY as the
+            # template ships it. The template carries only the separator /
+            # continuationSeparator entries (ids -1 / 0), which is the correct
+            # minimal setup. Earlier code stripped <w:endnotePr> from
+            # settings.xml while keeping endnotes.xml \u2014 that mismatch is itself
+            # "unreadable content" and Word re-adds the element on repair.
 
             # Prune [Content_Types].xml: remove <Default Extension> entries
             # for file extensions no longer present in the package. The

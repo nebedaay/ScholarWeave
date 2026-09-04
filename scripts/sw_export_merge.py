@@ -1697,13 +1697,19 @@ def _write_docx(template_path, output_path, new_document_xml, new_footnotes_xml=
                 W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
                 R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
                 if rid_map:
-                    _ref_attrs = ('{%s}embed' % R, '{%s}link' % R, '{%s}id' % R)
+                    # Only image references (r:embed / r:link, anywhere) and
+                    # hyperlink references (r:id on <w:hyperlink> ONLY) point at
+                    # the merged pandoc rels. r:id elsewhere — footerReference,
+                    # headerReference, etc. — belongs to the template and must
+                    # NOT be touched, or the footer/header parts get orphaned
+                    # and Word drops them.
+                    _rmap = {k: v for k, v in rid_map.items() if v != k}
                     for el in new_document_xml.iter():
-                        for attr in _ref_attrs:
-                            old = el.get(attr)
-                            if old is not None and old in rid_map \
-                                    and rid_map[old] != old:
-                                el.set(attr, rid_map[old])
+                        for attr in ('{%s}embed' % R, '{%s}link' % R):
+                            if el.get(attr) in _rmap:
+                                el.set(attr, _rmap[el.get(attr)])
+                        if el.tag == '{%s}hyperlink' % W and el.get('{%s}id' % R) in _rmap:
+                            el.set('{%s}id' % R, _rmap[el.get('{%s}id' % R)])
                 # Merge pandoc's list numbering (bullets vs numbers) — mutates
                 # new_document_xml's numId refs in place.
                 if 'word/numbering.xml' in in_names:
