@@ -1585,9 +1585,9 @@ def _parse_yaml_metadata(text, stem):
 
 
 def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
-                    template_dir=None, output_dir=None, default_author=None,
-                    new_page_headings=True, restart_footnotes=True,
-                    mappings_data=None):
+                    tof=False, template_dir=None, output_dir=None,
+                    default_author=None, new_page_headings=True,
+                    restart_footnotes=True, mappings_data=None):
     """Unified export pipeline for DOCX and ODT.
 
     Both formats share: YAML metadata parsing, citation conversion, markdown
@@ -1763,6 +1763,8 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
                      else '--global-footnotes')
     if toc:
         merge_cmd.append('--toc')
+    if tof:
+        merge_cmd.append('--list-of-figures')
     print('Merging:', ' '.join(merge_cmd))
     subprocess.run(merge_cmd, check=True)
     clean_path.unlink(missing_ok=True)
@@ -1784,12 +1786,13 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
 
 
 def export_docx(compiled_md, vault_root=None, template=None, toc=False,
-                template_dir=None, output_dir=None, default_author=None,
+                tof=False, template_dir=None, output_dir=None, default_author=None,
                 new_page_headings=True, restart_footnotes=True,
                 mappings_data=None):
     """Export compiled markdown to DOCX. Thin wrapper around export_document."""
     return export_document('docx', compiled_md,
                            vault_root=vault_root, template=template, toc=toc,
+                           tof=tof,
                            template_dir=template_dir, output_dir=output_dir,
                            default_author=default_author,
                            new_page_headings=new_page_headings,
@@ -1896,12 +1899,13 @@ def _prep_reference_odt(ref_doc_path, style_names):
 
 
 def export_odt(compiled_md, vault_root=None, template=None, toc=False,
-               template_dir=None, output_dir=None, default_author=None,
+               tof=False, template_dir=None, output_dir=None, default_author=None,
                new_page_headings=True, restart_footnotes=True,
                mappings_data=None):
     """Export compiled markdown to ODT. Thin wrapper around export_document."""
     return export_document('odt', compiled_md,
                            vault_root=vault_root, template=template, toc=toc,
+                           tof=tof,
                            template_dir=template_dir, output_dir=output_dir,
                            default_author=default_author,
                            new_page_headings=new_page_headings,
@@ -1910,7 +1914,7 @@ def export_odt(compiled_md, vault_root=None, template=None, toc=False,
 
 
 
-def export_pdf(compiled_md, vault_root=None, template=None, toc=False,
+def export_pdf(compiled_md, vault_root=None, template=None, toc=False, tof=False,
                template_dir=None, output_dir=None,
                new_page_headings=True, restart_footnotes=True,
                intermediate_format=None, keep_intermediate=False,
@@ -1952,7 +1956,7 @@ def export_pdf(compiled_md, vault_root=None, template=None, toc=False,
     tmp_dir = Path(tempfile.mkdtemp())
     try:
         common_kwargs = dict(
-            vault_root=vault_root, template=template, toc=toc,
+            vault_root=vault_root, template=template, toc=toc, tof=tof,
             template_dir=template_dir, output_dir=str(tmp_dir),
             new_page_headings=new_page_headings,
             restart_footnotes=restart_footnotes,
@@ -2017,6 +2021,12 @@ def main():
                        help='Include a TOC field in the exported docx (default for book* templates)')
     parser.add_argument('--no-toc', action='store_true',
                        help='Omit the TOC field (default for article* templates; override for book* templates)')
+    parser.add_argument('--list-of-figures', action='store_true',
+                       dest='list_of_figures',
+                       help='Include a table of figures (rendered only when the doc has figures; default for book*)')
+    parser.add_argument('--no-list-of-figures', action='store_true',
+                       dest='no_list_of_figures',
+                       help='Omit the table of figures')
     parser.add_argument('--new-page-headings', action='store_true', default=True,
                        help='Start each heading section on a new page (default: on)')
     parser.add_argument('--no-new-page-headings', action='store_true',
@@ -2063,11 +2073,16 @@ def main():
     is_book = effective_tpl.startswith('book')
     is_article = effective_tpl.startswith('article')
     use_toc = is_book
+    use_tof = is_book
     use_global = not is_book
     if args.toc:
         use_toc = True
     if args.no_toc:
         use_toc = False
+    if args.list_of_figures:
+        use_tof = True
+    if args.no_list_of_figures:
+        use_tof = False
     if args.global_footnotes:
         use_global = True
     if args.no_global_footnotes:
@@ -2089,7 +2104,7 @@ def main():
     if args.export:
         active_mappings = load_mappings(args.templates_dir, args.mappings)
         _common = dict(
-            template=args.template or effective_tpl, toc=use_toc,
+            template=args.template or effective_tpl, toc=use_toc, tof=use_tof,
             template_dir=args.templates_dir, output_dir=args.output_dir,
             new_page_headings=not args.no_new_page_headings,
             restart_footnotes=not use_global,

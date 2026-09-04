@@ -12,10 +12,82 @@ ZOTERO_BIBL_INSTR = (
     'ADDIN ZOTERO_BIBL {"uncited":[],"omittedItems":[],"custom":[]} CSL_BIBLIOGRAPHY'
 )
 
+import copy
 import datetime
+import os
 import random
 import re
 from lxml import etree
+
+
+def bundled_template(name):
+    """Absolute path to a bundled Export Template (…/scripts/../templates/<name>).
+    Used as the canonical source when the user's template lacks a structure we
+    need to synthesize (e.g. a Table of Figures)."""
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        '..', 'templates', name)
+
+
+def ensure_docx_styles(styles_bytes, needed_ids, source_styles_bytes):
+    """Return word/styles.xml bytes with any of `needed_ids` that are missing
+    copied verbatim from `source_styles_bytes` (a known-good template). Pulls in
+    a one-level basedOn parent if it is also missing. Unchanged when nothing is
+    needed."""
+    W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+    def wt(n): return '{%s}%s' % (W, n)
+    root = etree.fromstring(styles_bytes)
+    have = {s.get(wt('styleId')) for s in root.findall(wt('style'))}
+    if all(i in have for i in needed_ids):
+        return styles_bytes
+    src_by_id = {s.get(wt('styleId')): s
+                 for s in etree.fromstring(source_styles_bytes).findall(wt('style'))}
+    added = set()
+    def _add(sid):
+        if sid in have or sid in added or sid not in src_by_id:
+            return
+        st = copy.deepcopy(src_by_id[sid])
+        based = st.find(wt('basedOn'))
+        if based is not None:
+            _add(based.get(wt('val')))
+        root.append(st)
+        added.add(sid)
+    for sid in needed_ids:
+        _add(sid)
+    return etree.tostring(root, xml_declaration=True, encoding='UTF-8',
+                          standalone=True)
+
+
+def ensure_odt_styles(styles_bytes, needed_names, source_styles_bytes):
+    """Return styles.xml bytes with any of `needed_names` that are missing copied
+    verbatim from `source_styles_bytes` into <office:styles>. Pulls in a
+    one-level parent-style-name if it is also missing. Unchanged when nothing is
+    needed."""
+    S = 'urn:oasis:names:tc:opendocument:xmlns:style:1.0'
+    O = 'urn:oasis:names:tc:opendocument:xmlns:office:1.0'
+    def st(n): return '{%s}%s' % (S, n)
+    root = etree.fromstring(styles_bytes)
+    office_styles = root.find('{%s}styles' % O)
+    if office_styles is None:
+        return styles_bytes
+    have = {e.get(st('name')) for e in root.iter(st('style'))}
+    if all(n in have for n in needed_names):
+        return styles_bytes
+    src_by_name = {e.get(st('name')): e
+                   for e in etree.fromstring(source_styles_bytes).iter(st('style'))}
+    added = set()
+    def _add(name):
+        if name in have or name in added or name not in src_by_name:
+            return
+        el = copy.deepcopy(src_by_name[name])
+        parent = el.get(st('parent-style-name'))
+        if parent:
+            _add(parent)
+        office_styles.append(el)
+        added.add(name)
+    for name in needed_names:
+        _add(name)
+    return etree.tostring(root, xml_declaration=True, encoding='UTF-8',
+                          standalone=True)
 
 
 # ── pandoc → template style remaps (shared) ──────────────────────────────────

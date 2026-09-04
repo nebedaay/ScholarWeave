@@ -150,6 +150,8 @@ export interface CompilerOptions {
   template?: string;
   /** Explicit TOC choice (checkbox). Overrides template-aware default. */
   toc: boolean;
+  /** Explicit table-of-figures choice (checkbox). Only rendered when the doc has figures. */
+  tof: boolean;
   /** true = restart footnote numbering at each top-level heading; false = continuous. */
   restartFootnotes: boolean;
   /** true = top-level headings start on a new page. */
@@ -240,6 +242,7 @@ export async function runDocumentCompiler(
     }
   }
   args.push(opts.toc ? '--toc' : '--no-toc');
+  args.push(opts.tof ? '--list-of-figures' : '--no-list-of-figures');
   args.push(opts.restartFootnotes ? '--no-global-footnotes' : '--global-footnotes');
   args.push(opts.newPageHeadings ? '--new-page-headings' : '--no-new-page-headings');
 

@@ -74123,6 +74123,7 @@ async function runDocumentCompiler(plugin, file, opts) {
     }
   }
   args.push(opts.toc ? "--toc" : "--no-toc");
+  args.push(opts.tof ? "--list-of-figures" : "--no-list-of-figures");
   args.push(opts.restartFootnotes ? "--no-global-footnotes" : "--global-footnotes");
   args.push(opts.newPageHeadings ? "--new-page-headings" : "--no-new-page-headings");
   const accountName = (_f = (_e = plugin.app.account) == null ? void 0 : _e.name) != null ? _f : void 0;
@@ -74333,7 +74334,8 @@ var ExportModal = class extends import_obsidian14.Modal {
       return cb;
     };
     this.tocCb = makeCheckRow("lc-export-toc", "Include table of contents (TOC)");
-    this.footnotesCb = makeCheckRow("lc-export-fn", "Restart footnote numbering per chapter");
+    this.tofCb = makeCheckRow("lc-export-tof", "Include table of figures");
+    this.footnotesCb = makeCheckRow("lc-export-fn", "Restart footnote and figure numbering per chapter");
     this.newPageCb = makeCheckRow("lc-export-np", "Top-level headings start on a new page");
     this.keepIntermediateRow = checksWrap.createDiv({ cls: "lc-export-check-row" });
     this.keepIntermediateCb = this.keepIntermediateRow.createEl("input", { type: "checkbox" });
@@ -74371,7 +74373,7 @@ var ExportModal = class extends import_obsidian14.Modal {
           this.applyDocTypePreset(r3.value);
       });
     });
-    [this.tocCb, this.footnotesCb, this.newPageCb].forEach((cb) => {
+    [this.tocCb, this.tofCb, this.footnotesCb, this.newPageCb].forEach((cb) => {
       cb.addEventListener("change", () => {
         this.docTypeBook.checked = false;
         this.docTypeArticle.checked = false;
@@ -74438,6 +74440,7 @@ var ExportModal = class extends import_obsidian14.Modal {
     const isPdf = format2 === "pdf";
     this.templateSelect.disabled = isMd;
     this.tocCb.disabled = isMd;
+    this.tofCb.disabled = isMd;
     this.newPageCb.disabled = isMd;
     const pdfDisplay = isPdf ? "" : "none";
     this.keepIntermediateRow.style.display = pdfDisplay;
@@ -74496,21 +74499,25 @@ var ExportModal = class extends import_obsidian14.Modal {
   applyDocTypePreset(docType) {
     if (docType === "book") {
       this.tocCb.checked = true;
+      this.tofCb.checked = true;
       this.footnotesCb.checked = true;
       this.newPageCb.checked = true;
     } else if (docType === "article") {
       this.tocCb.checked = false;
+      this.tofCb.checked = false;
       this.footnotesCb.checked = false;
       this.newPageCb.checked = false;
     }
   }
   applyDocSettings(fresh = false) {
+    var _a;
     const history = this.getFileHistory();
     if (history && !fresh) {
       this.docTypeBook.checked = history.docType === "book";
       this.docTypeArticle.checked = history.docType === "article";
       this.docTypeCustom.checked = history.docType === "custom";
       this.tocCb.checked = history.toc;
+      this.tofCb.checked = (_a = history.tof) != null ? _a : false;
       this.footnotesCb.checked = history.restartFootnotes;
       this.newPageCb.checked = history.newPageHeadings;
     } else {
@@ -74568,6 +74575,7 @@ var ExportModal = class extends import_obsidian14.Modal {
       docType,
       template: this.templateSelect.value,
       toc: this.tocCb.checked,
+      tof: this.tofCb.checked,
       restartFootnotes: this.footnotesCb.checked,
       newPageHeadings: this.newPageCb.checked,
       outputDir: this.outputDirInput.value.trim(),
@@ -74589,6 +74597,7 @@ var ExportModal = class extends import_obsidian14.Modal {
       docType: opts.docType,
       template: opts.template,
       toc: opts.toc,
+      tof: opts.tof,
       restartFootnotes: opts.restartFootnotes,
       newPageHeadings: opts.newPageHeadings,
       outputDir: opts.outputDir,
@@ -76988,9 +76997,9 @@ def _parse_yaml_metadata(text, stem):
 
 
 def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
-                    template_dir=None, output_dir=None, default_author=None,
-                    new_page_headings=True, restart_footnotes=True,
-                    mappings_data=None):
+                    tof=False, template_dir=None, output_dir=None,
+                    default_author=None, new_page_headings=True,
+                    restart_footnotes=True, mappings_data=None):
     """Unified export pipeline for DOCX and ODT.
 
     Both formats share: YAML metadata parsing, citation conversion, markdown
@@ -77166,6 +77175,8 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
                      else '--global-footnotes')
     if toc:
         merge_cmd.append('--toc')
+    if tof:
+        merge_cmd.append('--list-of-figures')
     print('Merging:', ' '.join(merge_cmd))
     subprocess.run(merge_cmd, check=True)
     clean_path.unlink(missing_ok=True)
@@ -77187,12 +77198,13 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
 
 
 def export_docx(compiled_md, vault_root=None, template=None, toc=False,
-                template_dir=None, output_dir=None, default_author=None,
+                tof=False, template_dir=None, output_dir=None, default_author=None,
                 new_page_headings=True, restart_footnotes=True,
                 mappings_data=None):
     """Export compiled markdown to DOCX. Thin wrapper around export_document."""
     return export_document('docx', compiled_md,
                            vault_root=vault_root, template=template, toc=toc,
+                           tof=tof,
                            template_dir=template_dir, output_dir=output_dir,
                            default_author=default_author,
                            new_page_headings=new_page_headings,
@@ -77299,12 +77311,13 @@ def _prep_reference_odt(ref_doc_path, style_names):
 
 
 def export_odt(compiled_md, vault_root=None, template=None, toc=False,
-               template_dir=None, output_dir=None, default_author=None,
+               tof=False, template_dir=None, output_dir=None, default_author=None,
                new_page_headings=True, restart_footnotes=True,
                mappings_data=None):
     """Export compiled markdown to ODT. Thin wrapper around export_document."""
     return export_document('odt', compiled_md,
                            vault_root=vault_root, template=template, toc=toc,
+                           tof=tof,
                            template_dir=template_dir, output_dir=output_dir,
                            default_author=default_author,
                            new_page_headings=new_page_headings,
@@ -77313,7 +77326,7 @@ def export_odt(compiled_md, vault_root=None, template=None, toc=False,
 
 
 
-def export_pdf(compiled_md, vault_root=None, template=None, toc=False,
+def export_pdf(compiled_md, vault_root=None, template=None, toc=False, tof=False,
                template_dir=None, output_dir=None,
                new_page_headings=True, restart_footnotes=True,
                intermediate_format=None, keep_intermediate=False,
@@ -77355,7 +77368,7 @@ def export_pdf(compiled_md, vault_root=None, template=None, toc=False,
     tmp_dir = Path(tempfile.mkdtemp())
     try:
         common_kwargs = dict(
-            vault_root=vault_root, template=template, toc=toc,
+            vault_root=vault_root, template=template, toc=toc, tof=tof,
             template_dir=template_dir, output_dir=str(tmp_dir),
             new_page_headings=new_page_headings,
             restart_footnotes=restart_footnotes,
@@ -77420,6 +77433,12 @@ def main():
                        help='Include a TOC field in the exported docx (default for book* templates)')
     parser.add_argument('--no-toc', action='store_true',
                        help='Omit the TOC field (default for article* templates; override for book* templates)')
+    parser.add_argument('--list-of-figures', action='store_true',
+                       dest='list_of_figures',
+                       help='Include a table of figures (rendered only when the doc has figures; default for book*)')
+    parser.add_argument('--no-list-of-figures', action='store_true',
+                       dest='no_list_of_figures',
+                       help='Omit the table of figures')
     parser.add_argument('--new-page-headings', action='store_true', default=True,
                        help='Start each heading section on a new page (default: on)')
     parser.add_argument('--no-new-page-headings', action='store_true',
@@ -77466,11 +77485,16 @@ def main():
     is_book = effective_tpl.startswith('book')
     is_article = effective_tpl.startswith('article')
     use_toc = is_book
+    use_tof = is_book
     use_global = not is_book
     if args.toc:
         use_toc = True
     if args.no_toc:
         use_toc = False
+    if args.list_of_figures:
+        use_tof = True
+    if args.no_list_of_figures:
+        use_tof = False
     if args.global_footnotes:
         use_global = True
     if args.no_global_footnotes:
@@ -77492,7 +77516,7 @@ def main():
     if args.export:
         active_mappings = load_mappings(args.templates_dir, args.mappings)
         _common = dict(
-            template=args.template or effective_tpl, toc=use_toc,
+            template=args.template or effective_tpl, toc=use_toc, tof=use_tof,
             template_dir=args.templates_dir, output_dir=args.output_dir,
             new_page_headings=not args.no_new_page_headings,
             restart_footnotes=not use_global,
@@ -80543,6 +80567,7 @@ from sw_merge_helpers import (
     resize_images, STYLE_REMAP, resolve_cover, process_figures,
     title_case as _title_case, strip_markdown as _strip_markdown,
     is_main_start, is_toc_heading, is_tof_heading,
+    bundled_template, ensure_docx_styles,
 )
 
 W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
@@ -81077,7 +81102,7 @@ def transform_figures(sections, chapter_scoped, has_alttext_style):
 # \u2500\u2500 build output body \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
 def build_body(template_body, layout, sections, used, has_figures, toc=False,
-               new_page_headings=True, restart_footnotes=True,
+               tof=False, new_page_headings=True, restart_footnotes=True,
                extra_sections=None, has_bibliography=False):
     """
     Rebuild the template body:
@@ -81129,11 +81154,16 @@ def build_body(template_body, layout, sections, used, has_figures, toc=False,
     # Flag for deferred TOC injection in the content loop (simple templates).
     toc_deferred = toc and bool(layout['toc_instr']) and not layout['title_block']
 
-    # 3. ToF section \u2014 only when figures are present. Structured (book) templates
-    #    only; for simple templates the ToF is injected in the deferred path
-    #    alongside the TOC (see below).
-    if has_figures and layout['title_block'] \\
-            and layout['tof_heading'] is not None and layout['tof_instr']:
+    # The user asked for a table of figures AND the document has figures AND a
+    # ToF heading + field code is available (from the template or the bundled
+    # fallback). Structured templates emit it here (after the TOC); simple
+    # templates emit it in the deferred path alongside the TOC.
+    want_tof = (tof and has_figures
+                and layout['tof_heading'] is not None and layout['tof_instr'])
+    tof_deferred = want_tof and not layout['title_block']
+
+    # 3. ToF section \u2014 structured (book) templates.
+    if want_tof and layout['title_block']:
         template_body.append(layout['tof_heading'])
         template_body.append(make_field_paragraph('TableofFigures', layout['tof_instr']))
         _brk = make_section_break(kinds['tof'])
@@ -81186,13 +81216,13 @@ def build_body(template_body, layout, sections, used, has_figures, toc=False,
         # We do NOT restrict to kind=='main': is_main_start matches only a
         # handful of names, so most document headings stay 'frontmatter' and
         # the TOC would never fire if we gated on kind.
-        if toc_deferred and blocks and blocks[0].tag == tag('p') \\
+        if (toc_deferred or tof_deferred) and blocks and blocks[0].tag == tag('p') \\
                 and get_style(blocks[0]) == 'Heading1':
             h1_text = _para_text(blocks[0])
             if not is_toc_heading(h1_text) and not is_tof_heading(h1_text):
                 # Remove the preceding bare page-break paragraph (emitted as the
-                # frontmatter section break) so the TOC heading can carry the page
-                # break itself via <w:pageBreakBefore/>, avoiding a blank paragraph.
+                # frontmatter section break) so the first inserted heading can
+                # carry the page break itself, avoiding a blank paragraph.
                 if len(template_body) > 0:
                     _prev = template_body[-1]
                     _brs  = list(_prev.iter(tag('br')))
@@ -81204,38 +81234,41 @@ def build_body(template_body, layout, sections, used, has_figures, toc=False,
                     )
                     if _is_bare_pb:
                         template_body.remove(_prev)
-                if layout['toc_heading'] is not None:
-                    toc_h = layout['toc_heading']
-                    # Only force the TOC onto its own page when the user asked
-                    # for per-heading page breaks; otherwise it flows inline.
-                    _ppr = toc_h.find(tag('pPr'))
-                    if _ppr is None:
-                        _ppr = etree.Element(tag('pPr'))
-                        toc_h.insert(0, _ppr)
-                    _existing_pbb = _ppr.find(tag('pageBreakBefore'))
-                    if new_page_headings and _existing_pbb is None:
-                        etree.SubElement(_ppr, tag('pageBreakBefore'))
-                    elif not new_page_headings and _existing_pbb is not None:
-                        _ppr.remove(_existing_pbb)
-                    template_body.append(toc_h)
-                elif new_page_headings:
-                    # No heading in template \u2014 use a bare page-break paragraph.
-                    _pb  = etree.Element(tag('p'))
-                    _pbr = etree.SubElement(_pb, tag('r'))
-                    _pbb = etree.SubElement(_pbr, tag('br'))
-                    _pbb.set(tag('type'), 'page')
-                    template_body.append(_pb)
-                template_body.append(
-                    make_field_paragraph('TOC1', layout['toc_instr']))
-                if new_page_headings:
-                    # Page break after the TOC so the first content section
-                    # starts on its own page, not immediately below the TOC.
-                    _toc_brk = etree.Element(tag('p'))
-                    _toc_r   = etree.SubElement(_toc_brk, tag('r'))
-                    _toc_b   = etree.SubElement(_toc_r,   tag('br'))
-                    _toc_b.set(tag('type'), 'page')
-                    template_body.append(_toc_brk)
-                toc_deferred = False
+
+                def _emit_field_section(heading_el, field_pstyle, field_instr):
+                    """Append heading (+ optional page break) + field paragraph
+                    + optional trailing page break for a deferred TOC / ToF."""
+                    if heading_el is not None:
+                        _ppr = heading_el.find(tag('pPr'))
+                        if _ppr is None:
+                            _ppr = etree.Element(tag('pPr'))
+                            heading_el.insert(0, _ppr)
+                        _pbb = _ppr.find(tag('pageBreakBefore'))
+                        if new_page_headings and _pbb is None:
+                            etree.SubElement(_ppr, tag('pageBreakBefore'))
+                        elif not new_page_headings and _pbb is not None:
+                            _ppr.remove(_pbb)
+                        template_body.append(heading_el)
+                    elif new_page_headings:
+                        _pb = etree.SubElement(
+                            etree.SubElement(etree.SubElement(
+                                template_body, tag('p')), tag('r')), tag('br'))
+                        _pb.set(tag('type'), 'page')
+                    template_body.append(
+                        make_field_paragraph(field_pstyle, field_instr))
+                    if new_page_headings:
+                        _b = etree.SubElement(etree.SubElement(etree.SubElement(
+                            template_body, tag('p')), tag('r')), tag('br'))
+                        _b.set(tag('type'), 'page')
+
+                if toc_deferred:
+                    _emit_field_section(layout['toc_heading'], 'TOC1',
+                                        layout['toc_instr'])
+                    toc_deferred = False
+                if tof_deferred:
+                    _emit_field_section(layout['tof_heading'], 'TableofFigures',
+                                        layout['tof_instr'])
+                    tof_deferred = False
         for b in blocks:
             # Remap pandoc-specific styles to template names.
             if b.tag == tag('p'):
@@ -81350,7 +81383,7 @@ def build_body(template_body, layout, sections, used, has_figures, toc=False,
 # \u2500\u2500 merge \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
 def merge(template_path, input_path, output_path, title=None, author=None,
-          subtitle=None, date_val=None, toc=False, short_title=None,
+          subtitle=None, date_val=None, toc=False, tof=False, short_title=None,
           basename=None, abstract=None, extra_sections=None,
           new_page_headings=True, restart_footnotes=True):
     with zipfile.ZipFile(template_path) as z:
@@ -81363,6 +81396,21 @@ def merge(template_path, input_path, output_path, title=None, author=None,
     pdc_body, pdc_children = parse_body(pdc_doc)
 
     layout = extract_template_layout(template_path)
+
+    # When the user asked for a table of figures but their template has no ToF
+    # structure, borrow the heading + field code from the bundled document.docx
+    # (its styles are pulled in later by _write_docx via _tof_style_ids).
+    _tof_style_ids = []
+    if tof and (layout['tof_heading'] is None or layout['tof_instr'] is None):
+        try:
+            _fallback = extract_template_layout(bundled_template('document.docx'))
+            if layout['tof_heading'] is None:
+                layout['tof_heading'] = _fallback['tof_heading']
+            if layout['tof_instr'] is None:
+                layout['tof_instr'] = _fallback['tof_instr']
+            _tof_style_ids = ['TOFHeading', 'TableofFigures']
+        except Exception as e:
+            print(f'WARNING: could not load fallback ToF from document.docx: {e}')
 
     sections = classify_blocks(pdc_children)
 
@@ -81406,7 +81454,7 @@ def merge(template_path, input_path, output_path, title=None, author=None,
         # so build_body injects it into the content stream after the title area.
         extra_sections = [('abstract', abstract)] + (extra_sections or [])
 
-    build_body(tmpl_body, layout, sections, used, has_figures, toc=toc,
+    build_body(tmpl_body, layout, sections, used, has_figures, toc=toc, tof=tof,
                new_page_headings=new_page_headings,
                restart_footnotes=restart_footnotes,
                extra_sections=extra_sections if not _has_structured_title else None,
@@ -81469,7 +81517,8 @@ def merge(template_path, input_path, output_path, title=None, author=None,
     # Save via python-docx-like zip write (preserve all other parts).
     _write_docx(template_path, output_path, tmpl_doc, new_footnotes,
                 short_title=short_title, author=author, title=title,
-                subtitle=subtitle, input_path=input_path)
+                subtitle=subtitle, input_path=input_path,
+                extra_style_ids=_tof_style_ids)
 
 def _fill_title_block(title_block, title, subtitle, author, date_val,
                       abstract=None):
@@ -82091,7 +82140,7 @@ def _merge_numbering(data, pdc_num_bytes, doc_root):
 
 def _write_docx(template_path, output_path, new_document_xml, new_footnotes_xml=None,
                 short_title=None, author=None, title=None, subtitle=None,
-                input_path=None):
+                input_path=None, extra_style_ids=None):
     """Write output docx = template parts with document.xml (and optionally
     footnotes.xml) replaced, and headers/footers/docProps normalized.
 
@@ -82099,11 +82148,23 @@ def _write_docx(template_path, output_path, new_document_xml, new_footnotes_xml=
     merged into the output, and the clean docx's image relationships are
     merged into the template's rels (renumbered to avoid collisions), so
     drawings referenced in the body resolve to the actual image files.
+
+    extra_style_ids: styleIds the merged body now references that the template
+    may not define (e.g. the ToF styles when the ToF was borrowed from
+    document.docx) \u2014 copied in from the bundled document.docx.
     """
     with zipfile.ZipFile(template_path) as zin:
         names = zin.namelist()
         data = {n: zin.read(n) for n in names}
     _ensure_abstractkeywords_style(data)
+    if extra_style_ids and 'word/styles.xml' in data:
+        try:
+            with zipfile.ZipFile(bundled_template('document.docx')) as _z:
+                _src = _z.read('word/styles.xml')
+            data['word/styles.xml'] = ensure_docx_styles(
+                data['word/styles.xml'], extra_style_ids, _src)
+        except Exception as e:
+            print(f'WARNING: could not inject ToF styles: {e}')
     data['word/document.xml'] = etree.tostring(
         new_document_xml, xml_declaration=True, encoding='UTF-8', standalone=True
     )
@@ -82191,13 +82252,19 @@ def _write_docx(template_path, output_path, new_document_xml, new_footnotes_xml=
                 W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
                 R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
                 if rid_map:
-                    _ref_attrs = ('{%s}embed' % R, '{%s}link' % R, '{%s}id' % R)
+                    # Only image references (r:embed / r:link, anywhere) and
+                    # hyperlink references (r:id on <w:hyperlink> ONLY) point at
+                    # the merged pandoc rels. r:id elsewhere \u2014 footerReference,
+                    # headerReference, etc. \u2014 belongs to the template and must
+                    # NOT be touched, or the footer/header parts get orphaned
+                    # and Word drops them.
+                    _rmap = {k: v for k, v in rid_map.items() if v != k}
                     for el in new_document_xml.iter():
-                        for attr in _ref_attrs:
-                            old = el.get(attr)
-                            if old is not None and old in rid_map \\
-                                    and rid_map[old] != old:
-                                el.set(attr, rid_map[old])
+                        for attr in ('{%s}embed' % R, '{%s}link' % R):
+                            if el.get(attr) in _rmap:
+                                el.set(attr, _rmap[el.get(attr)])
+                        if el.tag == '{%s}hyperlink' % W and el.get('{%s}id' % R) in _rmap:
+                            el.set('{%s}id' % R, _rmap[el.get('{%s}id' % R)])
                 # Merge pandoc's list numbering (bullets vs numbers) \u2014 mutates
                 # new_document_xml's numId refs in place.
                 if 'word/numbering.xml' in in_names:
@@ -82363,6 +82430,8 @@ def main():
     ap.add_argument('--subtitle', default=None)
     ap.add_argument('--date', default=None, dest='date_val')
     ap.add_argument('--toc', action='store_true')
+    ap.add_argument('--list-of-figures', action='store_true', dest='tof',
+                    help='Include a table of figures (only when the doc has figures)')
     ap.add_argument('--shorttitle', default=None)
     ap.add_argument('--basename', default=None)
     ap.add_argument('--abstract', default=None)
@@ -82394,8 +82463,8 @@ def main():
     new_page_headings = not args.no_new_page_headings
     restart_footnotes = args.no_global_footnotes  # --no-global-footnotes = restart per chapter
     merge(args.template, args.input, args.output, args.title, args.author,
-          args.subtitle, args.date_val, args.toc, args.shorttitle, args.basename,
-          args.abstract, extra_sections,
+          args.subtitle, args.date_val, args.toc, args.tof, args.shorttitle,
+          args.basename, args.abstract, extra_sections,
           new_page_headings=new_page_headings,
           restart_footnotes=restart_footnotes)
     print(f'Merged: {args.output}')
@@ -82448,7 +82517,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sw_merge_helpers import (split_paragraphs, find_bibliography_range,
     strip_bibliography, ZOTERO_BIBL_INSTR, resize_images, STYLE_REMAP,
     resolve_cover, title_case as _title_case, strip_markdown as _strip_markdown,
-    is_toc_heading, process_figures)
+    is_toc_heading, process_figures, bundled_template, ensure_odt_styles)
 
 # \u2500\u2500 ODF namespace constants \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
@@ -83179,7 +83248,7 @@ def _inject_zotero_bibliography_odt(body_elements):
 
 def merge_odt(template_path, input_path, output_path,
               title=None, author=None, subtitle=None, date_val=None,
-              toc=False, short_title=None, basename=None,
+              toc=False, tof=False, short_title=None, basename=None,
               abstract=None, extra_sections=None,
               new_page_headings=True, restart_footnotes=True):
     """
@@ -83224,6 +83293,20 @@ def merge_odt(template_path, input_path, output_path,
 
     # \u2500\u2500 Extract template layout \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     layout = extract_template_layout(template_path)
+
+    # When the user asked for a table of figures but the template has no
+    # <text:illustration-index>, borrow the index + heading from the bundled
+    # document.odt and pull in the styles they reference.
+    _tof_from_fallback = False
+    if tof and layout['tof_element'] is None:
+        try:
+            _fb = extract_template_layout(bundled_template('document.odt'))
+            if _fb['tof_element'] is not None:
+                layout['tof_element'] = _fb['tof_element']
+                layout['tof_heading'] = _fb['tof_heading']
+                _tof_from_fallback = True
+        except Exception as e:
+            print(f'WARNING: could not load fallback ToF from document.odt: {e}')
 
     # \u2500\u2500 Fill title block \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     filled_title = _fill_title_block(
@@ -83315,11 +83398,11 @@ def merge_odt(template_path, input_path, output_path,
         h.text = 'Table of Contents'
         tmpl_text.append(h)
 
-    # 2b. Table of Figures \u2014 heading + <text:illustration-index>, only when the
-    #     document has figures and the template provides the index element.
-    #     Mirrors the DOCX ToF; LibreOffice regenerates the entry list on
-    #     Tools \u25B8 Update \u25B8 Fields.
-    if has_figures and layout['tof_element'] is not None:
+    # 2b. Table of Figures \u2014 heading + <text:illustration-index>, when the user
+    #     asked for it and the document has figures. The index element (and its
+    #     heading + styles) come from the template, or from the bundled
+    #     document.odt when the template has none.
+    if tof and has_figures and layout['tof_element'] is not None:
         if new_page_headings:
             auto = tmpl_root.find('.//' + O('automatic-styles'))
             if auto is not None:
@@ -83390,6 +83473,20 @@ def merge_odt(template_path, input_path, output_path,
             z_data['styles.xml'] = etree.tostring(
                 styles_root, xml_declaration=True, encoding='UTF-8', standalone=True)
 
+    # When the ToF was borrowed from document.odt, make sure the styles its
+    # entry template references exist in this template.
+    if _tof_from_fallback and 'styles.xml' in z_data:
+        try:
+            with zipfile.ZipFile(bundled_template('document.odt')) as _z:
+                _src = _z.read('styles.xml')
+            z_data['styles.xml'] = ensure_odt_styles(
+                z_data['styles.xml'],
+                ['Figure_20_Index_20_Heading', 'Figure_20_Index_20_1',
+                 'Index_20_Link'],
+                _src)
+        except Exception as e:
+            print(f'WARNING: could not inject ToF styles: {e}')
+
     # Cap images to template text area dimensions, preserving aspect ratio.
     n_scaled = resize_images(tmpl_root, 'odt', template_zip_data=z_data)
     if n_scaled:
@@ -83430,6 +83527,8 @@ def main():
     ap.add_argument('--subtitle', default=None)
     ap.add_argument('--date',     default=None, dest='date_val')
     ap.add_argument('--toc',      action='store_true')
+    ap.add_argument('--list-of-figures', action='store_true', dest='tof',
+                    help='Include a table of figures (only when the doc has figures)')
     ap.add_argument('--shorttitle', default=None)
     ap.add_argument('--basename', default=None)
     ap.add_argument('--abstract', default=None)
@@ -83461,7 +83560,8 @@ def main():
     merge_odt(
         args.template, args.input, args.output,
         title=args.title, author=args.author, subtitle=args.subtitle,
-        date_val=args.date_val, toc=args.toc, short_title=args.shorttitle,
+        date_val=args.date_val, toc=args.toc, tof=args.tof,
+        short_title=args.shorttitle,
         basename=args.basename, abstract=args.abstract,
         extra_sections=extra_sections,
         new_page_headings=new_page_headings,
@@ -83485,10 +83585,82 @@ ZOTERO_BIBL_INSTR = (
     'ADDIN ZOTERO_BIBL {"uncited":[],"omittedItems":[],"custom":[]} CSL_BIBLIOGRAPHY'
 )
 
+import copy
 import datetime
+import os
 import random
 import re
 from lxml import etree
+
+
+def bundled_template(name):
+    """Absolute path to a bundled Export Template (\u2026/scripts/../templates/<name>).
+    Used as the canonical source when the user's template lacks a structure we
+    need to synthesize (e.g. a Table of Figures)."""
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        '..', 'templates', name)
+
+
+def ensure_docx_styles(styles_bytes, needed_ids, source_styles_bytes):
+    """Return word/styles.xml bytes with any of \`needed_ids\` that are missing
+    copied verbatim from \`source_styles_bytes\` (a known-good template). Pulls in
+    a one-level basedOn parent if it is also missing. Unchanged when nothing is
+    needed."""
+    W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+    def wt(n): return '{%s}%s' % (W, n)
+    root = etree.fromstring(styles_bytes)
+    have = {s.get(wt('styleId')) for s in root.findall(wt('style'))}
+    if all(i in have for i in needed_ids):
+        return styles_bytes
+    src_by_id = {s.get(wt('styleId')): s
+                 for s in etree.fromstring(source_styles_bytes).findall(wt('style'))}
+    added = set()
+    def _add(sid):
+        if sid in have or sid in added or sid not in src_by_id:
+            return
+        st = copy.deepcopy(src_by_id[sid])
+        based = st.find(wt('basedOn'))
+        if based is not None:
+            _add(based.get(wt('val')))
+        root.append(st)
+        added.add(sid)
+    for sid in needed_ids:
+        _add(sid)
+    return etree.tostring(root, xml_declaration=True, encoding='UTF-8',
+                          standalone=True)
+
+
+def ensure_odt_styles(styles_bytes, needed_names, source_styles_bytes):
+    """Return styles.xml bytes with any of \`needed_names\` that are missing copied
+    verbatim from \`source_styles_bytes\` into <office:styles>. Pulls in a
+    one-level parent-style-name if it is also missing. Unchanged when nothing is
+    needed."""
+    S = 'urn:oasis:names:tc:opendocument:xmlns:style:1.0'
+    O = 'urn:oasis:names:tc:opendocument:xmlns:office:1.0'
+    def st(n): return '{%s}%s' % (S, n)
+    root = etree.fromstring(styles_bytes)
+    office_styles = root.find('{%s}styles' % O)
+    if office_styles is None:
+        return styles_bytes
+    have = {e.get(st('name')) for e in root.iter(st('style'))}
+    if all(n in have for n in needed_names):
+        return styles_bytes
+    src_by_name = {e.get(st('name')): e
+                   for e in etree.fromstring(source_styles_bytes).iter(st('style'))}
+    added = set()
+    def _add(name):
+        if name in have or name in added or name not in src_by_name:
+            return
+        el = copy.deepcopy(src_by_name[name])
+        parent = el.get(st('parent-style-name'))
+        if parent:
+            _add(parent)
+        office_styles.append(el)
+        added.add(name)
+    for name in needed_names:
+        _add(name)
+    return etree.tostring(root, xml_declaration=True, encoding='UTF-8',
+                          standalone=True)
 
 
 # \u2500\u2500 pandoc \u2192 template style remaps (shared) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500

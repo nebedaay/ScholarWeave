@@ -44,7 +44,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sw_merge_helpers import (split_paragraphs, find_bibliography_range,
     strip_bibliography, ZOTERO_BIBL_INSTR, resize_images, STYLE_REMAP,
     resolve_cover, title_case as _title_case, strip_markdown as _strip_markdown,
-    is_toc_heading, process_figures)
+    is_toc_heading, process_figures, bundled_template, ensure_odt_styles)
 
 # ── ODF namespace constants ───────────────────────────────────────────────────
 
@@ -775,7 +775,7 @@ def _inject_zotero_bibliography_odt(body_elements):
 
 def merge_odt(template_path, input_path, output_path,
               title=None, author=None, subtitle=None, date_val=None,
-              toc=False, short_title=None, basename=None,
+              toc=False, tof=False, short_title=None, basename=None,
               abstract=None, extra_sections=None,
               new_page_headings=True, restart_footnotes=True):
     """
@@ -820,6 +820,20 @@ def merge_odt(template_path, input_path, output_path,
 
     # ── Extract template layout ────────────────────────────────────────────
     layout = extract_template_layout(template_path)
+
+    # When the user asked for a table of figures but the template has no
+    # <text:illustration-index>, borrow the index + heading from the bundled
+    # document.odt and pull in the styles they reference.
+    _tof_from_fallback = False
+    if tof and layout['tof_element'] is None:
+        try:
+            _fb = extract_template_layout(bundled_template('document.odt'))
+            if _fb['tof_element'] is not None:
+                layout['tof_element'] = _fb['tof_element']
+                layout['tof_heading'] = _fb['tof_heading']
+                _tof_from_fallback = True
+        except Exception as e:
+            print(f'WARNING: could not load fallback ToF from document.odt: {e}')
 
     # ── Fill title block ───────────────────────────────────────────────────
     filled_title = _fill_title_block(
@@ -911,11 +925,11 @@ def merge_odt(template_path, input_path, output_path,
         h.text = 'Table of Contents'
         tmpl_text.append(h)
 
-    # 2b. Table of Figures — heading + <text:illustration-index>, only when the
-    #     document has figures and the template provides the index element.
-    #     Mirrors the DOCX ToF; LibreOffice regenerates the entry list on
-    #     Tools ▸ Update ▸ Fields.
-    if has_figures and layout['tof_element'] is not None:
+    # 2b. Table of Figures — heading + <text:illustration-index>, when the user
+    #     asked for it and the document has figures. The index element (and its
+    #     heading + styles) come from the template, or from the bundled
+    #     document.odt when the template has none.
+    if tof and has_figures and layout['tof_element'] is not None:
         if new_page_headings:
             auto = tmpl_root.find('.//' + O('automatic-styles'))
             if auto is not None:
@@ -986,6 +1000,20 @@ def merge_odt(template_path, input_path, output_path,
             z_data['styles.xml'] = etree.tostring(
                 styles_root, xml_declaration=True, encoding='UTF-8', standalone=True)
 
+    # When the ToF was borrowed from document.odt, make sure the styles its
+    # entry template references exist in this template.
+    if _tof_from_fallback and 'styles.xml' in z_data:
+        try:
+            with zipfile.ZipFile(bundled_template('document.odt')) as _z:
+                _src = _z.read('styles.xml')
+            z_data['styles.xml'] = ensure_odt_styles(
+                z_data['styles.xml'],
+                ['Figure_20_Index_20_Heading', 'Figure_20_Index_20_1',
+                 'Index_20_Link'],
+                _src)
+        except Exception as e:
+            print(f'WARNING: could not inject ToF styles: {e}')
+
     # Cap images to template text area dimensions, preserving aspect ratio.
     n_scaled = resize_images(tmpl_root, 'odt', template_zip_data=z_data)
     if n_scaled:
@@ -1026,6 +1054,8 @@ def main():
     ap.add_argument('--subtitle', default=None)
     ap.add_argument('--date',     default=None, dest='date_val')
     ap.add_argument('--toc',      action='store_true')
+    ap.add_argument('--list-of-figures', action='store_true', dest='tof',
+                    help='Include a table of figures (only when the doc has figures)')
     ap.add_argument('--shorttitle', default=None)
     ap.add_argument('--basename', default=None)
     ap.add_argument('--abstract', default=None)
@@ -1057,7 +1087,8 @@ def main():
     merge_odt(
         args.template, args.input, args.output,
         title=args.title, author=args.author, subtitle=args.subtitle,
-        date_val=args.date_val, toc=args.toc, short_title=args.shorttitle,
+        date_val=args.date_val, toc=args.toc, tof=args.tof,
+        short_title=args.shorttitle,
         basename=args.basename, abstract=args.abstract,
         extra_sections=extra_sections,
         new_page_headings=new_page_headings,
