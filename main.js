@@ -75410,7 +75410,7 @@ async function convertVaultToPandoc(plugin) {
 var import_obsidian19 = __toModule(require("obsidian"));
 
 // bundled-assets-ns:bundled:assets
-var BUNDLED_ASSETS = { "scripts/DocumentCompiler.py": { "content": `## Started with ChatGPT, ironed out with DeepSeek, OpenWork, and Claude
+var BUNDLED_ASSETS = { "scripts/ARCHITECTURE.md": { "content": "# Export pipeline architecture (`scripts/`)\n\nThe DOCX/ODT export & import pipeline is Python, invoked by `src/exportCompiler.ts`\n/ `src/importCompiler.ts` via `child_process` (desktop only; needs `python3` with\n`lxml` + `python-docx`, plus `pandoc`).\n\n```\noutline / note.md\n   \u2502  DocumentCompiler.compile_book / compile_note   (outline \u2192 one markdown doc)\n   \u25BC\ncompiled.md\n   \u2502  convert-citations.mjs        (citation wikilinks \u2192 native pandoc citations)\n   \u2502  DocumentCompiler markdown pre-processing:\n   \u2502     rewrite_poetry_callouts \xB7 preprocess_md_syntax \xB7 resolve_embed_links\n   \u2502     (image embeds + Obsidian |WIDTH size syntax) \xB7 strip_wikilinks\n   \u2502     (code-span aware) \xB7 linkify_bare_urls\n   \u2502  pandoc  -t docx|odt  + sw-*.lua filters\n   \u25BC\nclean.docx / clean.odt        (styled content, no template structure)\n   \u2502  sw_export_merge.merge()          sw_export_odt_merge.merge_odt()\n   \u25BC\nfinal.docx / final.odt\n   \u2502  DocumentCompiler.inject_missing_{docx,odt}_styles   (belt-and-braces)\n   \u25BC\noutput\n```\n\n## The three-way split\n\n| file | role |\n|---|---|\n| `DocumentCompiler.py` | orchestrator: outline compilation, markdown pre-processing, pandoc invocation, template lookup, merge-script invocation. `export_document(fmt, \u2026)` is the single entry point for both formats. |\n| `sw_export_merge.py` (DOCX), `sw_export_odt_merge.py` (ODT) | **serializers.** Take pandoc's clean output + the export template, produce the final file. Contain only format XML mechanics \u2014 building `<w:p>` vs `<text:p>`, sectPr vs master pages, OOXML fields vs `<text:sequence>`. |\n| `sw_merge_helpers.py` | **the shared layer.** Every decision about *what content appears, in what order, with what numbering / labels / structure* lives here and is consumed by both merge scripts. |\n\n## The rule (this is why the shared layer exists)\n\nPast work repeatedly forked DOCX and ODT into divergent logic \u2014 one format would\ngain a feature the other silently lacked. So:\n\n- A substantive content/structure decision goes in `sw_merge_helpers.py`, **never**\n  in a single merge script.\n- Before adding a function to a merge script, check whether the other format\n  already implements the same idea. If it does, lift the shared logic into\n  `sw_merge_helpers.py` first, then call it from both.\n- Shared functions stay format-neutral: they take **accessor callbacks**\n  (`get_style` / `set_style` / `get_text`, element builders) rather than importing\n  OOXML or ODF constants.\n\n## Shared functions and their per-format callers\n\n| `sw_merge_helpers` | DOCX caller | ODT caller |\n|---|---|---|\n| `resolve_cover`, `title_case`, `strip_markdown` | direct | direct |\n| `is_main_start` / `is_toc_heading` / `is_tof_heading` | `classify_blocks`, `extract_template_layout` | `_looks_like_toc_heading` |\n| `STYLE_REMAP['docx' \\| 'odt']` | inline in `build_body` | `_STYLE_REMAPS` |\n| `process_figures(\u2026, accessors)` \u2014 the figure-caption walk (find the vault \"Figure. \u2026\" line after an image, drop pandoc's filename caption, strip the old number, compute the real one, consume `Alt-text:`, track chapter, `has_figures`) | `transform_figures` | inline in `merge_odt` |\n| `strip_figure_prefix`, `parse_chapter_number`, `strip_chapter_prefix` | `apply_chapter_numbering` | `apply_chapter_numbering_odt` |\n| `append_extra_sections(\u2026, make_heading, make_body)` | `_append_extra_sections` (AKH + BodyText) | `_append_extra_sections` (AKH + Text_20_body) |\n| `resize_images(root, fmt)` | `merge` | `merge_odt` |\n| `ensure_docx_styles` / `ensure_odt_styles` | ToF style borrow in `_write_docx` | ToF style borrow in `merge_odt` |\n| `bundled_template(name)` | ToF fallback source | ToF fallback source |\n| `split_paragraphs`, `find_bibliography_range`, `strip_bibliography`, `ZOTERO_BIBL_INSTR` | direct | direct |\n\n## Deliberately per-format (irreducible)\n\n- **`_fill_title_block`** \u2014 DOCX detects title/author/date by placeholder text +\n  position; ODT by style name (+ book.odt's P1/P2 convention). The *abstract*\n  policy (drop every placeholder slot, re-inject via `append_extra_sections`) is\n  now identical.\n- **Chapter numbering** \u2014 DOCX adds `<w:numPr>` (template numId); ODT wraps the\n  heading in `<text:list style=\"WWNum13\">`. Same trigger (`Chapter N:` prefix,\n  stripped by the shared helper), same gate (template must define the mechanism).\n- **Page-break / section-break mechanics**, **footnote restart**, **field XML**.\n\n## Open feature work (not consolidation)\n\n- Format-agnostic page numbering: roman frontmatter \u2192 arabic at\n  Introduction/Chapter 1, driven by settings + document structure, independent of\n  the template. book.odt does this with per-heading `style:master-page-name`.\n- ODT book figure captions render \"Figure 1\" not \"Figure C.N\" \u2014 `display-outline-level`\n  can't see the `<text:list>` chapter numbers.\n", "binary": false }, "scripts/DocumentCompiler.py": { "content": `## Started with ChatGPT, ironed out with DeepSeek, OpenWork, and Claude
 # DocumentCompiler: converts a bulleted outline of Obsidian notes to a single
 # compiled markdown file (and optionally exports to .docx).
 #
@@ -80566,8 +80566,8 @@ from sw_merge_helpers import (
     split_paragraphs, find_bibliography_range, strip_bibliography, ZOTERO_BIBL_INSTR,
     resize_images, STYLE_REMAP, resolve_cover, process_figures,
     title_case as _title_case, strip_markdown as _strip_markdown,
-    is_main_start, is_toc_heading, is_tof_heading,
-    bundled_template, ensure_docx_styles,
+    is_main_start, is_toc_heading, is_tof_heading, strip_chapter_prefix,
+    bundled_template, ensure_docx_styles, append_extra_sections,
 )
 
 W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
@@ -80618,6 +80618,32 @@ def _strip_field_cache(p):
             if ftype == 'end':
                 break
             p.remove(r)
+
+def _plain_heading_copy(p):
+    """Deep-copy a heading paragraph, dropping any field runs (fldChar /
+    instrText / cached results) so only the pPr + plain-text runs remain.
+    Used when a template puts the TOC/ToF FIELD code on the heading paragraph
+    itself (document.docx) \u2014 we keep the styled heading, build a fresh field
+    paragraph separately."""
+    q = copy.deepcopy(p)
+    in_field = False
+    for r in list(q):
+        if r.tag != tag('r'):
+            continue
+        fld = r.find(tag('fldChar'))
+        ftype = fld.get(tag('fldCharType')) if fld is not None else None
+        if ftype == 'begin':
+            in_field = True
+            q.remove(r)
+            continue
+        if ftype == 'end':
+            in_field = False
+            q.remove(r)
+            continue
+        if in_field or r.find(tag('instrText')) is not None:
+            q.remove(r)
+    return q
+
 
 def extract_template_layout(template_path):
     """Extract the template's frontmatter skeleton and section kinds.
@@ -80688,7 +80714,12 @@ def extract_template_layout(template_path):
             toc_heading = copy.deepcopy(c)
         elif tof_heading is None and (style == 'TOFHeading'
                 or (style == 'Heading1' and is_tof_heading(text))):
-            tof_heading = copy.deepcopy(c)
+            tof_heading = _plain_heading_copy(c)
+            # document.docx carries the ToF field code ON the heading paragraph
+            # (no separate field para); grab the instruction here.
+            if tof_instr is None and 'TOC' in instrs and 'Figure' in instrs:
+                tof_instr = _para_first_instr(c).strip()
+                tof_field_pos = i
         elif bibl_heading is None and style == 'Heading1' and \\
                 text.strip().lower() == 'bibliography':
             bibl_heading = copy.deepcopy(c)
@@ -80952,15 +80983,13 @@ def classify_blocks(children):
 
 # \u2500\u2500 chapter numbering \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
-_CHAPTER_NUM_RE = re.compile(r'^(?:chapter\\s+)?\\d+[.):]?\\s+(.*)$', re.IGNORECASE)
-
 def apply_chapter_numbering(sections, numid):
     """For every Heading 1 whose text looks like a numbered chapter
-    ('Chapter 1: Title' or '1. Title'), strip the literal number/prefix and
-    add Word numbering (numPr \u2192 numid) so Word supplies the chapter number.
-    Non-numbered headings (Preface, Introduction, Conclusion, ...) keep plain
-    Heading 1. Only Heading 1 is treated; sections (Heading 2+) never get
-    chapter numbers.
+    ('Chapter 1: Title' or '1. Title'), strip the literal number/prefix (via the
+    shared strip_chapter_prefix) and add Word numbering (numPr \u2192 numid) so Word
+    supplies the chapter number. Non-numbered headings (Preface, Introduction,
+    Conclusion, ...) keep plain Heading 1. Only Heading 1 is treated; sections
+    (Heading 2+) never get chapter numbers.
     """
     if not numid:
         return
@@ -80969,15 +80998,15 @@ def apply_chapter_numbering(sections, numid):
             if b.tag != tag('p') or get_style(b) != 'Heading1':
                 continue
             text = _para_text(b)
-            m = _CHAPTER_NUM_RE.match(text)
-            if not m or m.group(1) == text:
+            stripped = strip_chapter_prefix(text)
+            if stripped == text:
                 continue
             # Replace text with the number-stripped remainder.
             for r in list(b.findall(tag('r'))):
                 b.remove(r)
             r = etree.SubElement(b, tag('r'))
             t = etree.SubElement(r, tag('t'))
-            t.text = m.group(1)
+            t.text = stripped
             # Add numPr into pPr (after pStyle).
             ppr = b.find(tag('pPr'))
             if ppr is None:
@@ -81432,32 +81461,27 @@ def merge(template_path, input_path, output_path, title=None, author=None,
     title, subtitle, author, date_val = resolve_cover(
         title, subtitle, author, date_val, basename)
 
-    # Fill the title block (layout['title_block'] are the copies build_body
-    # will append, so fill them in place).
-    _fill_title_block(layout['title_block'], title, subtitle, author, date_val,
-                      abstract=abstract)
-    # Note: save whether the template has a structured title block BEFORE
-    # extra sections are appended.  For simple reference-doc templates
-    # (title_block is [] because no inline section breaks exist), appending
-    # extra sections here would make the block non-empty, causing build_body
-    # to skip pandoc's Title/Author paragraphs and emit the note sections
-    # instead of the title \u2014 the note replaces the title.  We only append to
-    # the title block for structured (book-style) templates; for simple
-    # templates we pass extra_sections into build_body, which injects them
-    # into the content stream right after the first frontmatter section.
+    # Fill title/subtitle/author/date into the template title block and DROP
+    # its abstract/keywords placeholder slots. The abstract is then re-injected
+    # like any other extra section (drop-and-reinject) \u2014 the same policy the ODT
+    # merge uses, so both formats build the abstract identically.
+    _fill_title_block(layout['title_block'], title, subtitle, author, date_val)
+
+    all_extra = ([('abstract', abstract)] if abstract else []) + (extra_sections or [])
+
+    # Structured (book-style) templates: append the extra sections to the title
+    # block (build_body renders it before the first section break). Simple
+    # reference-doc templates have title_block == [] \u2014 appending here would make
+    # build_body skip pandoc's own Title/Author paragraphs, so pass them to
+    # build_body, which injects them into the content stream after the cover.
     _has_structured_title = bool(layout['title_block'])
     if _has_structured_title:
-        _append_extra_sections(layout['title_block'], extra_sections or [])
-    elif abstract:
-        # Simple reference-doc template (no structured title block): abstract
-        # was not handled by _fill_title_block, so prepend it to extra_sections
-        # so build_body injects it into the content stream after the title area.
-        extra_sections = [('abstract', abstract)] + (extra_sections or [])
+        _append_extra_sections(layout['title_block'], all_extra)
 
     build_body(tmpl_body, layout, sections, used, has_figures, toc=toc, tof=tof,
                new_page_headings=new_page_headings,
                restart_footnotes=restart_footnotes,
-               extra_sections=extra_sections if not _has_structured_title else None,
+               extra_sections=all_extra if not _has_structured_title else None,
                has_bibliography=_has_bibliography)
 
     # Remove ORPHANED bookmarkEnd elements: any end whose matching
@@ -81520,16 +81544,16 @@ def merge(template_path, input_path, output_path, title=None, author=None,
                 subtitle=subtitle, input_path=input_path,
                 extra_style_ids=_tof_style_ids)
 
-def _fill_title_block(title_block, title, subtitle, author, date_val,
-                      abstract=None):
+def _fill_title_block(title_block, title, subtitle, author, date_val):
     """Replace placeholder text in the template title block (a list of deep
     copies used by build_body):
       - Title / Subtitle styles \u2192 resolved values
       - Subtitle paragraph REMOVED when there is no subtitle
       - first non-Date Body Text after Subtitle \u2192 author
       - Body Text 'Date' \u2192 date
-      - Abstract / Note heading+text sections dropped when there is no
-        content (template placeholder text never survives)
+      - every Abstract/keywords/Note placeholder slot is DROPPED; the abstract
+        and note/sw-* sections are re-injected by _append_extra_sections (the
+        same drop-and-reinject policy as the ODT merge)
     """
     author_done = not author
     date_done = not date_val
@@ -81559,39 +81583,14 @@ def _fill_title_block(title_block, title, subtitle, author, date_val,
                 date_done = True
             i += 1
         elif style == 'Abstractkeywordsheading':
-            # Abstract (and keywords/note) heading style used by article/book templates.
-            # Only the "Abstract" heading is filled; other keyword headings (dropped
-            # by this branch) are handled separately by _append_extra_sections().
-            is_abstract_heading = cur.strip().lower() == 'abstract'
-            if is_abstract_heading and abstract:
-                _replace_text(p, cur)          # keep heading text "Abstract"
-                # Fill the following body paragraph(s).  Templates may use either
-                # BodyText (book.docx) or Abstract (document.docx) for the body.
-                # Support multi-paragraph abstracts: split on blank lines and
-                # clone the template paragraph for each additional chunk.
-                j = i + 1
-                while j < len(title_block):
-                    body_style = get_style(title_block[j])
-                    if body_style in ('BodyText', 'Abstract'):
-                        paras = split_paragraphs(abstract)
-                        _fill_markdown_text(title_block[j], paras[0])
-                        insert_pos = j + 1
-                        for extra_para in paras[1:]:
-                            clone = copy.deepcopy(title_block[j])
-                            _fill_markdown_text(clone, extra_para)
-                            title_block.insert(insert_pos, clone)
-                            insert_pos += 1
-                        i = insert_pos - 1  # outer i += 1 moves past last inserted
-                        break
-                    j += 1
-                i += 1
-            else:
-                # No abstract content, or a non-abstract keyword heading: drop heading
-                # and its following body paragraph(s) (BodyText or Abstract style).
+            # Abstract/keywords/note placeholder heading (article/book templates).
+            # Always drop it and its following body paragraph(s); the real
+            # abstract + note/sw-* sections are re-injected by
+            # _append_extra_sections.
+            title_block.pop(i)
+            while i < len(title_block) and get_style(title_block[i]) in ('BodyText', 'Abstract'):
                 title_block.pop(i)
-                while i < len(title_block) and get_style(title_block[i]) in ('BodyText', 'Abstract'):
-                    title_block.pop(i)
-                continue
+            continue
         elif style == 'Abstract':
             # Standalone abstract body paragraph (document.docx template style).
             # Only reached when no preceding Abstractkeywordsheading paired with it
@@ -81633,35 +81632,26 @@ def _strip_bibliography_from_sections(sections):
     return list(sections), False
 
 
-def _append_extra_sections(title_block, extra_sections):
-    """Append heading + body paragraph pairs to title_block for each
-    (key, value) pair in extra_sections (note/sw-* properties collected from
-    YAML in document order).
+def _make_akh_heading(label):
+    h = etree.Element(tag('p'))
+    ps = etree.SubElement(etree.SubElement(h, tag('pPr')), tag('pStyle'))
+    ps.set(tag('val'), _ABSTRACTKEYWORDS_STYLE_ID)
+    etree.SubElement(etree.SubElement(h, tag('r')), tag('t')).text = label
+    return h
 
-    The heading uses the Abstractkeywordsheading style (bold + italic, matching
-    the abstract/keywords section); the body uses BodyText style. Markdown in
-    value is processed to bold/italic/code runs.
-    """
-    for key, value in extra_sections:
-        label = _title_case(key)
-        # Heading paragraph with Abstractkeywordsheading style.
-        h = etree.Element(tag('p'))
-        hpr = etree.SubElement(h, tag('pPr'))
-        hstyle = etree.SubElement(hpr, tag('pStyle'))
-        hstyle.set(tag('val'), _ABSTRACTKEYWORDS_STYLE_ID)
-        hr = etree.SubElement(h, tag('r'))
-        ht = etree.SubElement(hr, tag('t'))
-        ht.text = label
-        title_block.append(h)
-        # Body paragraph(s) with BodyText style. split_paragraphs handles the
-        # \\n\\n splitting shared with the ODT merge via sw_merge_helpers.
-        for chunk in split_paragraphs(value):
-            b = etree.Element(tag('p'))
-            bpr = etree.SubElement(b, tag('pPr'))
-            bstyle = etree.SubElement(bpr, tag('pStyle'))
-            bstyle.set(tag('val'), 'BodyText')
-            title_block.append(b)
-            _fill_markdown_text(b, chunk)
+def _make_akh_body(chunk):
+    b = etree.Element(tag('p'))
+    ps = etree.SubElement(etree.SubElement(b, tag('pPr')), tag('pStyle'))
+    ps.set(tag('val'), 'BodyText')
+    _fill_markdown_text(b, chunk)   # operates on b in place; pPr already set
+    return b
+
+def _append_extra_sections(title_block, extra_sections):
+    """Append an Abstractkeywordsheading heading + BodyText paragraph(s) for
+    each (key, value) in extra_sections (abstract + note/sw-* properties).
+    Shared loop lives in sw_merge_helpers.append_extra_sections."""
+    append_extra_sections(title_block, extra_sections,
+                          _make_akh_heading, _make_akh_body)
 
 def _ensure_abstractkeywords_style(data):
     """Inject the Abstractkeywordsheading paragraph style into word/styles.xml
@@ -82517,7 +82507,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sw_merge_helpers import (split_paragraphs, find_bibliography_range,
     strip_bibliography, ZOTERO_BIBL_INSTR, resize_images, STYLE_REMAP,
     resolve_cover, title_case as _title_case, strip_markdown as _strip_markdown,
-    is_toc_heading, process_figures, bundled_template, ensure_odt_styles)
+    is_toc_heading, process_figures, bundled_template, ensure_odt_styles,
+    strip_chapter_prefix, parse_chapter_number, append_extra_sections)
 
 # \u2500\u2500 ODF namespace constants \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
@@ -82781,6 +82772,17 @@ def extract_template_layout(template_path):
                      if ('style:name="%s"' % _FIGCAPTION_STYLE).encode() in styles_bytes
                      else 'Caption')
 
+    # Chapter numbering: the list style that book.odt wraps its numbered chapter
+    # headings in ("Chapter N." via WWNum13). None for document/article \u2014 those
+    # templates don't auto-number chapters (matches the DOCX chapter_numid).
+    chapter_list_style = None
+    for lst in tmpl_root.iter(T('list')):
+        h = lst.find(T('list-item') + '/' + T('h'))
+        if h is not None and h.get(T('outline-level'), '') == '1' \\
+                and lst.get(T('style-name')):
+            chapter_list_style = lst.get(T('style-name'))
+            break
+
     return {
         'title_block': title_block,
         'toc_heading': toc_heading,
@@ -82789,6 +82791,7 @@ def extract_template_layout(template_path):
         'tof_element': tof_element,
         'has_alttext_style': has_alttext_style,
         'caption_style': caption_style,
+        'chapter_list_style': chapter_list_style,
         'content_bytes': content_bytes,
         'styles_bytes': styles_bytes,
     }
@@ -82898,24 +82901,24 @@ def _fill_title_block(title_block, title, subtitle, author, date_val):
 
 # \u2500\u2500 extra sections injection \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
+def _make_akh_heading(label):
+    h = etree.Element(T('p'))
+    h.set(T('style-name'), _AKH_STYLE)
+    h.text = label
+    return h
+
+def _make_akh_body(chunk):
+    b = etree.Element(T('p'))
+    b.set(T('style-name'), _BODY_STYLE)
+    _set_markdown_text(b, chunk)
+    return b
+
 def _append_extra_sections(out_list, extra_sections):
-    """Append AKH heading + Text_20_body paragraph(s) for each
-    (key, value) in extra_sections (note/sw-* YAML properties).
-    Multi-paragraph values (e.g. a multi-paragraph abstract split by \\\\n\\\\n)
-    produce one body paragraph per chunk, using split_paragraphs() from
-    sw_merge_helpers \u2014 the same function used by the DOCX merge so both
-    formats handle paragraphs identically."""
-    for key, value in extra_sections:
-        label = _title_case(key)
-        h = etree.Element(T('p'))
-        h.set(T('style-name'), _AKH_STYLE)
-        h.text = label
-        out_list.append(h)
-        for chunk in split_paragraphs(value):
-            b = etree.Element(T('p'))
-            b.set(T('style-name'), _BODY_STYLE)
-            _set_markdown_text(b, chunk)
-            out_list.append(b)
+    """Append an AKH heading + Text_20_body paragraph(s) for each (key, value)
+    in extra_sections (abstract + note/sw-* YAML properties). Shared loop lives
+    in sw_merge_helpers.append_extra_sections."""
+    append_extra_sections(out_list, extra_sections,
+                          _make_akh_heading, _make_akh_body)
 
 # \u2500\u2500 pandoc body classification \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
@@ -83058,13 +83061,70 @@ def _ensure_h1_pagebreak_style(auto_styles):
 
 def apply_page_breaks(body_elements, tmpl_root):
     """Set the page-break style on all H1 elements in body_elements.
-    Also injects the style definition into tmpl_root's automatic-styles."""
+    Also injects the style definition into tmpl_root's automatic-styles.
+    Chapter headings already wrapped in <text:list> by apply_chapter_numbering_odt
+    are nested (not direct members of body_elements) and are skipped here \u2014 they
+    carry their own page-break-bearing style."""
     auto = tmpl_root.find('.//' + O('automatic-styles'))
     if auto is not None:
         _ensure_h1_pagebreak_style(auto)
     for el in body_elements:
         if el.tag == T('h') and el.get(T('outline-level'), '') == '1':
             el.set(T('style-name'), _H1_PB_STYLE)
+
+
+_CHAPTER_H_STYLE = 'SW_Chapter_Heading'
+
+def _ensure_chapter_heading_style(auto_styles, list_style_name, new_page):
+    """Inject SW_Chapter_Heading: inherits Heading 1, bound to the template's
+    chapter list style so LibreOffice renders 'Chapter N', + a page break when
+    per-heading page breaks are on."""
+    for child in auto_styles:
+        if child.get(S('name')) == _CHAPTER_H_STYLE:
+            return
+    se = etree.SubElement(auto_styles, S('style'))
+    se.set(S('name'),              _CHAPTER_H_STYLE)
+    se.set(S('family'),            'paragraph')
+    se.set(S('parent-style-name'), _H1_PARENT)
+    se.set(T('list-style-name'),   list_style_name)
+    if new_page:
+        pp = etree.SubElement(se, S('paragraph-properties'))
+        pp.set(F('break-before'), 'page')
+
+def apply_chapter_numbering_odt(body_elements, tmpl_root, list_style_name,
+                                new_page_headings):
+    """Wrap numbered-chapter Heading 1s ('Chapter 3: Title') in a <text:list>
+    bound to the template's chapter list style (book.odt's WWNum13 \u2192 'Chapter
+    N.'), stripping the literal 'Chapter N:' prefix. This is the ODF equivalent
+    of the DOCX numPr \u2014 LibreOffice supplies the number, and it renumbers on
+    reorder. Non-numbered Heading 1s (Preface, Introduction, Conclusion) are
+    left as plain <text:h>. Mutates body_elements in place; returns True when
+    any chapter was wrapped.
+    """
+    auto = tmpl_root.find('.//' + O('automatic-styles'))
+    out = []
+    wrapped = 0
+    for el in body_elements:
+        if el.tag == T('h') and el.get(T('outline-level'), '') == '1':
+            txt = _elem_text(el)
+            stripped = strip_chapter_prefix(txt)
+            if parse_chapter_number(txt) > 0 and stripped != txt:
+                if auto is not None:
+                    _ensure_chapter_heading_style(auto, list_style_name,
+                                                  new_page_headings)
+                _set_plain_text(el, stripped)
+                el.set(T('style-name'), _CHAPTER_H_STYLE)
+                lst = etree.Element(T('list'))
+                lst.set(T('style-name'), list_style_name)
+                if wrapped:
+                    lst.set(T('continue-numbering'), 'true')
+                etree.SubElement(lst, T('list-item')).append(el)
+                out.append(lst)
+                wrapped += 1
+                continue
+        out.append(el)
+    body_elements[:] = out
+    return wrapped > 0
 
 # \u2500\u2500 TOC page break \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
@@ -83349,6 +83409,17 @@ def merge_odt(template_path, input_path, output_path,
     # \u2500\u2500 Merge pandoc auto-styles into template (before moving elements) \u2500\u2500\u2500\u2500
     name_map = _merge_auto_styles(tmpl_root, pdc_root, styles_root)
     _rewrite_style_refs(body_elements, name_map)
+
+    # \u2500\u2500 Chapter numbering \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+    # Wrap numbered chapters in the template's chapter list style so
+    # LibreOffice supplies "Chapter N." (parallel to the DOCX numPr). Runs
+    # before apply_page_breaks so the wrapped headings carry SW_Chapter_Heading
+    # (which includes the page break) rather than SW_Heading1_Pagebreak.
+    _chaptered = False
+    if layout['chapter_list_style']:
+        _chaptered = apply_chapter_numbering_odt(
+            body_elements, tmpl_root, layout['chapter_list_style'],
+            new_page_headings)
 
     # \u2500\u2500 Apply page breaks \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     if new_page_headings:
@@ -83956,6 +84027,12 @@ def strip_figure_prefix(text):
     return _FIGURE_PREFIX_RE.sub('', text or '', count=1).strip()
 
 
+#: A Heading 1 that begins with a literal chapter number: "Chapter 3: Title",
+#: "3. Title", "3) Title". Group 1 is the title without the prefix.
+_CHAPTER_PREFIX_RE = re.compile(
+    r'^\\s*(?:chapter\\s+)?(\\d+)\\s*[.):]?\\s+(.*)$', re.IGNORECASE | re.DOTALL)
+
+
 def parse_chapter_number(text):
     """Return the leading chapter number of a Heading 1's text ('Chapter 3: X'
     or '3. X' \u2192 3), or 0 when the heading carries no number (Preface,
@@ -83963,6 +84040,29 @@ def parse_chapter_number(text):
     numbers identically for DOCX and ODT."""
     m = re.match(r'^\\s*(?:chapter\\s+)?(\\d+)\\b', text or '', re.IGNORECASE)
     return int(m.group(1)) if m else 0
+
+
+def append_extra_sections(out_list, extra_sections, make_heading, make_body):
+    """For each (key, value) in extra_sections append one heading element
+    (make_heading(label)) then one body element per blank-line-separated chunk
+    (make_body(chunk)). key \u2192 label via title_case; value split via
+    split_paragraphs. Shared so DOCX and ODT inject the abstract + note/sw-*
+    sections with identical structure."""
+    for key, value in extra_sections:
+        out_list.append(make_heading(title_case(key)))
+        for chunk in split_paragraphs(value):
+            out_list.append(make_body(chunk))
+
+
+def strip_chapter_prefix(text):
+    """Strip a leading 'Chapter N:' / 'N.' / 'N)' chapter-number prefix from a
+    Heading 1's text, returning the bare title. Unchanged when there is no such
+    prefix. Shared so DOCX (which then supplies the number via Word numPr) and
+    ODT strip the literal prefix identically."""
+    m = _CHAPTER_PREFIX_RE.match(text or '')
+    if m and m.group(2).strip():
+        return m.group(2).strip()
+    return text or ''
 
 
 def process_figures(elements, *, get_style, get_text, set_body_style,
