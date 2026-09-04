@@ -12,7 +12,9 @@ export interface ExportOptions {
   /** Template filename (with extension, e.g. "book.docx"). Empty = no template. */
   template: string;
   toc: boolean;
-  /** true = restart footnote numbering at each top-level heading; false = continuous. */
+  /** true = include a table of figures (only rendered when the doc has figures). */
+  tof: boolean;
+  /** true = restart footnote AND figure numbering at each top-level heading (Figure C.N); false = continuous (Figure N). */
   restartFootnotes: boolean;
   /** true = each top-level heading starts on a new page. */
   newPageHeadings: boolean;
@@ -34,6 +36,7 @@ interface FileExportHistory {
   docType: DocType;
   template: string;
   toc: boolean;
+  tof: boolean;
   restartFootnotes: boolean;
   newPageHeadings: boolean;
   outputDir: string;
@@ -99,6 +102,7 @@ export class ExportModal extends Modal {
   private docTypeArticle!: HTMLInputElement;
   private docTypeCustom!: HTMLInputElement;
   private tocCb!: HTMLInputElement;
+  private tofCb!: HTMLInputElement;
   private footnotesCb!: HTMLInputElement;
   private newPageCb!: HTMLInputElement;
   private keepIntermediateCb!: HTMLInputElement;
@@ -287,9 +291,10 @@ export class ExportModal extends Modal {
     };
 
     this.tocCb = makeCheckRow('lc-export-toc', 'Include table of contents (TOC)');
+    this.tofCb = makeCheckRow('lc-export-tof', 'Include table of figures');
     this.footnotesCb = makeCheckRow(
       'lc-export-fn',
-      'Restart footnote numbering per chapter'
+      'Restart footnote and figure numbering per chapter'
     );
     this.newPageCb = makeCheckRow(
       'lc-export-np',
@@ -345,7 +350,7 @@ export class ExportModal extends Modal {
         if (r.checked) this.applyDocTypePreset(r.value as DocType);
       });
     });
-    [this.tocCb, this.footnotesCb, this.newPageCb].forEach(cb => {
+    [this.tocCb, this.tofCb, this.footnotesCb, this.newPageCb].forEach(cb => {
       cb.addEventListener('change', () => {
         this.docTypeBook.checked    = false;
         this.docTypeArticle.checked = false;
@@ -437,6 +442,7 @@ export class ExportModal extends Modal {
     const isPdf = format === 'pdf';
     this.templateSelect.disabled = isMd;
     this.tocCb.disabled      = isMd;
+    this.tofCb.disabled      = isMd;
     this.newPageCb.disabled  = isMd;
     // footnotesCb stays active — the compile step still uses it.
     // PDF-specific rows: show only when format is pdf.
@@ -528,10 +534,12 @@ export class ExportModal extends Modal {
   private applyDocTypePreset(docType: DocType): void {
     if (docType === 'book') {
       this.tocCb.checked       = true;
+      this.tofCb.checked       = true;
       this.footnotesCb.checked = true;
       this.newPageCb.checked   = true;
     } else if (docType === 'article') {
       this.tocCb.checked       = false;
+      this.tofCb.checked       = false;
       this.footnotesCb.checked = false;
       this.newPageCb.checked   = false;
     }
@@ -554,6 +562,7 @@ export class ExportModal extends Modal {
       this.docTypeArticle.checked = history.docType === 'article';
       this.docTypeCustom.checked  = history.docType === 'custom';
       this.tocCb.checked          = history.toc;
+      this.tofCb.checked          = history.tof ?? false;
       this.footnotesCb.checked    = history.restartFootnotes;
       this.newPageCb.checked      = history.newPageHeadings;
     } else {
@@ -639,6 +648,7 @@ export class ExportModal extends Modal {
       docType,
       template: this.templateSelect.value,
       toc: this.tocCb.checked,
+      tof: this.tofCb.checked,
       restartFootnotes: this.footnotesCb.checked,
       newPageHeadings: this.newPageCb.checked,
       outputDir: this.outputDirInput.value.trim(),
@@ -665,6 +675,7 @@ export class ExportModal extends Modal {
       docType:          opts.docType,
       template:         opts.template,
       toc:              opts.toc,
+      tof:              opts.tof,
       restartFootnotes: opts.restartFootnotes,
       newPageHeadings:  opts.newPageHeadings,
       outputDir:        opts.outputDir,

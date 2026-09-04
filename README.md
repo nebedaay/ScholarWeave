@@ -8,16 +8,21 @@ Additionally, ScholarWeave links your writing inside Obsidian to the world beyon
 
 This plugin started as a fork of **[Bripey Citation Suite](https://github.com/112345brian/bripey-citation-suite)** (which itself descends from [Pandoc Reference List](https://github.com/community-archive/obsidian-pandoc-reference-list)), renamed to reflect its distinctive and more comprehensive functionality.
 
+
+
 ## Features
 
 - **Linked citations** — `[[@smith1992|see @, p. 6]]` → (see Smith 1992, 6): a simple, pandoc-derived citation format that solves the heretofore impossible problem of **linking** to literature notes using real Obsidian wikilinks ***and*** rendering **publication-ready formatted citations**. This is the only way to reconcile true links and formatted citations. Conventional `[@citekey]` pandoc-style citations still work and can be converted to and from the linked citation format.
-- **Document compiler and exporter (desktop only)** — export a note or multi-note project as compiled markdown, ODT, DOCX, or PDF with one command. An export dialogue provides fine-grained control over the output format and options (TOC, per-chapter footnotes, figure captions, Zotero citation fields). The plugin combines the features of Pandoc export and long-form plugins but with far greater flexibility in converting simple and complex writing projects to publication-ready output.
+- **Document compiler and exporter (desktop only)** — export a note or multi-note project as compiled markdown, ODT, DOCX, or PDF with one command.
+	- Extensive settings and an export dialogue provide fine-grained control over the output format and options (TOC, per-chapter footnotes, figure captions, Zotero citation fields, custom styles).
+	- The plugin combines the features of Pandoc export and long-form plugins but with far greater flexibility in converting simple and complex writing projects to publication-ready output.
+	- **Custom callouts and markdown → new DOCX/ODT styles** — styles used with plugins such as Markdown Attributes and Extended Markdown Syntax are automatically converted to DOCX/ODT styles. Styles not defined in the template are automatically inserted and given colored highlights for easy recognition and template adaptation.
 - **Live reference sidebar** — searchable list of all citations in the current note, with copy and jump-to buttons.
 - **No Pandoc required to format citations and references** — built-in pure-JS BibTeX/BibLaTeX parser; Pandoc is opt-in for bibliography processing. (Pandoc and Python are required for document import and export commands.)
 - **Multiple bibliography sources** — any number of `.bib` files plus Zotero, all merged; Zotero wins on conflicts
 - **Native Zotero 7/8 API** — no Better BibTeX required (BBT still supported for Zotero 6)
 - **Mobile support** — works on iOS and Android; tap citations in reading mode for a bottom-sheet card; long-press in editor mode to view a citation without interrupting editing.
-- **Citekey autocomplete** — typing `@` or `[[@…` opens citekey-first search over your Zotero/bibliography index: prefix matches first, then substring, then fuzzy title/author — so `[@smith` finds `smithVeryImportant1998` immediately, even if its note has not yet been imported into Obsidian.
+- **Citekey autocomplete** — typing `@`, `[@`, or `[[@…` searches citekeys in your Zotero library: prefix matches first, then substring, then fuzzy title/author, even if its note has not yet been imported into Obsidian.
 - **Full-text search with `@@`** — typing `@@` switches to title/author full-text search over your entire library. Uses ZotLit's SQLite database when ZotLit is installed; falls back to the plugin's own title-biased index when ZotLit is absent.
 - **Smart bracket insertion** — `⌘↵` wraps citations in `[@key]`, detects existing brackets so it never double-wraps.
 - **Diacritic-insensitive search** — "Muller" finds "Müller", "Cezanne" finds "Cézanne".
@@ -103,7 +108,7 @@ The templates used for `.docx` and `.odt` export is set by the `template:` YAML 
 
 Put "compile-" before the template name (`template: compile-book`, `compile-article`, etc.) in an outline note to mark it as an outline — after compilation the prefix is stripped and the compiled file carries `template: book`.
 
-Template lookup order: your configured templates directory → `<vault>/Export Templates/` → the templates bundled with the plugin.
+Template lookup order: your configured templates directory → `<vault>/Export Templates/` → the templates bundled with the plugin. Bundled templates are automatically extracted to the plugin's directory on first load and serve as a starting point you can override by placing your own template in either of the earlier locations.
 
 ### YAML frontmatter properties
 
@@ -117,6 +122,27 @@ Template lookup order: your configured templates directory → `<vault>/Export T
 | `note` | Cover note block |
 | `author` | Cover author (string or `- Name` list) |
 
+### Automatic style conversion
+
+The export pipeline automatically converts several Obsidian-specific markdown formats into DOCX/ODT paragraph and character styles, preserving your custom styling rather than silently dropping it.
+
+**Callout → paragraph style mapping**: Any Obsidian callout type (e.g. `> [!note]`, `> [!warning]`) can be mapped to a named paragraph style through the plugin's style mapping settings. Poetry callouts (`[!poetry]` and `[!arabic-poetry]`) are handled automatically without configuration. Other callout types remain as block quotes unless explicitly mapped.
+
+**Markdown Attributes and Extended Markdown Syntax**: Inline syntax from the Obsidian Markdown Attributes and Extended Markdown Syntax plugins is automatically recognized and converted to named character styles during export, without any manual configuration:
+
+| Syntax | Plugin | Becomes |
+|---|---|---|
+| `*text{.cls}*`, `**text{.cls}**`, `***text{.cls}***` | Markdown Attributes | `cls` character style |
+| `` `text{.cls}` `` | Markdown Attributes | `cls` character style |
+| `==text{.cls}==` | Markdown Attributes | `cls` character style |
+| `!!{cls}text!!` | Extended Markdown Syntax | `cls` character style |
+| `++text++` | Extended Markdown Syntax | `Inserted` character style |
+| `=={color}text==` | Extended Markdown Syntax | `Highlight color` character style |
+
+Style names are derived from the CSS class: the first letter is capitalized and hyphens become spaces, so `.arabic-poetry` becomes "Arabic poetry". You can override the auto-generated name with an explicit mapping in the settings.
+
+**Sentinel styles for undefined styles**: When the exported document references a style not defined in the output template, ScholarWeave automatically injects a sentinel version of that style with a distinctive highlighted background — cycling through yellow, orange, green, blue, and other colours so each undefined style is visually distinct. This makes it easy to locate every instance and define the style properly in your template. Once a style is defined in the template, the highlighting disappears automatically on future exports.
+
 ### Dependencies
 
 The Document Compiler requires:
@@ -126,7 +152,7 @@ The Document Compiler requires:
 - **Node.js (bundled with Obsidian Desktop)** — for citation conversion, automatically met on desktop
 - **Zotero** with Better BibTeX or native citation-key support if using Zotero for references.
 
-Because the Compile command is only available on desktop (where Node.js is present), no manual Node.js installation is needed. Pandoc and Python 3 must be installed separately.
+Because the Compile command is only available on desktop (where Node.js is present), no manual Node.js installation is needed. Pandoc and Python 3 must be installed separately. All export scripts and templates are bundled inside the plugin and extracted automatically on first load — no manual download from GitHub is required.
 
 The plugin resolves these paths itself and passes them to the script via environment variables, so it works even though Obsidian's Electron process doesn't inherit your shell PATH.
 

@@ -297,23 +297,39 @@ def resolve_embed_links(content: str) -> str:
     """
     img_ext = r'(?:png|jpe?g|gif|bmp|tiff?|webp|svg)'
     def repl(m):
-        target = m.group(1).strip()
+        # Obsidian pipe syntax: ![[img.png|alt text]] (alt) and
+        # ![[img.png|454]] / ![[img.png|454x300]] (display size in px).
+        # Split on '|' FIRST — the filename/extension is only in the first
+        # segment; a purely numeric (optionally NxN) segment is a size, any
+        # other segment is alt text. Without this the whole "name|454" string
+        # fails the extension check, "454" leaks into the caption, and pandoc
+        # renders no image.
+        parts = [p.strip() for p in m.group(1).split('|')]
+        target = parts[0].strip()
         if not re.search(rf'\.{img_ext}$', target, re.IGNORECASE):
             return m.group(0)
-        # Obsidian alt text: ![[img.jpg|alt text]] → alt goes into the alt
-        # syntax so the caption/description is meaningful.
-        alt = ''
-        if '|' in target:
-            target, alt = target.rsplit('|', 1)
-            target, alt = target.strip(), alt.strip()
+        alt_bits, width, height = [], None, None
+        for seg in parts[1:]:
+            dm = re.fullmatch(r'(\d+)(?:x(\d+))?', seg)
+            if dm:
+                width, height = dm.group(1), dm.group(2)
+            elif seg:
+                alt_bits.append(seg)
+        alt = ' '.join(alt_bits)
         resolved = resolve_attachment_path(target)
         if resolved is None:
             return m.group(0)
         # Path relative to the vault root (which is the cwd).
         rel = os.path.relpath(resolved, os.getcwd())
-        if alt:
-            return f'![{alt}]({rel})'
-        return f'![{target}]({rel})'
+        attrs = ''
+        if width:
+            dims = ['width=%spx' % width]
+            if height:
+                dims.append('height=%spx' % height)
+            # No space before '{' — pandoc only reads it as an image attribute
+            # when it is directly adjacent to the ')'.
+            attrs = '{%s}' % ' '.join(dims)
+        return f'![{alt or target}]({rel}){attrs}'
     return re.sub(r'!\[\[([^\]]+)\]\]', repl, content)
 
 def adjust_heading_levels(content: str, depth: int) -> str:
@@ -336,6 +352,57 @@ def adjust_heading_levels(content: str, depth: int) -> str:
         new_level = min(len(m.group(1)) + offset, 6)
         return '#' * new_level + ' '
     return heading_re.sub(repl, content)
+
+
+def strip_wikilinks(text: str) -> str:
+    """Replace Obsidian wikilinks with their display text.
+    [[Target|alias]] -> alias
+    [[Target]]       -> Target (leading order-numbers stripped, extension dropped)
+    ![[...]]         -> left untouched (image embeds handled by resolve_embed_links)
+    [[@key...]]      -> left untouched (citations already converted before this runs)
+
+    Wikilinks inside fenced code blocks and inline code spans are left VERBATIM
+    (pandoc renders code literally, so a `[[Note]]` example must survive).
+    """
+    def _replace_wl(inner):
+        if '|' in inner:
+            return inner.split('|', 1)[1]
+        name = re.sub(r'\.(md|markdown)$', '', inner, flags=re.I)
+        name = re.sub(r'^\d[\d.\-]*\s+', '', name)
+        return name
+
+    # One pass over: fenced block | inline code span | wikilink. Only the
+    # wikilink alternative is rewritten; code is emitted unchanged.
+    token = re.compile(
+        r'(?P<fence>^[ \t]*(?P<f>`{3,}|~{3,})[^\n]*\n.*?^[ \t]*(?P=f)[ \t]*$)'
+        r'|(?P<code>(?P<tick>`+)(?:(?!(?P=tick)).)+(?P=tick))'
+        r'|(?<!!)\[\[(?P<wl>[^\[\]]+)\]\]',
+        re.M | re.S)
+
+    def _sub(m):
+        if m.group('wl') is None:      # matched a fenced block or a code span
+            return m.group(0)
+        return _replace_wl(m.group('wl'))
+
+    return token.sub(_sub, text)
+
+def linkify_bare_urls(text: str) -> str:
+    """Convert bare http(s) URLs to [url](url) markdown links.
+    Strips trailing sentence punctuation. Skips URLs already in link syntax.
+    """
+    _BARE_URL = re.compile(r'(?<![\\[(])(https?://[^\s<>\)\]]+)(?![\)\]])')
+    _TRAIL    = re.compile(r'[.,;:!?]+$')
+    def _sub(m):
+        url = m.group(1)
+        trail_m = _TRAIL.search(url)
+        if trail_m:
+            trail = trail_m.group(0)
+            url   = url[:-len(trail)]
+            suffix = trail
+        else:
+            suffix = ''
+        return '[' + url + '](' + url + ')' + suffix
+    return _BARE_URL.sub(_sub, text)
 
 
 def compile_note(note_name: str, depth: int, chapter_number=None, suppress_heading=False):
@@ -1518,9 +1585,9 @@ def _parse_yaml_metadata(text, stem):
 
 
 def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
-                    template_dir=None, output_dir=None, default_author=None,
-                    new_page_headings=True, restart_footnotes=True,
-                    mappings_data=None):
+                    tof=False, template_dir=None, output_dir=None,
+                    default_author=None, new_page_headings=True,
+                    restart_footnotes=True, mappings_data=None):
     """Unified export pipeline for DOCX and ODT.
 
     Both formats share: YAML metadata parsing, citation conversion, markdown
@@ -1583,6 +1650,9 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
     cit_text = citations_md.read_text(encoding='utf-8')
     cit_text = rewrite_poetry_callouts(cit_text)
     cit_text = preprocess_md_syntax(cit_text)
+    cit_text = resolve_embed_links(cit_text)  # fixes images in direct-note exports
+    cit_text = strip_wikilinks(cit_text)       # strips vault-internal wikilinks
+    cit_text = linkify_bare_urls(cit_text)     # converts bare URLs to markdown links
     citations_md.write_text(cit_text, encoding='utf-8')
 
     # ── Lua filter construction (identical for both formats) ───────────────────
@@ -1693,6 +1763,8 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
                      else '--global-footnotes')
     if toc:
         merge_cmd.append('--toc')
+    if tof:
+        merge_cmd.append('--list-of-figures')
     print('Merging:', ' '.join(merge_cmd))
     subprocess.run(merge_cmd, check=True)
     clean_path.unlink(missing_ok=True)
@@ -1714,253 +1786,19 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
 
 
 def export_docx(compiled_md, vault_root=None, template=None, toc=False,
-                template_dir=None, output_dir=None, default_author=None,
+                tof=False, template_dir=None, output_dir=None, default_author=None,
                 new_page_headings=True, restart_footnotes=True,
                 mappings_data=None):
     """Export compiled markdown to DOCX. Thin wrapper around export_document."""
     return export_document('docx', compiled_md,
                            vault_root=vault_root, template=template, toc=toc,
+                           tof=tof,
                            template_dir=template_dir, output_dir=output_dir,
                            default_author=default_author,
                            new_page_headings=new_page_headings,
                            restart_footnotes=restart_footnotes,
                            mappings_data=mappings_data)
 
-
-def postprocess_odt(odt_path: Path, ref_doc_path=None, toc=False,
-                    new_page_headings=True, restart_footnotes=True,
-                    extra_sections=None, abstract=None) -> None:
-    """Post-process pandoc ODT output to mirror the docx merge pipeline:
-
-    1. Remap First_20_paragraph / Default Paragraph Style / Block_20_Text
-       -> Text_20_body / Quotations so all body paragraphs share consistent
-       styles (mirrors BlockText->Blockquote, FirstParagraph->BodyText in
-       sw_export_merge.py).
-    2. When toc=True and the reference ODT has a TOCHeading paragraph, inject
-       it directly before the <text:table-of-content> field so the heading
-       comes from the template (mirrors sw_export_merge.py for docx).
-       The TOCHeading style definition is also copied from the reference ODT
-       if absent from the export.
-    3. When new_page_headings=True, insert fo:break-before="page" on every
-       Heading 1 paragraph after the first by assigning an automatic paragraph
-       style that inherits from Heading_20_1 (mirrors _make_chapter_break in
-       sw_export_merge.py).
-    4. When restart_footnotes=True, set text:start-numbering-at="chapter" in
-       the footnote notes-configuration so footnotes restart at 1 per chapter
-       (mirrors the eachSect sectPr in sw_export_merge.py).
-    Only repacks the ODT when something actually changed.
-    """
-    import zipfile, tempfile, shutil as _shutil, re as _re
-    REMAPS = {
-        'text:style-name="First_20_paragraph"':            'text:style-name="Text_20_body"',
-        'text:style-name="Default_20_Paragraph_20_Style"': 'text:style-name="Text_20_body"',
-        'text:style-name="Default Paragraph Style"':       'text:style-name="Text_20_body"',
-        'text:style-name="Block_20_Text"':                 'text:style-name="Quotations"',
-    }
-    tmp = Path(tempfile.mkdtemp())
-    try:
-        with zipfile.ZipFile(odt_path, 'r') as z:
-            z.extractall(tmp)
-
-        content_xml = tmp / 'content.xml'
-        styles_xml  = tmp / 'styles.xml'
-        orig_content = content_xml.read_text(encoding='utf-8')
-        orig_styles  = styles_xml.read_text(encoding='utf-8')
-        content = orig_content
-        styles  = orig_styles
-
-        # 1. Body-style remaps
-        for src, dst in REMAPS.items():
-            content = content.replace(src, dst)
-
-        # 2. TOC heading from reference ODT, plus page breaks around the TOC.
-        TOC_MARKER = '<text:table-of-content>'
-        if toc and TOC_MARKER in content:
-            # Insert a page break before the TOC so it starts on its own page
-            # rather than immediately following the title block.
-            _SW_PB = 'SW_TOC_Pagebreak'
-            _pb_para = f'<text:p text:style-name="{_SW_PB}"/>\n'
-            if f'style:name="{_SW_PB}"' not in content:
-                _pb_def = (
-                    f'<style:style style:name="{_SW_PB}" style:family="paragraph">'
-                    f'<style:paragraph-properties fo:break-before="page"/>'
-                    f'</style:style>'
-                )
-                content = content.replace(
-                    '</office:automatic-styles>',
-                    _pb_def + '</office:automatic-styles>', 1)
-            content = content.replace(TOC_MARKER, _pb_para + TOC_MARKER, 1)
-            print('ODT: inserted page break before TOC')
-        if toc and ref_doc_path and Path(ref_doc_path).exists() and TOC_MARKER in content:
-            with zipfile.ZipFile(ref_doc_path, 'r') as rz:
-                ref_content = rz.read('content.xml').decode('utf-8')
-                ref_styles  = rz.read('styles.xml').decode('utf-8')
-            m = _re.search(
-                r'<text:p[^>]*text:style-name="TOCHeading"[^>]*>.*?</text:p>',
-                ref_content, _re.DOTALL)
-            if m and 'TOCHeading' not in content:
-                content = content.replace(TOC_MARKER, m.group(0) + '\n' + TOC_MARKER, 1)
-                print('Inserted TOCHeading paragraph from reference ODT')
-            if 'TOCHeading' not in styles:
-                ms = (_re.search(
-                    r'<style:style[^>]*style:name="TOCHeading"[^>]*/>', ref_styles)
-                    or _re.search(
-                    r'<style:style[^>]*style:name="TOCHeading"[^>]*>.*?</style:style>',
-                    ref_styles, _re.DOTALL))
-                if ms:
-                    styles = styles.replace('</office:styles>',
-                                            ms.group(0) + '</office:styles>', 1)
-                    print('Copied TOCHeading style from reference ODT')
-
-        # 3. New-page headings: add fo:break-before="page" to every Heading 1
-        #    paragraph after the first, via an automatic paragraph style.
-        if new_page_headings:
-            # ODT headings are <text:h> elements with text:outline-level,
-            # NOT <text:p> elements.
-            _H1   = 'Heading_20_1'
-            _AUTO = 'SW_Heading1_Pagebreak'
-            _h1_re = _re.compile(
-                r'(<text:h\b[^>]*\btext:outline-level="1"[^>]*>)'
-            )
-            _hits = list(_h1_re.finditer(content))
-            if _hits:
-                # Apply page-break style to ALL Heading 1 elements —
-                # documents begin with a title/metadata block, not a heading,
-                # so even the first chapter heading needs a break.
-                for _m in reversed(_hits):
-                    old_tag = _m.group(1)
-                    # Replace whatever style-name is on the heading with our auto-style
-                    if 'text:style-name=' in old_tag:
-                        new_tag = _re.sub(
-                            r'text:style-name="[^"]*"',
-                            f'text:style-name="{_AUTO}"',
-                            old_tag, 1)
-                    else:
-                        new_tag = old_tag.replace('<text:h ',
-                            f'<text:h text:style-name="{_AUTO}" ', 1)
-                    content = content[:_m.start(1)] + new_tag + content[_m.end(1):]
-                # Check for the style *definition* (style:name=), not just
-                # any occurrence of the name (text:style-name= was just written above).
-                if f'style:name="{_AUTO}"' not in content:
-                    _auto_def = (
-                        f'<style:style style:name="{_AUTO}" '
-                        f'style:family="paragraph" '
-                        f'style:parent-style-name="{_H1}">'
-                        f'<style:paragraph-properties fo:break-before="page"/>'
-                        f'</style:style>'
-                    )
-                    content = content.replace(
-                        '</office:automatic-styles>',
-                        _auto_def + '</office:automatic-styles>',
-                        1)
-                print(f'ODT: page-break added before {len(_hits)} Heading 1 paragraph(s)')
-
-        # 4. Footnote restart per chapter
-        if restart_footnotes:
-            def _fix_fn_config(xml):
-                _changed = False
-                def _fn_replacer(m):
-                    nonlocal _changed
-                    elem = m.group(0)
-                    if 'text:note-class="footnote"' not in elem:
-                        return elem
-                    if 'text:start-numbering-at=' in elem:
-                        new_elem = _re.sub(
-                            r'text:start-numbering-at="[^"]*"',
-                            'text:start-numbering-at="chapter"',
-                            elem)
-                    else:
-                        # Add before self-closing />
-                        new_elem = elem[:-2].rstrip() + ' text:start-numbering-at="chapter"/>'
-                    if new_elem != elem:
-                        _changed = True
-                    return new_elem
-                new_xml = _re.sub(r'<text:notes-configuration\b[^>]*/>', _fn_replacer, xml)
-                return new_xml, _changed
-            _new_styles, _schanged = _fix_fn_config(styles)
-            if _schanged:
-                styles = _new_styles
-                print('ODT: set footnote numbering to restart per chapter')
-            else:
-                _new_content, _cchanged = _fix_fn_config(content)
-                if _cchanged:
-                    content = _new_content
-                    print('ODT: set footnote numbering to restart per chapter (content.xml)')
-
-        # 5. Abstract and extra sections from note/sw-* YAML properties.
-        #    Inserted just before the TOC SECTION (i.e. before the TOC heading
-        #    paragraph that precedes <text:table-of-content>), so they fall
-        #    between the document body and the table of contents.  Falls back to
-        #    before the first chapter heading, or to the end of <office:text>.
-        #    Mirrors _append_extra_sections / abstract injection in sw_export_merge.py.
-        if abstract or extra_sections:
-            import html as _html_mod
-            # Find the insertion point: the last <text:h> opening tag that appears
-            # before the first <text:table-of-content> block.  That last heading IS
-            # the "Table of Contents" heading paragraph — inserting before it puts
-            # new content between the body text and the whole TOC section.
-            toc_start = content.find('<text:table-of-content')
-            if toc_start >= 0:
-                preceding_text = content[:toc_start]
-                # Find all <text:h ...> opening positions before the TOC.
-                last_h_pos = None
-                for _hm in _re.finditer(r'<text:h\b', preceding_text):
-                    last_h_pos = _hm.start()
-                ins = last_h_pos if last_h_pos is not None else toc_start
-            else:
-                first_h = _re.search(r'<text:h\b', content)
-                if first_h:
-                    ins = first_h.start()
-                else:
-                    end_body = _re.search(r'</office:text>', content)
-                    ins = end_body.start() if end_body else len(content)
-
-            # ODT style names: spaces → _20_, & → _26_ (ODF encoding convention).
-            _AKH = 'Abstract_20__26__20_keywords_20_heading'
-            _TB  = 'Text_20_body'
-
-            inject_xml = ''
-            # Abstract first (mirrors position in template title blocks).
-            if abstract:
-                inject_xml += (
-                    f'<text:p text:style-name="{_AKH}">{_html_mod.escape("Abstract")}</text:p>\n'
-                    f'<text:p text:style-name="{_TB}">{_html_mod.escape(abstract)}</text:p>\n'
-                )
-            # Then note/sw-* extra sections.
-            for key, value in (extra_sections or []):
-                label = key.removeprefix('sw-').replace('-', ' ').title()
-                inject_xml += (
-                    f'<text:p text:style-name="{_AKH}">{_html_mod.escape(label)}</text:p>\n'
-                    f'<text:p text:style-name="{_TB}">{_html_mod.escape(value)}</text:p>\n'
-                )
-
-            if inject_xml:
-                content = content[:ins] + inject_xml + content[ins:]
-                n_extra = len(extra_sections) if extra_sections else 0
-                print(f'ODT: inserted abstract={bool(abstract)}, {n_extra} extra section(s) before TOC heading')
-
-        if content == orig_content and styles == orig_styles:
-            print('ODT post-process: nothing changed, skipping repack.')
-            return
-
-        if content != orig_content:
-            content_xml.write_text(content, encoding='utf-8')
-        if styles != orig_styles:
-            styles_xml.write_text(styles, encoding='utf-8')
-
-        tmp_odt = odt_path.with_suffix('.tmp.odt')
-        with zipfile.ZipFile(tmp_odt, 'w') as zout:
-            mimetype = tmp / 'mimetype'
-            if mimetype.exists():
-                zout.write(mimetype, 'mimetype', compress_type=zipfile.ZIP_STORED)
-            for f in sorted(tmp.rglob('*')):
-                if f.is_file() and f.name != 'mimetype':
-                    zout.write(f, f.relative_to(tmp), compress_type=zipfile.ZIP_DEFLATED)
-        odt_path.unlink()
-        tmp_odt.rename(odt_path)
-        print('ODT post-processing complete.')
-    finally:
-        _shutil.rmtree(tmp)
 
 def _prep_reference_odt(ref_doc_path, style_names):
     """Return a temp copy of ref_doc_path with sentinel styles pre-injected into
@@ -2061,12 +1899,13 @@ def _prep_reference_odt(ref_doc_path, style_names):
 
 
 def export_odt(compiled_md, vault_root=None, template=None, toc=False,
-               template_dir=None, output_dir=None, default_author=None,
+               tof=False, template_dir=None, output_dir=None, default_author=None,
                new_page_headings=True, restart_footnotes=True,
                mappings_data=None):
     """Export compiled markdown to ODT. Thin wrapper around export_document."""
     return export_document('odt', compiled_md,
                            vault_root=vault_root, template=template, toc=toc,
+                           tof=tof,
                            template_dir=template_dir, output_dir=output_dir,
                            default_author=default_author,
                            new_page_headings=new_page_headings,
@@ -2075,7 +1914,7 @@ def export_odt(compiled_md, vault_root=None, template=None, toc=False,
 
 
 
-def export_pdf(compiled_md, vault_root=None, template=None, toc=False,
+def export_pdf(compiled_md, vault_root=None, template=None, toc=False, tof=False,
                template_dir=None, output_dir=None,
                new_page_headings=True, restart_footnotes=True,
                intermediate_format=None, keep_intermediate=False,
@@ -2117,7 +1956,7 @@ def export_pdf(compiled_md, vault_root=None, template=None, toc=False,
     tmp_dir = Path(tempfile.mkdtemp())
     try:
         common_kwargs = dict(
-            vault_root=vault_root, template=template, toc=toc,
+            vault_root=vault_root, template=template, toc=toc, tof=tof,
             template_dir=template_dir, output_dir=str(tmp_dir),
             new_page_headings=new_page_headings,
             restart_footnotes=restart_footnotes,
@@ -2182,6 +2021,12 @@ def main():
                        help='Include a TOC field in the exported docx (default for book* templates)')
     parser.add_argument('--no-toc', action='store_true',
                        help='Omit the TOC field (default for article* templates; override for book* templates)')
+    parser.add_argument('--list-of-figures', action='store_true',
+                       dest='list_of_figures',
+                       help='Include a table of figures (rendered only when the doc has figures; default for book*)')
+    parser.add_argument('--no-list-of-figures', action='store_true',
+                       dest='no_list_of_figures',
+                       help='Omit the table of figures')
     parser.add_argument('--new-page-headings', action='store_true', default=True,
                        help='Start each heading section on a new page (default: on)')
     parser.add_argument('--no-new-page-headings', action='store_true',
@@ -2221,18 +2066,23 @@ def main():
         effective_tpl = args.template or yaml_tpl
     effective_tpl = re.sub(r'\.(docx|odt)$', '', effective_tpl or 'document', flags=re.IGNORECASE)
 
-    # Template-aware defaults:
-    #   book*    -> TOC on, footnotes restart per chapter
-    #   article* -> TOC off, footnotes global (Heading 1 is a section, not a
-    #               chapter)
+    # Template-aware defaults (match the export modal's document-type presets):
+    #   book*         -> TOC on,  footnote + figure numbering restart per chapter
+    #   anything else -> TOC off, global footnote + figure numbering
+    # (Heading 1 is a chapter only in a book; elsewhere it is a section.)
     is_book = effective_tpl.startswith('book')
     is_article = effective_tpl.startswith('article')
     use_toc = is_book
-    use_global = is_article
+    use_tof = is_book
+    use_global = not is_book
     if args.toc:
         use_toc = True
     if args.no_toc:
         use_toc = False
+    if args.list_of_figures:
+        use_tof = True
+    if args.no_list_of_figures:
+        use_tof = False
     if args.global_footnotes:
         use_global = True
     if args.no_global_footnotes:
@@ -2254,7 +2104,7 @@ def main():
     if args.export:
         active_mappings = load_mappings(args.templates_dir, args.mappings)
         _common = dict(
-            template=args.template or effective_tpl, toc=use_toc,
+            template=args.template or effective_tpl, toc=use_toc, tof=use_tof,
             template_dir=args.templates_dir, output_dir=args.output_dir,
             new_page_headings=not args.no_new_page_headings,
             restart_footnotes=not use_global,
