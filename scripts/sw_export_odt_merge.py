@@ -44,7 +44,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sw_merge_helpers import (split_paragraphs, find_bibliography_range,
     strip_bibliography, ZOTERO_BIBL_INSTR, resize_images, STYLE_REMAP,
     resolve_cover, title_case as _title_case, strip_markdown as _strip_markdown,
-    is_toc_heading, process_figures, bundled_template, ensure_odt_styles)
+    is_toc_heading, process_figures, bundled_template, ensure_odt_styles,
+    strip_chapter_prefix, parse_chapter_number)
 
 # ── ODF namespace constants ───────────────────────────────────────────────────
 
@@ -308,6 +309,17 @@ def extract_template_layout(template_path):
                      if ('style:name="%s"' % _FIGCAPTION_STYLE).encode() in styles_bytes
                      else 'Caption')
 
+    # Chapter numbering: the list style that book.odt wraps its numbered chapter
+    # headings in ("Chapter N." via WWNum13). None for document/article — those
+    # templates don't auto-number chapters (matches the DOCX chapter_numid).
+    chapter_list_style = None
+    for lst in tmpl_root.iter(T('list')):
+        h = lst.find(T('list-item') + '/' + T('h'))
+        if h is not None and h.get(T('outline-level'), '') == '1' \
+                and lst.get(T('style-name')):
+            chapter_list_style = lst.get(T('style-name'))
+            break
+
     return {
         'title_block': title_block,
         'toc_heading': toc_heading,
@@ -316,6 +328,7 @@ def extract_template_layout(template_path):
         'tof_element': tof_element,
         'has_alttext_style': has_alttext_style,
         'caption_style': caption_style,
+        'chapter_list_style': chapter_list_style,
         'content_bytes': content_bytes,
         'styles_bytes': styles_bytes,
     }
@@ -585,13 +598,70 @@ def _ensure_h1_pagebreak_style(auto_styles):
 
 def apply_page_breaks(body_elements, tmpl_root):
     """Set the page-break style on all H1 elements in body_elements.
-    Also injects the style definition into tmpl_root's automatic-styles."""
+    Also injects the style definition into tmpl_root's automatic-styles.
+    Chapter headings already wrapped in <text:list> by apply_chapter_numbering_odt
+    are nested (not direct members of body_elements) and are skipped here — they
+    carry their own page-break-bearing style."""
     auto = tmpl_root.find('.//' + O('automatic-styles'))
     if auto is not None:
         _ensure_h1_pagebreak_style(auto)
     for el in body_elements:
         if el.tag == T('h') and el.get(T('outline-level'), '') == '1':
             el.set(T('style-name'), _H1_PB_STYLE)
+
+
+_CHAPTER_H_STYLE = 'SW_Chapter_Heading'
+
+def _ensure_chapter_heading_style(auto_styles, list_style_name, new_page):
+    """Inject SW_Chapter_Heading: inherits Heading 1, bound to the template's
+    chapter list style so LibreOffice renders 'Chapter N', + a page break when
+    per-heading page breaks are on."""
+    for child in auto_styles:
+        if child.get(S('name')) == _CHAPTER_H_STYLE:
+            return
+    se = etree.SubElement(auto_styles, S('style'))
+    se.set(S('name'),              _CHAPTER_H_STYLE)
+    se.set(S('family'),            'paragraph')
+    se.set(S('parent-style-name'), _H1_PARENT)
+    se.set(T('list-style-name'),   list_style_name)
+    if new_page:
+        pp = etree.SubElement(se, S('paragraph-properties'))
+        pp.set(F('break-before'), 'page')
+
+def apply_chapter_numbering_odt(body_elements, tmpl_root, list_style_name,
+                                new_page_headings):
+    """Wrap numbered-chapter Heading 1s ('Chapter 3: Title') in a <text:list>
+    bound to the template's chapter list style (book.odt's WWNum13 → 'Chapter
+    N.'), stripping the literal 'Chapter N:' prefix. This is the ODF equivalent
+    of the DOCX numPr — LibreOffice supplies the number, and it renumbers on
+    reorder. Non-numbered Heading 1s (Preface, Introduction, Conclusion) are
+    left as plain <text:h>. Mutates body_elements in place; returns True when
+    any chapter was wrapped.
+    """
+    auto = tmpl_root.find('.//' + O('automatic-styles'))
+    out = []
+    wrapped = 0
+    for el in body_elements:
+        if el.tag == T('h') and el.get(T('outline-level'), '') == '1':
+            txt = _elem_text(el)
+            stripped = strip_chapter_prefix(txt)
+            if parse_chapter_number(txt) > 0 and stripped != txt:
+                if auto is not None:
+                    _ensure_chapter_heading_style(auto, list_style_name,
+                                                  new_page_headings)
+                _set_plain_text(el, stripped)
+                el.set(T('style-name'), _CHAPTER_H_STYLE)
+                lst = etree.Element(T('list'))
+                lst.set(T('style-name'), list_style_name)
+                if wrapped:
+                    lst.set(T('continue-numbering'), 'true')
+                etree.SubElement(lst, T('list-item')).append(el)
+                out.append(lst)
+                wrapped += 1
+                continue
+        out.append(el)
+    body_elements[:] = out
+    return wrapped > 0
 
 # ── TOC page break ────────────────────────────────────────────────────────────
 
@@ -876,6 +946,17 @@ def merge_odt(template_path, input_path, output_path,
     # ── Merge pandoc auto-styles into template (before moving elements) ────
     name_map = _merge_auto_styles(tmpl_root, pdc_root, styles_root)
     _rewrite_style_refs(body_elements, name_map)
+
+    # ── Chapter numbering ─────────────────────────────────────────────────
+    # Wrap numbered chapters in the template's chapter list style so
+    # LibreOffice supplies "Chapter N." (parallel to the DOCX numPr). Runs
+    # before apply_page_breaks so the wrapped headings carry SW_Chapter_Heading
+    # (which includes the page break) rather than SW_Heading1_Pagebreak.
+    _chaptered = False
+    if layout['chapter_list_style']:
+        _chaptered = apply_chapter_numbering_odt(
+            body_elements, tmpl_root, layout['chapter_list_style'],
+            new_page_headings)
 
     # ── Apply page breaks ──────────────────────────────────────────────────
     if new_page_headings:
