@@ -41,22 +41,38 @@ from collections import defaultdict
 import argparse
 
 # ── vault / plugin path resolution ───────────────────────────────────────────
-# The script lives in <vault>/.obsidian/plugins/scholar-weave/scripts/
-# (or a copy/symlink of it). The vault root is derived from THIS FILE's real
-# location (os.path.realpath resolves symlinks), so the script works from any
-# cwd, whether run directly, via a symlink in <vault>/scripts/, or from the
-# plugin's commands.
+# The script lives in <vault>/.obsidian/plugins/scholar-weave/scripts/ (or a
+# copy/symlink of it). The plugin passes the vault root explicitly in the
+# SW_VAULT env var (from adapter.getBasePath()); when the script is run
+# standalone we derive it from THIS FILE's real location instead
+# (os.path.realpath resolves symlinks), walking up
+#   scripts → scholar-weave → plugins → .obsidian → <vault>.
 
 _PLUGIN_SCRIPTS_DIR = Path(os.path.dirname(os.path.realpath(os.path.abspath(__file__))))
-_PLUGIN_DIR = _PLUGIN_SCRIPTS_DIR.parent          # …/plugins/scholar-weave
-_OBSIDIAN_DIR = _PLUGIN_DIR.parent                # …/plugins
-_VAULT_ABS = _OBSIDIAN_DIR.parent                 # the vault root
+_PLUGIN_DIR = _PLUGIN_SCRIPTS_DIR.parent            # …/plugins/scholar-weave
 
-# Fallback for running the script standalone from a copy elsewhere: if the
-# derived vault root doesn't look like one (no .obsidian sibling), fall back
-# to the user's known vault.
-if not (_VAULT_ABS / '.obsidian').exists():
-    _VAULT_ABS = Path("~/Documents/Obsidian Vault").expanduser()
+
+def _find_vault_root():
+    env = os.environ.get('SW_VAULT')
+    if env and (Path(env) / '.obsidian').is_dir():
+        return Path(env)
+    # Walk up from the script (installed: …/.obsidian/plugins/scholar-weave/
+    # scripts; dev checkout: …/<vault>/src/ScholarWeave/scripts) and from the
+    # cwd, looking for the directory that contains a `.obsidian/` folder.
+    for start in (_PLUGIN_SCRIPTS_DIR, Path.cwd()):
+        for d in (start, *start.parents):
+            if (d / '.obsidian').is_dir():
+                return d
+    raise SystemExit(
+        'Could not locate the Obsidian vault. Run this from inside a vault, '
+        "or set SW_VAULT to the vault's root path. "
+        f'(script at {_PLUGIN_SCRIPTS_DIR}, cwd {Path.cwd()})')
+
+
+_VAULT_ABS = _find_vault_root()
+
+# Propagate to child processes (pandoc + sw-export.lua read SW_VAULT).
+os.environ.setdefault('SW_VAULT', str(_VAULT_ABS))
 
 def vault_rel(*parts):
     """Return a vault path (absolute, anchored at the vault root).

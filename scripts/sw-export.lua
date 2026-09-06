@@ -19,10 +19,14 @@
 -- Usage (ScholarWeave export pipeline or CLI):
 --   --lua-filter=sw-export.lua
 --
--- Set VAULT_ROOT if your vault lives elsewhere.
+-- The vault root comes from the SW_VAULT env var (set by the plugin / by the
+-- ScholarWeave export pipeline). For a bare `pandoc --lua-filter` run outside
+-- that pipeline, set SW_VAULT yourself. When it is unset, template resolution
+-- here is skipped and `reference-doc` is left for the caller (the merge step,
+-- or an explicit `--reference-doc`) to supply.
 
-local VAULT_ROOT = '/Users/josephhill/Documents/Obsidian Vault'
-local EXPORT_TEMPLATES_DIR = VAULT_ROOT .. '/Export Templates'
+local VAULT_ROOT = os.getenv('SW_VAULT')
+local EXPORT_TEMPLATES_DIR = VAULT_ROOT and (VAULT_ROOT .. '/Export Templates')
 
 -- ── template selection + core properties ────────────────────────────────────
 
@@ -32,14 +36,21 @@ function Meta(meta)
   if tpl == '' or tpl == 'null' then tpl = 'document' end
   tpl = tpl:gsub('%.docx$', '')  -- strip extension if given
 
-  local tpl_path = EXPORT_TEMPLATES_DIR .. '/' .. tpl .. '.docx'
-  local f = io.open(tpl_path, 'r')
-  if not f then
-    tpl_path = EXPORT_TEMPLATES_DIR .. '/document.docx'  -- default fallback
-  else
-    f:close()
+  -- Only resolve a reference-doc when we know the vault root AND the file
+  -- actually exists there — otherwise leave `reference-doc` untouched so the
+  -- merge step (or an explicit --reference-doc) provides the template.
+  if EXPORT_TEMPLATES_DIR then
+    local tpl_path = EXPORT_TEMPLATES_DIR .. '/' .. tpl .. '.docx'
+    local f = io.open(tpl_path, 'r')
+    if not f then
+      tpl_path = EXPORT_TEMPLATES_DIR .. '/document.docx'
+      f = io.open(tpl_path, 'r')
+    end
+    if f then
+      f:close()
+      meta['reference-doc'] = tpl_path
+    end
   end
-  meta['reference-doc'] = tpl_path
 
   -- Map YAML properties to docx core properties. Pandoc reads these from
   -- metadata: author (list ok), keywords (list ok), subject, description,
