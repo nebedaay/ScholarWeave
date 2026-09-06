@@ -99,7 +99,8 @@ const options = {
 	banner: {
 		js: banner,
 	},
-	entryPoints: ["src/main.ts"],
+	entryPoints: [path.resolve(__dirname, "src/main.ts")],
+	absWorkingDir: __dirname,
 	bundle: true,
 	external: [
 		"obsidian",
