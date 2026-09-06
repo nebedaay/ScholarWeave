@@ -86898,13 +86898,6 @@ if __name__ == '__main__':
 async function setupAssets(plugin) {
   const { app: app2, manifest } = plugin;
   const pluginDir = manifest.dir;
-  const versionStampPath = (0, import_obsidian19.normalizePath)(`${pluginDir}/.asset-version`);
-  try {
-    const stored = await app2.vault.adapter.read(versionStampPath);
-    if (stored.trim() === manifest.version)
-      return;
-  } catch (e3) {
-  }
   const dirs = new Set();
   for (const relativePath of Object.keys(BUNDLED_ASSETS)) {
     const slash = relativePath.lastIndexOf("/");
@@ -86918,9 +86911,15 @@ async function setupAssets(plugin) {
     } catch (e3) {
     }
   }
+  let written = 0;
+  let failed = 0;
   for (const [relativePath, { content, binary }] of Object.entries(BUNDLED_ASSETS)) {
     const fullPath = (0, import_obsidian19.normalizePath)(`${pluginDir}/${relativePath}`);
+    const isTemplate = relativePath.startsWith("templates/");
     try {
+      if (isTemplate && await app2.vault.adapter.exists(fullPath)) {
+        continue;
+      }
       if (binary) {
         const raw = atob(content);
         const buf = new Uint8Array(raw.length);
@@ -86930,14 +86929,16 @@ async function setupAssets(plugin) {
       } else {
         await app2.vault.adapter.write(fullPath, content);
       }
+      written++;
     } catch (e3) {
+      failed++;
       console.warn(`ScholarWeave: failed to write bundled asset "${relativePath}":`, e3);
     }
   }
+  console.log(`ScholarWeave ${manifest.version}: extracted ${written} bundled asset(s)` + (failed ? `, ${failed} failed` : ""));
   try {
-    await app2.vault.adapter.write(versionStampPath, manifest.version);
+    await app2.vault.adapter.remove((0, import_obsidian19.normalizePath)(`${pluginDir}/.asset-version`));
   } catch (e3) {
-    console.warn("ScholarWeave: failed to write asset version stamp:", e3);
   }
 }
 
