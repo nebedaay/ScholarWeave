@@ -65,7 +65,7 @@ This plugin includes a command that can export a markdown note or outline that l
 
 Run **"Compile and export a book, article, or other document (outline or markdown)"** from the command palette (desktop only) with a markdown note open. A dialogue box appears with:
 
-- **Output format**: Markdown, DOCX, ODT, or PDF
+- **Output format**: Markdown, DOCX, ODT, or PDF (requires a pandoc installation; PDF export requires a LibreOffice installation)
 - **Template**: Auto-selects the template corresponding to the YAML property, but this can be changed at export time.
 - **Document type**: book, article, custom. Applies the defaults for the selected type, which can then be customized
 - **Output filename and directory**
@@ -94,7 +94,11 @@ When compiling a bullet list of notes, the same rules apply at every bullet leve
 
 **Heading demotion**: When an included note contains section headings, the shallowest heading in the note's body is placed one level below the note's own position in the hierarchy. For example, if a note is included as a `##` section and its body has `# Section` headings, those become `###`, and deeper headings shift by the same offset.
 
-Inline linked `[[@key|alias]]` and pandoc-style `[see @key, p. 25]` citations become Zotero citation fields in the exported docx.
+Inline linked `[[@key|alias]]` and pandoc-style `[see @key, p. 25]` citations become live Zotero citation fields in the exported DOCX/ODT, refreshable in Word or LibreOffice.
+
+### PDF export
+
+PDF export goes through an intermediate DOCX or ODT (chosen from the selected template), which LibreOffice converts to PDF — **LibreOffice must be installed**, and an ODT template generally gives better results than DOCX (footnote numbering, figure references). Because a PDF is final, citations are rendered **statically** at export time rather than as live fields: the bibliography and formatted citations appear immediately, using the citation style stored in the template's own Zotero document preferences, or Chicago author-date if none is set. The table of contents, table of figures, figure numbers, and captions are likewise filled in with computed values (chapter-scoped where the template numbers chapters), and TOC/ToF entries are clickable links to their targets — so nothing needs a manual "update fields" pass.
 
 ### Available templates
 

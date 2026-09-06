@@ -18,14 +18,21 @@ export interface ExportOptions {
   restartFootnotes: boolean;
   /** true = each top-level heading starts on a new page. */
   newPageHeadings: boolean;
+  /** true = insert today's date on the cover when the note has no `date:` property. */
+  generatedDate: boolean;
+  /** true = roman-numeral frontmatter page numbers, switching to arabic at the reset heading. */
+  romanFrontmatter: boolean;
+  /** Heading text that begins arabic 'page 1'. '' = auto (first Introduction / numbered chapter). */
+  romanStart: string;
   /** Absolute or vault-relative output folder; '' = same folder as source. */
   outputDir: string;
   /** Desired output filename (basename + extension). */
   outputFilename: string;
   /** PDF only: keep the intermediate docx/odt after conversion. */
   keepIntermediate: boolean;
-  /** PDF only: intermediate format to export through ('odt' or 'docx'). */
-  pdfIntermediate: 'docx' | 'odt';
+  /** Non-md formats only: keep the compiled markdown instead of deleting it
+   *  once the export is done. */
+  keepIntermediateMd: boolean;
   /** IDs of StyleMappings enabled for this export (subset of settings.styleMappings). */
   enabledMappingIds: string[];
 }
@@ -39,10 +46,13 @@ interface FileExportHistory {
   tof: boolean;
   restartFootnotes: boolean;
   newPageHeadings: boolean;
+  generatedDate: boolean;
+  romanFrontmatter: boolean;
+  romanStart: string;
   outputDir: string;
   outputFilename: string;
   keepIntermediate: boolean;
-  pdfIntermediate: 'docx' | 'odt';
+  keepIntermediateMd: boolean;
   enabledMappingIds: string[];
 }
 
@@ -105,10 +115,15 @@ export class ExportModal extends Modal {
   private tofCb!: HTMLInputElement;
   private footnotesCb!: HTMLInputElement;
   private newPageCb!: HTMLInputElement;
+  private generatedDateCb!: HTMLInputElement;
+  private romanFrontmatterCb!: HTMLInputElement;
+  private romanStartRow!: HTMLElement;
+  private romanStartInput!: HTMLInputElement;
   private keepIntermediateCb!: HTMLInputElement;
+  private pdfNote!: HTMLElement;
   private keepIntermediateRow!: HTMLElement;
-  private pdfIntermediateSelect!: HTMLSelectElement;
-  private pdfIntermediateRow!: HTMLElement;
+  private keepIntermediateMdCb!: HTMLInputElement;
+  private keepIntermediateMdRow!: HTMLElement;
   /** Map from StyleMapping.id → checkbox, for reading enabled state in options(). */
   private mappingCheckboxes: Map<string, HTMLInputElement> = new Map();
   private runButton!: HTMLButtonElement;
@@ -178,6 +193,14 @@ export class ExportModal extends Modal {
     const fileHistory = this.getFileHistory();
     const lastFmt = this.plugin.settings.lastExportFormat;
     this.formatSelect.value = fileHistory?.format ?? lastFmt ?? (fmTpl ? 'docx' : 'md');
+
+    this.pdfNote = fmtWrap.createEl('p', {
+      text: 'PDF export requires LibreOffice to be installed. An ODT template '
+        + 'generally produces better results than DOCX for PDF (footnote '
+        + 'numbering, figure references).',
+      cls: 'lc-mapping-modal-note',
+    });
+    this.pdfNote.style.marginTop = '4px';
 
     // ── Template dropdown (SECOND, filtered by format) ────────────────────
     const tplWrap = contentEl.createDiv({ cls: 'lc-export-row' });
@@ -296,12 +319,34 @@ export class ExportModal extends Modal {
       'lc-export-fn',
       'Restart footnote and figure numbering per chapter'
     );
+    this.generatedDateCb = makeCheckRow(
+      'lc-export-gendate',
+      "Use today's date if the note has no date property"
+    );
+    this.generatedDateCb.checked = true;
     this.newPageCb = makeCheckRow(
       'lc-export-np',
       'Top-level headings start on a new page'
     );
 
-    // ── PDF-specific controls (hidden unless format = pdf) ────────────────
+    this.romanFrontmatterCb = makeCheckRow(
+      'lc-export-roman',
+      'Roman-numeral frontmatter page numbering'
+    );
+    this.romanStartRow = checksWrap.createDiv({ cls: 'lc-export-check-row' });
+    this.romanStartRow.style.cssText = 'margin-left:22px';
+    this.romanStartInput = this.romanStartRow.createEl('input', {
+      type: 'text',
+      placeholder: 'Page 1 starts with (default: Introduction or Chapter 1)',
+    });
+    this.romanStartInput.style.cssText = 'width:100%';
+    this.romanFrontmatterCb.addEventListener('change', () => {
+      this.romanStartRow.style.display = this.romanFrontmatterCb.checked ? '' : 'none';
+    });
+
+    // ── PDF-specific: keep the intermediate ODT/DOCX (hidden unless format
+    //    = pdf). The intermediate format itself is not a choice — it's
+    //    whatever format the chosen template is.
     this.keepIntermediateRow = checksWrap.createDiv({ cls: 'lc-export-check-row' });
     this.keepIntermediateCb = this.keepIntermediateRow.createEl('input', { type: 'checkbox' });
     this.keepIntermediateCb.id = 'lc-export-keep-inter';
@@ -311,16 +356,16 @@ export class ExportModal extends Modal {
     keepInterLbl.htmlFor = 'lc-export-keep-inter';
     this.keepIntermediateCb.checked = fileHistory?.keepIntermediate ?? false;
 
-    this.pdfIntermediateRow = contentEl.createDiv({ cls: 'lc-export-row' });
-    this.pdfIntermediateRow.style.marginTop = '8px';
-    this.pdfIntermediateRow.createEl('label', { text: 'Intermediate format' });
-    this.pdfIntermediateSelect = this.pdfIntermediateRow.createEl('select');
-    this.pdfIntermediateSelect.style.cssText = 'width:100%;margin-top:4px';
-    for (const [val, lbl] of [['odt', 'ODT (recommended)'], ['docx', 'DOCX']] as const) {
-      const o = this.pdfIntermediateSelect.createEl('option', { text: lbl });
-      o.value = val;
-    }
-    this.pdfIntermediateSelect.value = fileHistory?.pdfIntermediate ?? 'odt';
+    // ── Keep the compiled markdown (hidden when format = md — there it IS
+    //    the output, not an intermediate) ─────────────────────────────────
+    this.keepIntermediateMdRow = checksWrap.createDiv({ cls: 'lc-export-check-row' });
+    this.keepIntermediateMdCb = this.keepIntermediateMdRow.createEl('input', { type: 'checkbox' });
+    this.keepIntermediateMdCb.id = 'lc-export-keep-inter-md';
+    const keepInterMdLbl = this.keepIntermediateMdRow.createEl('label', {
+      text: 'Keep intermediate compiled markdown',
+    });
+    keepInterMdLbl.htmlFor = 'lc-export-keep-inter-md';
+    this.keepIntermediateMdCb.checked = fileHistory?.keepIntermediateMd ?? false;
 
     // ── Style mappings (collapsible, only when mappings exist) ───────────
     this.buildMappingsSection(contentEl, fileHistory?.enabledMappingIds);
@@ -350,7 +395,8 @@ export class ExportModal extends Modal {
         if (r.checked) this.applyDocTypePreset(r.value as DocType);
       });
     });
-    [this.tocCb, this.tofCb, this.footnotesCb, this.newPageCb].forEach(cb => {
+    [this.tocCb, this.tofCb, this.footnotesCb, this.newPageCb, this.generatedDateCb,
+     this.romanFrontmatterCb].forEach(cb => {
       cb.addEventListener('change', () => {
         this.docTypeBook.checked    = false;
         this.docTypeArticle.checked = false;
@@ -444,11 +490,16 @@ export class ExportModal extends Modal {
     this.tocCb.disabled      = isMd;
     this.tofCb.disabled      = isMd;
     this.newPageCb.disabled  = isMd;
+    this.generatedDateCb.disabled = isMd;
+    this.romanFrontmatterCb.disabled = isMd;
+    this.romanStartRow.style.display =
+      !isMd && this.romanFrontmatterCb.checked ? '' : 'none';
     // footnotesCb stays active — the compile step still uses it.
-    // PDF-specific rows: show only when format is pdf.
-    const pdfDisplay = isPdf ? '' : 'none';
-    this.keepIntermediateRow.style.display  = pdfDisplay;
-    this.pdfIntermediateRow.style.display   = pdfDisplay;
+    // PDF-specific row: show only when format is pdf.
+    this.keepIntermediateRow.style.display = isPdf ? '' : 'none';
+    this.pdfNote.style.display = isPdf ? '' : 'none';
+    // Compiled-markdown row: show for any exported (non-md) format.
+    this.keepIntermediateMdRow.style.display = isMd ? 'none' : '';
   }
 
   /**
@@ -537,12 +588,15 @@ export class ExportModal extends Modal {
       this.tofCb.checked       = true;
       this.footnotesCb.checked = true;
       this.newPageCb.checked   = true;
+      this.romanFrontmatterCb.checked = true;
     } else if (docType === 'article') {
       this.tocCb.checked       = false;
       this.tofCb.checked       = false;
       this.footnotesCb.checked = false;
       this.newPageCb.checked   = false;
+      this.romanFrontmatterCb.checked = false;
     }
+    this.romanStartRow.style.display = this.romanFrontmatterCb.checked ? '' : 'none';
   }
 
   /**
@@ -565,6 +619,10 @@ export class ExportModal extends Modal {
       this.tofCb.checked          = history.tof ?? false;
       this.footnotesCb.checked    = history.restartFootnotes;
       this.newPageCb.checked      = history.newPageHeadings;
+      this.generatedDateCb.checked = history.generatedDate ?? true;
+      this.romanFrontmatterCb.checked = history.romanFrontmatter ?? false;
+      this.romanStartInput.value = history.romanStart ?? '';
+      this.romanStartRow.style.display = this.romanFrontmatterCb.checked ? '' : 'none';
     } else {
       // Derive document type from template name stem.
       const stem = this.templateSelect.value.replace(/\.(docx|odt)$/i, '');
@@ -651,10 +709,13 @@ export class ExportModal extends Modal {
       tof: this.tofCb.checked,
       restartFootnotes: this.footnotesCb.checked,
       newPageHeadings: this.newPageCb.checked,
+      generatedDate: this.generatedDateCb.checked,
+      romanFrontmatter: this.romanFrontmatterCb.checked,
+      romanStart: this.romanStartInput.value.trim(),
       outputDir: this.outputDirInput.value.trim(),
       outputFilename: this.filenameInput.value.trim(),
       keepIntermediate: this.keepIntermediateCb.checked,
-      pdfIntermediate: this.pdfIntermediateSelect.value as 'docx' | 'odt',
+      keepIntermediateMd: this.keepIntermediateMdCb.checked,
       enabledMappingIds: Array.from(this.mappingCheckboxes.entries())
         .filter(([, cb]) => cb.checked)
         .map(([id]) => id),
@@ -678,10 +739,13 @@ export class ExportModal extends Modal {
       tof:              opts.tof,
       restartFootnotes: opts.restartFootnotes,
       newPageHeadings:  opts.newPageHeadings,
+      generatedDate:    opts.generatedDate,
+      romanFrontmatter: opts.romanFrontmatter,
+      romanStart:       opts.romanStart,
       outputDir:        opts.outputDir,
       outputFilename:   opts.outputFilename,
       keepIntermediate: opts.keepIntermediate,
-      pdfIntermediate:  opts.pdfIntermediate,
+      keepIntermediateMd: opts.keepIntermediateMd,
       enabledMappingIds: opts.enabledMappingIds,
     };
     const s = this.plugin.settings as any;

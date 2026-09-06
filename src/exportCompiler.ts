@@ -156,15 +156,24 @@ export interface CompilerOptions {
   restartFootnotes: boolean;
   /** true = top-level headings start on a new page. */
   newPageHeadings: boolean;
+  /** true = insert today's date on the cover when the note has no `date:` property. */
+  generatedDate: boolean;
+  /** true = roman frontmatter page numbers, switching to arabic at the reset heading. */
+  romanFrontmatter: boolean;
+  /** Heading text that begins arabic 'page 1'. '' = auto. */
+  romanStart: string;
   /** Output folder (vault-relative or absolute, ~ expanded); '' = same folder as source. */
   outputDir?: string;
   /** Desired output filename (basename.ext). When set and different from the
    *  compiler's default name, the output file is renamed after compilation. */
   outputFilename?: string;
-  /** PDF only: keep the intermediate docx/odt after PDF conversion. */
+  /** PDF only: keep the intermediate docx/odt after PDF conversion. The
+   *  intermediate format itself is NOT user-selectable — it's always the
+   *  format of the chosen template (auto-detected by DocumentCompiler.py). */
   keepIntermediate?: boolean;
-  /** PDF only: intermediate format ('odt' default, 'docx' alternative). */
-  pdfIntermediate?: 'docx' | 'odt';
+  /** Non-md formats only: keep the compiled markdown DocumentCompiler
+   *  produces from an outline, instead of deleting it once export is done. */
+  keepIntermediateMd?: boolean;
   /** IDs of StyleMappings to apply on this export (subset of settings.styleMappings). */
   enabledMappingIds?: string[];
 }
@@ -236,15 +245,20 @@ export async function runDocumentCompiler(
   if (isExport) {
     args.push('--export');
     args.push('--format', opts.format); // 'docx', 'odt', or 'pdf'
-    if (opts.format === 'pdf') {
-      args.push('--pdf-intermediate', opts.pdfIntermediate ?? 'odt');
-      if (opts.keepIntermediate) args.push('--keep-intermediate');
+    if (opts.format === 'pdf' && opts.keepIntermediate) {
+      args.push('--keep-intermediate');
     }
+    if (opts.keepIntermediateMd) args.push('--keep-compiled-md');
   }
   args.push(opts.toc ? '--toc' : '--no-toc');
   args.push(opts.tof ? '--list-of-figures' : '--no-list-of-figures');
   args.push(opts.restartFootnotes ? '--no-global-footnotes' : '--global-footnotes');
   args.push(opts.newPageHeadings ? '--new-page-headings' : '--no-new-page-headings');
+  if (!opts.generatedDate) args.push('--no-generated-date');
+  if (opts.romanFrontmatter) {
+    args.push('--roman-frontmatter');
+    if (opts.romanStart) args.push('--page1-starts-with', opts.romanStart);
+  }
 
   // Pass the Obsidian account display name as a fallback author so the
   // merge script can set dc:creator even when `author:` is absent from YAML.

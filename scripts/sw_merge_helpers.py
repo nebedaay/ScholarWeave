@@ -100,16 +100,76 @@ def ensure_odt_styles(styles_bytes, needed_names, source_styles_bytes):
 #: live here side by side rather than being reinvented in each script.
 STYLE_REMAP = {
     'docx': {
-        'Blockquote':     'BlockText',
         'FirstParagraph': 'BodyText',
     },
     'odt': {
         'First_20_paragraph':            'Text_20_body',
         'Default_20_Paragraph_20_Style': 'Text_20_body',
         'Default Paragraph Style':       'Text_20_body',
-        'Block_20_Text':                 'Quotations',
     },
 }
+
+# Semantic-role style ALIASES — distinct from STYLE_REMAP above because the
+# right-hand side isn't a fixed name, it's found by searching the ACTIVE
+# template's own defined styles. pandoc emits a FIXED style id for some
+# constructs regardless of --reference-doc (verified: always 'BlockText' for
+# a DOCX blockquote, always 'Quotations' for an ODT one — a template CANNOT
+# make pandoc emit anything else). A template that doesn't define that exact
+# id under its own name — book.docx/book.odt instead define their own "Block
+# quote" style, converted from the docx original — would otherwise reference
+# an undefined style, which Word silently renders as "Normal" (LibreOffice is
+# more forgiving: 'Quotations' is also one of its built-in style names, so it
+# resolves even when a template's styles.xml never defines it explicitly).
+# resolve_style_alias() searches the destination template's own styles for a
+# name matching one of these candidates (most-preferred first) before falling
+# back to the bundled document.docx/document.odt style.
+STYLE_ALIASES = {
+    'docx': {
+        'BlockText': (['Block Text', 'Blockquote', 'Block quote',
+                        'Block Quotation'], 'BlockText'),
+    },
+    'odt': {
+        'Quotations': (['Quotations', 'Block Quotation', 'Blockquote',
+                         'Block quote'], 'Quotations'),
+    },
+}
+
+
+def _normalize_style_key(s):
+    return re.sub(r'[^a-z0-9]', '', (s or '').lower())
+
+
+def resolve_style_alias(defined, candidates, fallback):
+    """Find the identifier of a template's OWN style that best matches a
+    semantic role (e.g. "the blockquote style"), so pandoc's fixed output
+    style for that role can be remapped onto whatever name the ACTIVE
+    template happens to use, rather than one name hard-coded for a single
+    canonical template. See STYLE_ALIASES above for the motivating case.
+
+    defined: iterable of (identifier, display_name) pairs for every style the
+        destination template defines. `identifier` is what the caller will
+        actually set as the paragraph's style (DOCX styleId, ODT
+        style:name); `display_name` is the human-readable name (DOCX w:name,
+        ODT style:display-name — pass `identifier` again when a format has no
+        separate display name).
+    candidates: names to try, most-preferred first (e.g. ["Block Text",
+        "Blockquote", "Block quote", "Block Quotation"]). Matched against
+        both identifier and display_name after stripping everything but
+        letters/digits and lowercasing, so 'BlockText', 'Block_20_Text', and
+        'Block Text' are all treated as the same name.
+    fallback: identifier to use when nothing matches. The caller is
+        responsible for making sure a style by that identifier actually
+        exists (e.g. via ensure_docx_styles/ensure_odt_styles) before
+        referencing it — resolve_style_alias only picks the name.
+    """
+    rows = [(_normalize_style_key(ident), _normalize_style_key(name), ident)
+            for ident, name in defined]
+    for cand in candidates:
+        nc = _normalize_style_key(cand)
+        for nid, nname, ident in rows:
+            if nc == nid or nc == nname:
+                return ident
+    return fallback
 
 
 # ── cover-value resolution + text helpers (shared) ──────────────────────────
@@ -187,7 +247,7 @@ def is_tof_heading(text):
     return text.strip().lower() == 'table of figures'
 
 
-def resolve_cover(title, subtitle, author, date_val, basename):
+def resolve_cover(title, subtitle, author, date_val, basename, generate_date=True):
     """Resolve cover values per spec, identically for DOCX and ODT:
       Title    = whole 'title' property when a 'subtitle' property is given
                  (e.g. "Title: A Study of Important Things" stays whole, so the
@@ -196,7 +256,8 @@ def resolve_cover(title, subtitle, author, date_val, basename):
                  basename before '-'/'–' → full basename
       Subtitle = 'subtitle' property → (else) after ':' of title → none
       Author   = 'author' property → "Joseph Hill"
-      Date     = current date "Month DD, YYYY"
+      Date     = 'date' property → (when generate_date) current date
+                 "Month DD, YYYY" → None (the merge then drops the Date slot)
     """
     if title:
         if subtitle is not None:
@@ -213,10 +274,10 @@ def resolve_cover(title, subtitle, author, date_val, basename):
         m = re.split(r'\s*[-–]\s*', base, maxsplit=1)
         title = (m[0].strip() if m and m[0].strip() else base)
     author = author or 'Joseph Hill'
-    if not date_val:
+    if not date_val and generate_date:
         today = datetime.date.today()
         date_val = f"{today.strftime('%B')} {today.day}, {today.year}"
-    return title, subtitle, author, date_val
+    return title, subtitle, author, date_val or None
 
 
 # ── format-agnostic helpers ───────────────────────────────────────────────────
@@ -419,6 +480,31 @@ def strip_chapter_prefix(text):
     if m and m.group(2).strip():
         return m.group(2).strip()
     return text or ''
+
+
+def find_page_reset_index(h1_texts, marker=None):
+    """Given the Heading 1 texts of a document in order, return the index of the
+    heading where page numbering should switch from roman frontmatter to arabic
+    (page 1), or None when there is no such heading (→ caller keeps all-arabic).
+
+    marker : the export dialog's "Page 1 starts with" text. When given, the
+             first Heading 1 whose text starts with it (case-insensitive, after
+             stripping any 'Chapter N:' prefix or the marker's own). When blank,
+             the first Heading 1 that is a main-start (Introduction / Chapter N /
+             Part N / a leading number). Shared so DOCX and ODT switch at the
+             same heading.
+    """
+    marker = (marker or '').strip().lower()
+    for i, raw in enumerate(h1_texts):
+        t = (raw or '').strip()
+        if marker:
+            cand = {t.lower(), strip_chapter_prefix(t).lower()}
+            if any(c.startswith(marker) for c in cand):
+                return i
+        else:
+            if is_main_start(t) or re.match(r'^\s*\d', t):
+                return i
+    return None
 
 
 def process_figures(elements, *, get_style, get_text, set_body_style,

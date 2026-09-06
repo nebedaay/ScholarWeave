@@ -34,3 +34,6 @@ tools/citekeys.json
 
 # Python cache
 scripts/__pycache__/
+
+# Personal dev tool — not for the public repo
+sync-plugin.sh
