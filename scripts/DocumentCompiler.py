@@ -982,6 +982,82 @@ def ensure_blank_before_headings(text: str) -> str:
     return '\n'.join(out)
 
 
+#: A bracketed pandoc citation containing an @citekey — e.g. [@key],
+#: [see @key, 45], [@a; @b], [-@key]. Excludes ] and newlines (pandoc
+#: citations never contain either).
+_BRACKET_CITE_RE = re.compile(
+    r'[ \t]*'
+    r'(?P<cite>\[[^\[\]\n]*?-?@[A-Za-z][\w:.#$%&+?<>~/-]*[^\[\]\n]*\])'
+    r'(?P<trail>["\'“”‘’]?[.,;:!?]*["\'”’]?)'
+)
+
+
+def _sub_line_citations(line, defs, counter):
+    """Rewrite bracketed citations on one line to footnote references,
+    skipping inline-code spans. Appends `[^zoterociteN]: <citation>` strings
+    to `defs`."""
+    def repl(m):
+        counter[0] += 1
+        label = 'zoterocite%d' % counter[0]
+        defs.append('[^%s]: %s' % (label, m.group('cite')))
+        # Trailing sentence punctuation moves BEFORE the marker (Zotero's own
+        # note conversion leaves it after — this is the fix).
+        return '%s[^%s]' % (m.group('trail'), label)
+
+    parts = re.split(r'(`+[^`]*`+)', line)  # keep code spans as odd segments
+    for i in range(0, len(parts), 2):
+        parts[i] = _BRACKET_CITE_RE.sub(repl, parts[i])
+    return ''.join(parts)
+
+
+def citations_to_footnotes(text):
+    """For a note/footnote citation style: move every in-text bracketed
+    citation into a real footnote — `word [@key].` becomes `word.[^zoterociteN]`
+    plus an appended `[^zoterociteN]: [@key]` definition. Pandoc then renders
+    proper footnotes, and sw-zotero.lua converts the [@key] inside each one to
+    a Zotero field — matching the structure Zotero produces when a document is
+    switched to a note style, and fixing the punctuation placement Zotero
+    leaves wrong.
+
+    Skips fenced code, inline code, existing footnote definitions (a citation
+    there is already in a note), and heading lines.
+    """
+    lines = text.split('\n')
+    out, defs, counter = [], [], [0]
+    fence = None
+    in_fndef = False
+    for line in lines:
+        stripped = line.lstrip()
+        fence_m = re.match(r'(`{3,}|~{3,})', stripped)
+        if fence is not None:
+            out.append(line)
+            if fence_m and stripped.startswith(fence):
+                fence = None
+            continue
+        if fence_m:
+            fence = fence_m.group(1)
+            out.append(line)
+            continue
+        if re.match(r'[ \t]*\[\^[^\]\n]+\]:', line):
+            in_fndef = True
+            out.append(line)
+            continue
+        if in_fndef:
+            if line.strip() == '' or line[:1] in (' ', '\t'):
+                out.append(line)
+                continue
+            in_fndef = False
+        if re.match(r'#{1,6} ', line):
+            out.append(line)
+            continue
+        out.append(_sub_line_citations(line, defs, counter))
+    if defs:
+        if out and out[-1].strip() != '':
+            out.append('')
+        out.extend(defs)
+    return '\n'.join(out)
+
+
 def generate_mappings_filter(mappings_data, auto_name=True):
     """Given a list of (source, styleName) pairs, generate a temporary Lua
     filter that applies custom-style attributes. Returns the path to the temp
@@ -1947,6 +2023,20 @@ def _fetch_csl_style_file(csl_style, client=None):
     return str(cache_path)
 
 
+def _csl_is_note_style(csl_path):
+    """True when the CSL file at `csl_path` is a note/footnote style
+    (`<category citation-format="note"/>`). None / unreadable / a dependent
+    style with no own category → False (safe default: no restructuring)."""
+    if not csl_path:
+        return False
+    try:
+        with open(csl_path, 'r', encoding='utf-8', errors='ignore') as fh:
+            head = fh.read(8000)
+    except OSError:
+        return False
+    return bool(re.search(r'<category\s+citation-format="note"', head))
+
+
 def _parse_yaml_metadata(text, stem):
     """Parse all YAML frontmatter properties used by the export pipeline.
 
@@ -2175,6 +2265,20 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
     csl_style, _csl_is_override = _resolve_export_csl_style(
         text, template_path, fmt,
         override=csl_style_override, from_template=csl_from_template)
+
+    # ── Note/footnote citation style, live-field path: move each in-text
+    # citation into a real footnote before pandoc runs (see
+    # citations_to_footnotes). The static path skips this — pandoc's own
+    # --citeproc already produces footnotes for a note style.
+    if not static_citations:
+        try:
+            _csl_path_for_notes = _fetch_csl_style_file(csl_style, zmeta['client'])
+        except (RuntimeError, OSError):
+            _csl_path_for_notes = None
+        if _csl_is_note_style(_csl_path_for_notes):
+            cit_text = citations_to_footnotes(cit_text)
+            citations_md.write_text(cit_text, encoding='utf-8')
+            print('Note citation style — moved in-text citations into footnotes')
 
     # ── Static-citation mode (PDF path): fetch a CSL-JSON bibliography and
     # the CSL style file up front, and hand citation processing to pandoc's
