@@ -43,6 +43,9 @@ export async function setupAssets(plugin: ReferenceList): Promise<void> {
     const fullPath = normalizePath(`${pluginDir}/${relativePath}`);
     const isTemplate = relativePath.startsWith('templates/');
     try {
+      if (relativePath.startsWith('zotlit-templates/')) {
+        continue; // opt-in only — written into the vault by the settings button
+      }
       if (isTemplate && (await app.vault.adapter.exists(fullPath))) {
         continue; // never overwrite a template the user may have edited
       }

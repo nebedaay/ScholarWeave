@@ -171,6 +171,11 @@ export default {
     'Folder where the plugin\'s own literature notes are created (vault-relative). Leave blank to create at the vault root. Used for the "Create literature note" button when ZotLit is not handling creation. ZotLit uses its own configured folder.',
   'Create literature notes with ZotLit':
     'Create literature notes with ZotLit',
+  "Install and use ScholarWeave's ZotLit import templates":
+    "Install and use ScholarWeave's ZotLit import templates",
+  'Install templates': 'Install templates',
+  'Copies ScholarWeave\'s ZotLit templates into "sw-zotlit-templates/" and points ZotLit\'s "Template folder" setting there. Your own ZotLit templates (in "Templates/") are left untouched.':
+    'Copies ScholarWeave\'s ZotLit templates into "sw-zotlit-templates/" and points ZotLit\'s "Template folder" setting there. Your own ZotLit templates (in "Templates/") are left untouched.',
   'When ZotLit is available, the tooltip\'s "Create literature note" button creates the note with ZotLit\'s templates instead of the plugin\'s basic template. Falls back to the plugin template when ZotLit is absent or this is off.':
     'When ZotLit is available, the tooltip\'s "Create literature note" button creates the note with ZotLit\'s templates instead of the plugin\'s basic template. Falls back to the plugin template when ZotLit is absent or this is off.',
   'Open in Zotero': 'Open in Zotero',

@@ -43,6 +43,8 @@ This plugin started as a fork of **[Bripey Citation Suite](https://github.com/11
 
 ScholarWeave works alongside [ZotLit](https://github.com/PKM-er/obsidian-zotlit): when ZotLit is present, literature note creation uses ZotLit's templates, and `@@` autocomplete draws on ZotLit's full-text SQLite database for richer results. Neither plugin requires the other.
 
+**One-click ZotLit templates**: *Settings → ScholarWeave → "Install and use ScholarWeave's ZotLit import templates"* copies a curated set of ZotLit templates into `sw-zotlit-templates/` and points ZotLit's *Template folder* setting there (ZotLit reloads automatically). Your own templates in `Templates/` are left untouched.
+
 ## Linked citation syntax
 
 | Wikilink form           | Rendered as                    | Pandoc equivalent           |

@@ -55,6 +55,10 @@ const bundleAssetsPlugin = {
 
 			await readDir('scripts');
 			await readDir('templates');
+			// ZotLit import templates — bundled so the "Install ScholarWeave's
+			// ZotLit templates" button in settings can write them into the
+			// vault. NOT auto-extracted to the plugin dir (see assetSetup.ts).
+			await readDir('zotlit-templates');
 
 			return {
 				contents: `export const BUNDLED_ASSETS = ${JSON.stringify(assets)};`,

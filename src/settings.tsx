@@ -4,6 +4,7 @@ import { t } from './lang/helpers';
 import { findPandoc } from './bib/pandoc';
 import { getBibPath } from './bib/helpers';
 import { isZotLitSuggestActive } from './zotlit';
+import { installZotlitTemplatesWithNotice } from './zotlitTemplates';
 import ReferenceList from './main';
 import ReactDOM from 'react-dom';
 import React from 'react';
@@ -703,6 +704,28 @@ export class ReferenceListSettingsTab extends PluginSettingTab {
             this.plugin.saveSettings();
           })
       );
+
+    if (Platform.isDesktop) {
+      new Setting(containerEl)
+        .setName(t("Install and use ScholarWeave's ZotLit import templates"))
+        .setDesc(
+          t(
+            'Copies ScholarWeave\'s ZotLit templates into "sw-zotlit-templates/" and points ZotLit\'s "Template folder" setting there. Your own ZotLit templates (in "Templates/") are left untouched.'
+          )
+        )
+        .addButton((btn) =>
+          btn
+            .setButtonText(t('Install templates'))
+            .onClick(async () => {
+              btn.setDisabled(true);
+              try {
+                await installZotlitTemplatesWithNotice(this.plugin);
+              } finally {
+                btn.setDisabled(false);
+              }
+            })
+        );
+    }
 
     new Setting(containerEl)
       .setName(t('Hide links in references'))
