@@ -2,6 +2,10 @@ import { App, Modal, Notice, Platform, TFile } from 'obsidian';
 import type ReferenceList from './main';
 import type { StyleMapping } from './settings';
 import { runDocumentCompiler } from './exportCompiler';
+import {
+  listZoteroInstalledStyles,
+  resolveZoteroStylePath,
+} from './settings/ZoteroStylePicker';
 
 export type ExportFormat = 'md' | 'docx' | 'odt' | 'pdf';
 export type DocType = 'book' | 'article' | 'custom';
@@ -35,6 +39,12 @@ export interface ExportOptions {
   keepIntermediateMd: boolean;
   /** IDs of StyleMappings enabled for this export (subset of settings.styleMappings). */
   enabledMappingIds: string[];
+  /** true = apply `cslStyle`, overriding the template's own citation style;
+   *  false = use the template's style (or the global default). */
+  overrideCslStyle: boolean;
+  /** Style applied when overrideCslStyle is true: a Zotero style name, a
+   *  .csl path, or a URL. */
+  cslStyle: string;
 }
 
 /** Per-file export history stored in plugin settings. */
@@ -54,6 +64,8 @@ interface FileExportHistory {
   keepIntermediate: boolean;
   keepIntermediateMd: boolean;
   enabledMappingIds: string[];
+  overrideCslStyle?: boolean;
+  cslStyle?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -124,6 +136,11 @@ export class ExportModal extends Modal {
   private keepIntermediateRow!: HTMLElement;
   private keepIntermediateMdCb!: HTMLInputElement;
   private keepIntermediateMdRow!: HTMLElement;
+  private cslOverrideCb!: HTMLInputElement;
+  private cslStyleRow!: HTMLElement;
+  private cslStyleSelect!: HTMLSelectElement;
+  private cslStyleInput!: HTMLInputElement;
+  private cslStyleHasList = false;
   /** Map from StyleMapping.id → checkbox, for reading enabled state in options(). */
   private mappingCheckboxes: Map<string, HTMLInputElement> = new Map();
   private runButton!: HTMLButtonElement;
@@ -367,6 +384,9 @@ export class ExportModal extends Modal {
     keepInterMdLbl.htmlFor = 'lc-export-keep-inter-md';
     this.keepIntermediateMdCb.checked = fileHistory?.keepIntermediateMd ?? false;
 
+    // ── Citation style override ─────────────────────────────────────────
+    this.buildCslStyleSection(checksWrap, fileHistory);
+
     // ── Style mappings (collapsible, only when mappings exist) ───────────
     this.buildMappingsSection(contentEl, fileHistory?.enabledMappingIds);
 
@@ -424,6 +444,100 @@ export class ExportModal extends Modal {
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────
+
+  /** The note's own `csl:` / `citation-style:` frontmatter value, or ''. */
+  private frontmatterCsl(): string {
+    const fm = this.app.metadataCache.getFileCache(this.file)?.frontmatter as
+      | Record<string, unknown>
+      | undefined;
+    const v = fm?.csl ?? fm?.['citation-style'];
+    return typeof v === 'string' ? v.trim() : '';
+  }
+
+  /**
+   * "Apply the selected citation style, overriding the template's style"
+   * checkbox + a dropdown of installed Zotero styles (shown only when
+   * checked). Auto-checked when the note has a `csl:` property or a previous
+   * export of this file set a style.
+   */
+  private buildCslStyleSection(
+    container: HTMLElement,
+    fileHistory: FileExportHistory | null
+  ): void {
+    const row = container.createDiv({ cls: 'lc-export-check-row' });
+    this.cslOverrideCb = row.createEl('input', { type: 'checkbox' });
+    this.cslOverrideCb.id = 'lc-export-csl';
+    const lbl = row.createEl('label', {
+      text: "Apply the selected citation style, overriding the template's style if it exists",
+    });
+    lbl.htmlFor = 'lc-export-csl';
+
+    this.cslStyleRow = container.createDiv({ cls: 'lc-export-check-row' });
+    this.cslStyleRow.style.cssText = 'margin-left:22px';
+
+    const styles = listZoteroInstalledStyles(this.plugin.settings.zoteroDataDir);
+    this.cslStyleHasList = styles.length > 0;
+
+    const fmCsl = this.frontmatterCsl();
+    const savedStyle =
+      (fileHistory?.cslStyle ?? '') || fmCsl || '';
+
+    this.cslStyleSelect = this.cslStyleRow.createEl('select');
+    this.cslStyleSelect.style.cssText = 'width:100%';
+    this.cslStyleInput = this.cslStyleRow.createEl('input', {
+      type: 'text',
+      placeholder: 'Citation style name, .csl path, or URL',
+    });
+    this.cslStyleInput.style.cssText = 'width:100%';
+
+    if (this.cslStyleHasList) {
+      this.cslStyleInput.hidden = true;
+      // If the saved/frontmatter choice isn't a listed file, surface it too.
+      const listedPaths = new Set(styles.map((s) => s.path));
+      const resolved =
+        savedStyle &&
+        (resolveZoteroStylePath(savedStyle, this.plugin.settings.zoteroDataDir) ??
+          savedStyle);
+      if (resolved && !listedPaths.has(resolved)) {
+        const opt = this.cslStyleSelect.createEl('option', {
+          text: `${savedStyle} (not in Zotero folder)`,
+        });
+        opt.value = resolved;
+      }
+      for (const s of styles) {
+        const opt = this.cslStyleSelect.createEl('option', { text: s.title });
+        opt.value = s.path;
+      }
+      if (resolved) this.cslStyleSelect.value = resolved;
+    } else {
+      this.cslStyleSelect.hidden = true;
+      this.cslStyleInput.value = savedStyle;
+      const note = this.cslStyleRow.createEl('p', {
+        text: 'No installed Zotero styles found — set the Zotero data folder in Settings, or enter a style name/path/URL.',
+        cls: 'lc-mapping-modal-note',
+      });
+      note.style.marginTop = '2px';
+    }
+
+    // Checked when the file history says so, or (no history) the note carries
+    // a csl: property.
+    this.cslOverrideCb.checked = fileHistory
+      ? !!fileHistory.overrideCslStyle
+      : !!fmCsl;
+
+    const sync = () => {
+      this.cslStyleRow.style.display = this.cslOverrideCb.checked ? '' : 'none';
+    };
+    this.cslOverrideCb.addEventListener('change', sync);
+    sync();
+  }
+
+  /** Current citation-style value from the dropdown or the free-text input. */
+  private cslStyleValue(): string {
+    return (
+      this.cslStyleHasList ? this.cslStyleSelect.value : this.cslStyleInput.value
+    ).trim();
+  }
 
   /**
    * Build the collapsible "Style mappings" section at the bottom of the modal.
@@ -500,6 +614,10 @@ export class ExportModal extends Modal {
     this.pdfNote.style.display = isPdf ? '' : 'none';
     // Compiled-markdown row: show for any exported (non-md) format.
     this.keepIntermediateMdRow.style.display = isMd ? 'none' : '';
+    // Citation-style override: meaningless for markdown-only output.
+    this.cslOverrideCb.parentElement!.style.display = isMd ? 'none' : '';
+    this.cslStyleRow.style.display =
+      !isMd && this.cslOverrideCb.checked ? '' : 'none';
   }
 
   /**
@@ -719,6 +837,8 @@ export class ExportModal extends Modal {
       enabledMappingIds: Array.from(this.mappingCheckboxes.entries())
         .filter(([, cb]) => cb.checked)
         .map(([id]) => id),
+      overrideCslStyle: this.cslOverrideCb.checked,
+      cslStyle: this.cslStyleValue(),
     };
   }
 
@@ -747,6 +867,8 @@ export class ExportModal extends Modal {
       keepIntermediate: opts.keepIntermediate,
       keepIntermediateMd: opts.keepIntermediateMd,
       enabledMappingIds: opts.enabledMappingIds,
+      overrideCslStyle: opts.overrideCslStyle,
+      cslStyle: opts.cslStyle,
     };
     const s = this.plugin.settings as any;
     if (!s.fileExportHistory) s.fileExportHistory = {};

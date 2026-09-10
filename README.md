@@ -72,6 +72,7 @@ Run **"Compile and export a book, article, or other document (outline or markdow
 - **TOC checkbox** — on by default for `book*` templates, off for `article*` and `document`
 - **Restart footnotes per chapter checkbox** — per-chapter numbering (default for `book*`) or continuous numbering across the document (default for `article*`)
 - **Chapters/top-level sections start on a new page**: On by default for books.
+- **Apply a citation style, overriding the template's** — pick a style from your installed Zotero styles. The chosen style is used for PDF rendering and written into the exported DOCX/ODT's Zotero document preferences, so a later "Refresh" in Word or LibreOffice uses it without prompting. Auto-checked when the note has a `csl:` property or you applied a style on a previous export of the same file.
 - **Predefined style mappings** from markdown to the export format (managed in the plugin’s settings dialogue, selectable here)
 
 The input note's `template` property can specify an included or user-defined template. Notes with a `book*` template are by default processed as books with TOC and chapters. Notes with an `article*` template are treated as shorter works with sections. But these settings can be overridden in the export dialogue.
@@ -96,9 +97,11 @@ When compiling a bullet list of notes, the same rules apply at every bullet leve
 
 Inline linked `[[@key|alias]]` and pandoc-style `[see @key, p. 25]` citations become live Zotero citation fields in the exported DOCX/ODT, refreshable in Word or LibreOffice.
 
+**Excalidraw drawings**: an embedded `![[Drawing.excalidraw]]` is exported using the drawing's auto-generated sidecar image (enable *Auto-export PNG* in the Excalidraw plugin). To make it a numbered figure, put a `Figure. Caption text` paragraph directly beneath the embed.
+
 ### PDF export
 
-PDF export goes through an intermediate DOCX or ODT (chosen from the selected template), which LibreOffice converts to PDF — **LibreOffice must be installed**, and an ODT template generally gives better results than DOCX (footnote numbering, figure references). Because a PDF is final, citations are rendered **statically** at export time rather than as live fields: the bibliography and formatted citations appear immediately, using the citation style stored in the template's own Zotero document preferences, or Chicago author-date if none is set. The table of contents, table of figures, figure numbers, and captions are likewise filled in with computed values (chapter-scoped where the template numbers chapters), and TOC/ToF entries are clickable links to their targets — so nothing needs a manual "update fields" pass.
+PDF export goes through an intermediate DOCX or ODT (chosen from the selected template), which LibreOffice converts to PDF — **LibreOffice must be installed**, and an ODT template generally gives better results than DOCX (footnote numbering, figure references). Because a PDF is final, citations are rendered **statically** at export time rather than as live fields: the bibliography and formatted citations appear immediately. The citation style is resolved in this order: the export dialog's style override → the note's `csl:` / `citation-style:` frontmatter → the template's own stored Zotero document preferences → the plugin's configured citation style → Chicago author-date. A style named by frontmatter or the dialog is looked up in your installed Zotero styles (set the *Zotero data folder* in settings if it isn't `~/Zotero`). The table of contents, table of figures, figure numbers, and captions are likewise filled in with computed values (chapter-scoped where the template numbers chapters), and TOC/ToF entries are clickable links to their targets — so nothing needs a manual "update fields" pass.
 
 ### Available templates
 
@@ -125,6 +128,7 @@ Template lookup order: your configured templates directory → `<vault>/Export T
 | `abstract` | Cover abstract block |
 | `note` | Cover note block |
 | `author` | Cover author (string or `- Name` list) |
+| `csl` / `citation-style` | Citation style for this note — a Zotero style name (e.g. `chicago-note-bibliography`), a `.csl` path, or a URL. Drives both the live reference list and export. |
 
 ### Automatic style conversion
 

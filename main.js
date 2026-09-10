@@ -26972,6 +26972,9 @@ var en_default = {
   "Search...": "Search...",
   'Path to a CSL file. This can be an absolute path or one relative to your vault. This will override the style selected above. This can be overridden on a per-file basis by setting "csl" or "citation-style" in the file\'s frontmatter. A URL can be supplied when setting the style via frontmatter.': `Path to a CSL file. This can be an absolute path or one relative to your vault. This will override the style selected above. This can be overridden on a per-file basis by setting "csl" or "citation-style" in the file's frontmatter. A URL can be supplied when setting the style via frontmatter.`,
   'Path to a CSL file (vault-relative or absolute). Overrides the style selected above. Can be overridden per-note via the "csl" or "citation-style" frontmatter key. A URL can be supplied when setting the style via frontmatter.': 'Path to a CSL file (vault-relative or absolute). Overrides the style selected above. Can be overridden per-note via the "csl" or "citation-style" frontmatter key. A URL can be supplied when setting the style via frontmatter.',
+  'Path to a CSL file (vault-relative or absolute). Overrides the style selected above. Can be overridden per-note via the "csl" or "citation-style" frontmatter key \u2014 a bare Zotero style name, a path, or a URL.': 'Path to a CSL file (vault-relative or absolute). Overrides the style selected above. Can be overridden per-note via the "csl" or "citation-style" frontmatter key \u2014 a bare Zotero style name, a path, or a URL.',
+  "Zotero data folder": "Zotero data folder",
+  'Folder where Zotero keeps installed styles (its data directory, or the "styles" folder itself). Leave blank to auto-detect (~/Zotero). Used to resolve a bare style name in a note\'s "csl" frontmatter and to list styles for export.': `Folder where Zotero keeps installed styles (its data directory, or the "styles" folder itself). Leave blank to auto-detect (~/Zotero). Used to resolve a bare style name in a note's "csl" frontmatter and to list styles for export.`,
   "Select a CSL file located on your computer": "Select a CSL file located on your computer",
   "Fallback path to Pandoc": "Fallback path to Pandoc",
   "The absolute path to the Pandoc executable. This plugin will attempt to locate pandoc for you and will use this path if it fails to do so. To find pandoc, use the output of 'which pandoc' in a terminal on Mac/Linux or 'Get-Command pandoc' in powershell on Windows.": "The absolute path to the Pandoc executable. This plugin will attempt to locate pandoc for you and will use this path if it fails to do so. To find pandoc, use the output of 'which pandoc' in a terminal on Mac/Linux or 'Get-Command pandoc' in powershell on Windows.",
@@ -69409,13 +69412,19 @@ function ZoteroPullSetting({ plugin }) {
 
 // src/settings/ZoteroStylePicker.ts
 var import_obsidian8 = __toModule(require("obsidian"));
-function zoteroStyleDirs() {
+function zoteroStyleDirs(customDataDir) {
   var _a, _b;
+  if (typeof require !== "function")
+    return [];
   const os = require("os");
   const path = require("path");
   const home = os.homedir();
   const platform = (_a = globalThis.process) == null ? void 0 : _a.platform;
   const dataDirs = [];
+  const custom = (customDataDir != null ? customDataDir : "").trim();
+  if (custom) {
+    dataDirs.push(path.basename(custom) === "styles" ? custom : path.join(custom, "styles"), path.join(custom, "styles"));
+  }
   if (platform === "win32") {
     dataDirs.push(path.join(home, "Zotero", "styles"), path.join((_b = process.env.APPDATA) != null ? _b : "", "Zotero", "Zotero", "styles"));
   } else if (platform === "darwin") {
@@ -69425,11 +69434,11 @@ function zoteroStyleDirs() {
   }
   return dataDirs;
 }
-function listZoteroInstalledStyles() {
+function listZoteroInstalledStyles(customDataDir) {
   const fs = require("fs");
   const path = require("path");
   let stylesDir = null;
-  for (const dir of zoteroStyleDirs()) {
+  for (const dir of zoteroStyleDirs(customDataDir)) {
     try {
       if (fs.existsSync(dir)) {
         stylesDir = dir;
@@ -69465,13 +69474,41 @@ function listZoteroInstalledStyles() {
   }
   return styles.sort((a3, b3) => a3.title.localeCompare(b3.title));
 }
+function resolveZoteroStylePath(value, customDataDir) {
+  const v3 = (value != null ? value : "").trim();
+  if (!v3)
+    return null;
+  if (/^https?:\/\//i.test(v3))
+    return v3;
+  if (typeof require !== "function")
+    return null;
+  const fs = require("fs");
+  const path = require("path");
+  if (v3.includes("/") || v3.includes("\\") || v3.toLowerCase().endsWith(".csl")) {
+    try {
+      if (fs.existsSync(v3))
+        return v3;
+    } catch (e3) {
+    }
+  }
+  const name = v3.replace(/\.csl$/i, "");
+  for (const dir of zoteroStyleDirs(customDataDir)) {
+    const candidate = path.join(dir, `${name}.csl`);
+    try {
+      if (fs.existsSync(candidate))
+        return candidate;
+    } catch (e3) {
+    }
+  }
+  return null;
+}
 var ZoteroStylePicker = class extends import_obsidian8.FuzzySuggestModal {
   constructor(app2, plugin, onPick) {
     super(app2);
     this.plugin = plugin;
     this.onPick = onPick;
     this.setPlaceholder("Search your installed Zotero CSL styles\u2026");
-    const loaded = listZoteroInstalledStyles();
+    const loaded = listZoteroInstalledStyles(plugin.settings.zoteroDataDir);
     this.styles = loaded;
     if (loaded.length === 0) {
       new import_obsidian8.Notice("No Zotero styles found. Make sure Zotero is installed and has styles in ~/Zotero/styles/.", 6e3);
@@ -69511,7 +69548,8 @@ var DEFAULT_SETTINGS = {
   defaultAuthor: "",
   useAccountNameAsAuthor: false,
   styleMappings: [],
-  styleMappingsEnabled: true
+  styleMappingsEnabled: true,
+  zoteroDataDir: ""
 };
 var BIB_EXTENSIONS2 = new Set(["bib", "json", "yaml", "yml"]);
 var BibFilePickerModal = class extends import_obsidian9.FuzzySuggestModal {
@@ -69778,7 +69816,7 @@ var ReferenceListSettingsTab = class extends import_obsidian9.PluginSettingTab {
         this.plugin.saveSettings(() => this.plugin.bibManager.reinit(false));
       }
     })), containerEl.createDiv("lc-setting-item setting-item"));
-    new import_obsidian9.Setting(containerEl).setName(t("Custom citation style")).setDesc(t('Path to a CSL file (vault-relative or absolute). Overrides the style selected above. Can be overridden per-note via the "csl" or "citation-style" frontmatter key. A URL can be supplied when setting the style via frontmatter.')).then((setting) => {
+    new import_obsidian9.Setting(containerEl).setName(t("Custom citation style")).setDesc(t('Path to a CSL file (vault-relative or absolute). Overrides the style selected above. Can be overridden per-note via the "csl" or "citation-style" frontmatter key \u2014 a bare Zotero style name, a path, or a URL.')).then((setting) => {
       let pathText;
       setting.addText((text) => {
         var _a2;
@@ -69803,6 +69841,15 @@ var ReferenceListSettingsTab = class extends import_obsidian9.PluginSettingTab {
         });
       }
     });
+    if (import_obsidian9.Platform.isDesktop) {
+      new import_obsidian9.Setting(containerEl).setName(t("Zotero data folder")).setDesc(t(`Folder where Zotero keeps installed styles (its data directory, or the "styles" folder itself). Leave blank to auto-detect (~/Zotero). Used to resolve a bare style name in a note's "csl" frontmatter and to list styles for export.`)).addText((text) => {
+        var _a2;
+        return text.setPlaceholder("~/Zotero").setValue((_a2 = this.plugin.settings.zoteroDataDir) != null ? _a2 : "").onChange((value) => {
+          this.plugin.settings.zoteroDataDir = value.trim();
+          this.plugin.saveSettings(() => this.plugin.bibManager.reinit(false));
+        });
+      });
+    }
     const defaultLanguage = langListRaw.find((item) => item.value === this.plugin.settings.cslLang);
     Cn.render(/* @__PURE__ */ Cn.createElement(SettingItem, {
       name: t("Citation style language"),
@@ -72250,7 +72297,7 @@ var BibManager = class {
     this.setFuse(Array.from(this.bibCache.values()));
   }
   async loadScopedEngine(settings) {
-    var _a, _b, _c, _d, _e;
+    var _a, _b, _c, _d, _e, _f;
     if (!settings)
       return this;
     const pluginSettings = this.plugin.settings;
@@ -72260,17 +72307,22 @@ var BibManager = class {
     let fuse = this.fuse;
     let langs = [settings.lang];
     if (settings.style) {
+      let resolvedStyle = settings.style;
+      const looksBare = !/[\\/]/.test(resolvedStyle) && !/^https?:/i.test(resolvedStyle) && !/\.csl$/i.test(resolvedStyle);
+      if (looksBare) {
+        resolvedStyle = (_c = resolveZoteroStylePath(resolvedStyle, this.plugin.settings.zoteroDataDir)) != null ? _c : resolvedStyle;
+      }
       try {
-        const isURL = /^http/.test(settings.style);
-        const styleObj = isURL ? { id: settings.style } : { id: settings.style, explicitPath: settings.style };
+        const isURL = /^http/.test(resolvedStyle);
+        const styleObj = isURL ? { id: resolvedStyle } : { id: resolvedStyle, explicitPath: resolvedStyle };
         const styles = await this.loadStyles([styleObj]);
         for (const styleStr of styles) {
           langs = extractRawLocales(styleStr, settings.lang);
         }
-        style = settings.style;
+        style = resolvedStyle;
       } catch (e3) {
         console.error(e3);
-        (_c = this.plugin.view) == null ? void 0 : _c.setMessage(e3.message);
+        (_d = this.plugin.view) == null ? void 0 : _d.setMessage(e3.message);
         return this;
       }
     }
@@ -72280,11 +72332,11 @@ var BibManager = class {
         lang = settings.lang;
       } catch (e3) {
         console.error(e3);
-        (_d = this.plugin.view) == null ? void 0 : _d.setMessage(e3.message);
+        (_e = this.plugin.view) == null ? void 0 : _e.setMessage(e3.message);
         return this;
       }
     }
-    if ((_e = settings.bibliography) == null ? void 0 : _e.length) {
+    if ((_f = settings.bibliography) == null ? void 0 : _f.length) {
       try {
         const bib = await bibPathsToCSL(settings.bibliography, this.plugin.settings.pathToPandoc);
         bibCache = new Map();
@@ -74133,6 +74185,11 @@ async function runDocumentCompiler(plugin, file, opts) {
     if (opts.romanStart)
       args.push("--page1-starts-with", opts.romanStart);
   }
+  if (isExport && opts.overrideCslStyle === true && opts.cslStyle) {
+    args.push("--csl-style", opts.cslStyle);
+  } else if (isExport && opts.overrideCslStyle === false) {
+    args.push("--csl-style-from-template");
+  }
   const accountName = (_e = (_d = plugin.app.account) == null ? void 0 : _d.name) != null ? _e : void 0;
   if (accountName)
     args.push("--default-author", accountName);
@@ -74143,6 +74200,9 @@ async function runDocumentCompiler(plugin, file, opts) {
   const outputDir = resolveFolder(opts.outputDir, vaultBase);
   if (outputDir)
     args.push("--output-dir", outputDir);
+  if (opts.outputFilename) {
+    args.push("--output-name", opts.outputFilename);
+  }
   if (isExport && opts.enabledMappingIds && opts.enabledMappingIds.length > 0) {
     const allMappings = (_f = plugin.settings.styleMappings) != null ? _f : [];
     const enabledSet = new Set(opts.enabledMappingIds);
@@ -74158,6 +74218,14 @@ async function runDocumentCompiler(plugin, file, opts) {
     const a3 = plugin.app.vault.adapter;
     if (typeof (a3 == null ? void 0 : a3.getBasePath) === "function")
       env.SW_VAULT = a3.getBasePath();
+  }
+  if (plugin.settings.zoteroDataDir) {
+    env.SW_ZOTERO_DIR = plugin.settings.zoteroDataDir;
+  }
+  {
+    const configured = plugin.settings.cslStylePath || plugin.settings.cslStyleURL || "";
+    if (configured)
+      env.SW_DEFAULT_CSL = configured;
   }
   if (isExport) {
     const node = await findNode();
@@ -74182,23 +74250,11 @@ async function runDocumentCompiler(plugin, file, opts) {
   try {
     const res = await execFileAsync(py, [script, ...args], { env });
     const rawOutputPath = (_j = res.stdout.trim().split("\n").pop()) != null ? _j : "";
-    let finalOutputPath = rawOutputPath;
-    if (opts.outputFilename && rawOutputPath && require("path").basename(rawOutputPath) !== opts.outputFilename) {
-      try {
-        const path = require("path");
-        const fs = require("fs");
-        const renamed = path.join(path.dirname(rawOutputPath), opts.outputFilename);
-        fs.renameSync(rawOutputPath, renamed);
-        finalOutputPath = renamed;
-      } catch (renameErr) {
-        console.warn("[scholar-weave] Could not rename output file:", renameErr);
-      }
-    }
     return {
       ok: true,
       stdout: res.stdout,
       stderr: res.stderr,
-      outputPath: finalOutputPath || void 0
+      outputPath: rawOutputPath || void 0
     };
   } catch (e3) {
     const err = e3;
@@ -74225,6 +74281,7 @@ function listTemplates(dir, format2) {
 var ExportModal = class extends import_obsidian14.Modal {
   constructor(app2, plugin, file) {
     super(app2);
+    this.cslStyleHasList = false;
     this.mappingCheckboxes = new Map();
     this.pluginTplDir = "";
     this.userTplDir = "";
@@ -74383,6 +74440,7 @@ var ExportModal = class extends import_obsidian14.Modal {
     });
     keepInterMdLbl.htmlFor = "lc-export-keep-inter-md";
     this.keepIntermediateMdCb.checked = (_h = fileHistory == null ? void 0 : fileHistory.keepIntermediateMd) != null ? _h : false;
+    this.buildCslStyleSection(checksWrap, fileHistory);
     this.buildMappingsSection(contentEl, fileHistory == null ? void 0 : fileHistory.enabledMappingIds);
     this.applyDocSettings(templateSwitched);
     this.syncFormatState(this.formatSelect.value);
@@ -74431,6 +74489,69 @@ var ExportModal = class extends import_obsidian14.Modal {
         this.close();
     });
     setTimeout(() => this.runButton.focus(), 50);
+  }
+  frontmatterCsl() {
+    var _a, _b;
+    const fm = (_a = this.app.metadataCache.getFileCache(this.file)) == null ? void 0 : _a.frontmatter;
+    const v3 = (_b = fm == null ? void 0 : fm.csl) != null ? _b : fm == null ? void 0 : fm["citation-style"];
+    return typeof v3 === "string" ? v3.trim() : "";
+  }
+  buildCslStyleSection(container, fileHistory) {
+    var _a, _b;
+    const row = container.createDiv({ cls: "lc-export-check-row" });
+    this.cslOverrideCb = row.createEl("input", { type: "checkbox" });
+    this.cslOverrideCb.id = "lc-export-csl";
+    const lbl = row.createEl("label", {
+      text: "Apply the selected citation style, overriding the template's style if it exists"
+    });
+    lbl.htmlFor = "lc-export-csl";
+    this.cslStyleRow = container.createDiv({ cls: "lc-export-check-row" });
+    this.cslStyleRow.style.cssText = "margin-left:22px";
+    const styles = listZoteroInstalledStyles(this.plugin.settings.zoteroDataDir);
+    this.cslStyleHasList = styles.length > 0;
+    const fmCsl = this.frontmatterCsl();
+    const savedStyle = ((_a = fileHistory == null ? void 0 : fileHistory.cslStyle) != null ? _a : "") || fmCsl || "";
+    this.cslStyleSelect = this.cslStyleRow.createEl("select");
+    this.cslStyleSelect.style.cssText = "width:100%";
+    this.cslStyleInput = this.cslStyleRow.createEl("input", {
+      type: "text",
+      placeholder: "Citation style name, .csl path, or URL"
+    });
+    this.cslStyleInput.style.cssText = "width:100%";
+    if (this.cslStyleHasList) {
+      this.cslStyleInput.hidden = true;
+      const listedPaths = new Set(styles.map((s3) => s3.path));
+      const resolved = savedStyle && ((_b = resolveZoteroStylePath(savedStyle, this.plugin.settings.zoteroDataDir)) != null ? _b : savedStyle);
+      if (resolved && !listedPaths.has(resolved)) {
+        const opt = this.cslStyleSelect.createEl("option", {
+          text: `${savedStyle} (not in Zotero folder)`
+        });
+        opt.value = resolved;
+      }
+      for (const s3 of styles) {
+        const opt = this.cslStyleSelect.createEl("option", { text: s3.title });
+        opt.value = s3.path;
+      }
+      if (resolved)
+        this.cslStyleSelect.value = resolved;
+    } else {
+      this.cslStyleSelect.hidden = true;
+      this.cslStyleInput.value = savedStyle;
+      const note = this.cslStyleRow.createEl("p", {
+        text: "No installed Zotero styles found \u2014 set the Zotero data folder in Settings, or enter a style name/path/URL.",
+        cls: "lc-mapping-modal-note"
+      });
+      note.style.marginTop = "2px";
+    }
+    this.cslOverrideCb.checked = fileHistory ? !!fileHistory.overrideCslStyle : !!fmCsl;
+    const sync = () => {
+      this.cslStyleRow.style.display = this.cslOverrideCb.checked ? "" : "none";
+    };
+    this.cslOverrideCb.addEventListener("change", sync);
+    sync();
+  }
+  cslStyleValue() {
+    return (this.cslStyleHasList ? this.cslStyleSelect.value : this.cslStyleInput.value).trim();
   }
   buildMappingsSection(container, savedIds) {
     var _a, _b;
@@ -74483,6 +74604,8 @@ var ExportModal = class extends import_obsidian14.Modal {
     this.keepIntermediateRow.style.display = isPdf ? "" : "none";
     this.pdfNote.style.display = isPdf ? "" : "none";
     this.keepIntermediateMdRow.style.display = isMd ? "none" : "";
+    this.cslOverrideCb.parentElement.style.display = isMd ? "none" : "";
+    this.cslStyleRow.style.display = !isMd && this.cslOverrideCb.checked ? "" : "none";
   }
   buildTemplateDropdown(format2, preferredValue = "") {
     this.templateSelect.empty();
@@ -74630,7 +74753,9 @@ var ExportModal = class extends import_obsidian14.Modal {
       outputFilename: this.filenameInput.value.trim(),
       keepIntermediate: this.keepIntermediateCb.checked,
       keepIntermediateMd: this.keepIntermediateMdCb.checked,
-      enabledMappingIds: Array.from(this.mappingCheckboxes.entries()).filter(([, cb]) => cb.checked).map(([id]) => id)
+      enabledMappingIds: Array.from(this.mappingCheckboxes.entries()).filter(([, cb]) => cb.checked).map(([id]) => id),
+      overrideCslStyle: this.cslOverrideCb.checked,
+      cslStyle: this.cslStyleValue()
     };
   }
   async run() {
@@ -74655,7 +74780,9 @@ var ExportModal = class extends import_obsidian14.Modal {
       outputFilename: opts.outputFilename,
       keepIntermediate: opts.keepIntermediate,
       keepIntermediateMd: opts.keepIntermediateMd,
-      enabledMappingIds: opts.enabledMappingIds
+      enabledMappingIds: opts.enabledMappingIds,
+      overrideCslStyle: opts.overrideCslStyle,
+      cslStyle: opts.cslStyle
     };
     const s3 = this.plugin.settings;
     if (!s3.fileExportHistory)
@@ -75769,11 +75896,52 @@ def resolve_attachment_path(filename: str):
         return None
     return min(matches, key=lambda p: len(p.parts))
 
+# Excalidraw drawings are embedded as ![[Name.excalidraw]] (Obsidian omits the
+# trailing .md). The Excalidraw plugin keeps sidecar image files next to the
+# drawing when autoexportSVG / autoexportPNG are on ("Name.excalidraw.svg" /
+# "Name.excalidraw.png", kept in sync with the drawing). We embed the sidecar
+# instead of the drawing source. PNG is tried first: it is a faithful raster of
+# what Obsidian shows, whereas Word and LibreOffice render the SVG with a
+# substitute font (the Excalidraw hand-drawn font isn't installed) and
+# LibreOffice drops some shape fills. SVG is the fallback when no PNG sidecar
+# exists.
+_EXCALIDRAW_SIDECAR_FORMATS = ('png', 'svg')
+
+
+def _parse_embed_pipe(parts):
+    """Split the segments after the first '|' of an Obsidian embed into
+    (alt_text, width, height). A purely numeric segment (optionally NxN) is a
+    pixel size; anything else is alt text."""
+    alt_bits, width, height = [], None, None
+    for seg in parts[1:]:
+        dm = re.fullmatch(r'(\\d+)(?:x(\\d+))?', seg)
+        if dm:
+            width, height = dm.group(1), dm.group(2)
+        elif seg:
+            alt_bits.append(seg)
+    return ' '.join(alt_bits), width, height
+
+
+def _embed_markdown(resolved, alt, width, height):
+    """Build the pandoc image markdown for a resolved attachment path."""
+    rel = os.path.relpath(resolved, os.getcwd())
+    attrs = ''
+    if width:
+        dims = ['width=%spx' % width]
+        if height:
+            dims.append('height=%spx' % height)
+        # No space before '{' \u2014 pandoc only reads it as an image attribute
+        # when it is directly adjacent to the ')'.
+        attrs = '{%s}' % ' '.join(dims)
+    return f'![{alt}]({rel}){attrs}'
+
+
 def resolve_embed_links(content: str) -> str:
     """Rewrite Obsidian image embeds (![[name.ext]]) to vault-relative paths
     so pandoc can fetch them. Without this, pandoc looks relative to the
     compiled file's directory and replaces the image with its filename.
-    Non-image embeds (![[other note]]) are left untouched (wikilinks).
+    Excalidraw embeds (![[name.excalidraw]]) resolve to their exported sidecar
+    image. Non-image embeds (![[other note]]) are left untouched (wikilinks).
     """
     img_ext = r'(?:png|jpe?g|gif|bmp|tiff?|webp|svg)'
     def repl(m):
@@ -75786,30 +75954,30 @@ def resolve_embed_links(content: str) -> str:
         # renders no image.
         parts = [p.strip() for p in m.group(1).split('|')]
         target = parts[0].strip()
+
+        # Excalidraw: ![[Name.excalidraw]] / [[...excalidraw.md]] / with a
+        # #frame or #^ref fragment \u2014 always embed the whole-drawing sidecar.
+        exc = re.match(r'(?i)^(.*\\.excalidraw)(?:\\.md)?(?:#.*)?$', target)
+        if exc:
+            base = exc.group(1)
+            resolved = next(
+                (p for ext in _EXCALIDRAW_SIDECAR_FORMATS
+                 for p in (resolve_attachment_path(f'{base}.{ext}'),) if p),
+                None,
+            )
+            if resolved is None:
+                return m.group(0)
+            alt, width, height = _parse_embed_pipe(parts)
+            return _embed_markdown(resolved, alt or re.sub(r'\\.excalidraw$', '', base, flags=re.I),
+                                   width, height)
+
         if not re.search(rf'\\.{img_ext}$', target, re.IGNORECASE):
             return m.group(0)
-        alt_bits, width, height = [], None, None
-        for seg in parts[1:]:
-            dm = re.fullmatch(r'(\\d+)(?:x(\\d+))?', seg)
-            if dm:
-                width, height = dm.group(1), dm.group(2)
-            elif seg:
-                alt_bits.append(seg)
-        alt = ' '.join(alt_bits)
+        alt, width, height = _parse_embed_pipe(parts)
         resolved = resolve_attachment_path(target)
         if resolved is None:
             return m.group(0)
-        # Path relative to the vault root (which is the cwd).
-        rel = os.path.relpath(resolved, os.getcwd())
-        attrs = ''
-        if width:
-            dims = ['width=%spx' % width]
-            if height:
-                dims.append('height=%spx' % height)
-            # No space before '{' \u2014 pandoc only reads it as an image attribute
-            # when it is directly adjacent to the ')'.
-            attrs = '{%s}' % ' '.join(dims)
-        return f'![{alt or target}]({rel}){attrs}'
+        return _embed_markdown(resolved, alt or target, width, height)
     return re.sub(r'!\\[\\[([^\\]]+)\\]\\]', repl, content)
 
 def adjust_heading_levels(content: str, depth: int) -> str:
@@ -76368,6 +76536,40 @@ def preprocess_md_syntax(text: str) -> str:
         text
     )
     return text
+
+
+def ensure_blank_before_headings(text: str) -> str:
+    """Obsidian renders any line starting with '# ' as a heading regardless of
+    what precedes it. Pandoc (treating single newlines as soft breaks) folds a
+    heading that directly follows a paragraph or list item into that block as
+    literal text \u2014 "# Research Process" ends up mid-sentence. Insert a blank
+    line before every ATX heading that isn't already preceded by one. (Pandoc's
+    +lists_without_preceding_blankline extension already covers the mirror-image
+    problem for lists.) Lines inside fenced code blocks are left untouched so a
+    '# comment' in a code sample is never treated as a heading.
+    """
+    out = []
+    fence = None          # opening fence marker while inside a code block
+    prev_blank = True     # start of file behaves as if preceded by a blank line
+    for line in text.split('\\n'):
+        fence_m = re.match(r'\\s*(\`{3,}|~{3,})', line)
+        if fence is not None:
+            out.append(line)
+            if fence_m and fence_m.group(1)[0] == fence[0] \\
+                    and len(fence_m.group(1)) >= len(fence):
+                fence = None
+            prev_blank = False
+            continue
+        if fence_m:
+            fence = fence_m.group(1)
+            out.append(line)
+            prev_blank = False
+            continue
+        if re.match(r'#{1,6} ', line) and not prev_blank:
+            out.append('')
+        out.append(line)
+        prev_blank = not line.strip()
+    return '\\n'.join(out)
 
 
 def generate_mappings_filter(mappings_data, auto_name=True):
@@ -77138,30 +77340,200 @@ def _read_template_csl_style(template_path, fmt):
     return m.group(1).rstrip('/').rsplit('/', 1)[-1]
 
 
-def _fetch_csl_style_file(csl_style):
-    """Return a local path to the given CSL style's XML, downloading (and
-    disk-caching) it from the citation-style-language/styles GitHub repo \u2014
-    the same source BibManager.ts uses for in-editor citeproc.js rendering,
-    so PDF citations use the same style file as Obsidian's live preview.
+def _note_frontmatter_csl(text):
+    """The note's own top-level \`csl:\` / \`citation-style:\` YAML property
+    (a bare style name, a path, or a URL), or None. This is the same key the
+    live Obsidian renderer honours; here it feeds export style selection for
+    direct CLI use (the plugin resolves it itself and passes --csl-style)."""
+    yaml_block, _ = extract_yaml(text)
+    if not yaml_block:
+        return None
+    for key in ('csl', 'citation-style'):
+        val = read_yaml_prop(yaml_block, key)
+        if val:
+            return val.strip()
+    return None
+
+
+def _csl_short_name(value):
+    """Reduce a style name / path / URL / style-id to its short id
+    ('.../styles/chicago-author-date' or '/x/apa.csl' -> 'chicago-author-date' /
+    'apa'). A bare name passes through unchanged."""
+    if not value:
+        return value
+    v = value.strip().rstrip('/')
+    v = re.sub(r'\\.csl$', '', v, flags=re.IGNORECASE)
+    return v.rsplit('/', 1)[-1]
+
+
+def _resolve_export_csl_style(text, template_path, fmt, override=None,
+                              from_template=False):
+    """Decide which CSL style an export should use.
+
+    Returns (short_style_name, is_explicit_override). \`is_explicit_override\`
+    is True when the style came from a deliberate choice (the export dialog's
+    override checkbox, or the note's own \`csl:\` property) rather than a
+    template/global default \u2014 only then is the style written into the output
+    file's Zotero document preferences.
+
+    Priority:
+      1. \`override\`            (dialog: "apply the selected style")
+      2. \`from_template\`       (dialog: checkbox off) -> template pref / global
+                               default, skipping the note's csl: property
+      3. note \`csl:\` property
+      4. template ZOTERO_PREF
+      5. SW_DEFAULT_CSL        (the plugin's configured live-render style)
+      6. _DEFAULT_STATIC_CSL_STYLE ('chicago-author-date')
     """
-    import tempfile
+    tpl_style = (_read_template_csl_style(template_path, fmt)
+                 if template_path and os.path.exists(template_path) else None)
+    env_default = _csl_short_name(os.environ.get('SW_DEFAULT_CSL', '').strip()) \\
+        or None
+
+    if override:
+        return _csl_short_name(override), True
+    if from_template:
+        return (tpl_style or env_default or _DEFAULT_STATIC_CSL_STYLE), False
+    fm = _note_frontmatter_csl(text)
+    if fm:
+        return _csl_short_name(fm), True
+    if tpl_style:
+        return tpl_style, False
+    return (env_default or _DEFAULT_STATIC_CSL_STYLE), False
+
+
+#: Pandoc's citeproc bundles this style as its built-in default. When the
+#: resolved style IS this one, skip the network fetch entirely and let pandoc
+#: use its own copy (emit no --csl argument).
+_PANDOC_DEFAULT_CSL_STYLE = 'chicago-author-date'
+
+
+def _https_get(url, timeout):
+    """GET *url*, tolerating the python.org macOS build's un-wired CA store
+    (a very common setup: the installer ships certs but leaves them inactive
+    until "Install Certificates.command" is run). Tries the normal verified
+    context, then certifi's bundle if importable, then falls back to an
+    unverified context with a warning \u2014 the payload here is a public, static,
+    non-executed file that we cache and hand to pandoc, so an unverified TLS
+    fetch is an acceptable last resort. Non-certificate errors (offline, 404)
+    are not retried."""
+    import ssl
     import urllib.request
     import urllib.error
+
+    attempts = [None]  # verified default context
+    try:
+        import certifi
+        attempts.append(ssl.create_default_context(cafile=certifi.where()))
+    except ImportError:
+        pass
+    unverified = ssl._create_unverified_context()
+    attempts.append(unverified)
+
+    last_err = None
+    for ctx in attempts:
+        try:
+            with urllib.request.urlopen(url, timeout=timeout, context=ctx) as resp:
+                data = resp.read()
+            if ctx is unverified:
+                print('WARNING: fetched %s over an UNVERIFIED HTTPS connection \u2014 '
+                      'your Python has no active CA certificates. Run the '
+                      '"Install Certificates.command" that ships with python.org '
+                      'Python, or \`pip install certifi\`.' % url)
+            return data
+        except urllib.error.URLError as e:
+            last_err = e
+            if not isinstance(getattr(e, 'reason', None),
+                              ssl.SSLCertVerificationError):
+                break  # offline / DNS / HTTP error \u2014 retrying won't help
+    raise last_err
+
+
+def _zotero_style_dirs(client=None):
+    """Candidate \`<data-dir>/styles\` folders of an installed Zotero / Jurism,
+    most-preferred first. Honours a custom data directory set in prefs.js
+    (\`extensions.zotero.dataDir\`); otherwise the default \`~/Zotero\` (\`~/Jurism\`).
+    \`client\` ('zotero' | 'jurism', from the note's zotero: block) just reorders
+    the two \u2014 both are always checked."""
+    dirs, seen = [], set()
+    env_dir = os.environ.get('SW_ZOTERO_DIR', '').strip()
+    if env_dir:
+        p = Path(env_dir).expanduser()
+        # Accept either the data dir or the styles dir itself.
+        for styles in ((p if p.name == 'styles' else p / 'styles'), p / 'styles'):
+            if styles not in seen:
+                seen.add(styles)
+                dirs.append(styles)
+    names = ['Jurism', 'Zotero'] if client == 'jurism' else ['Zotero', 'Jurism']
+    for name in names:
+        base = Path.home() / name
+        candidates = []
+        try:
+            prefs = (base / 'prefs.js').read_text(encoding='utf-8', errors='ignore')
+            m = re.search(
+                r'user_pref\\("extensions\\.zotero\\.dataDir",\\s*"((?:[^"\\\\]|\\\\.)*)"\\)',
+                prefs)
+            if m:
+                candidates.append(Path(m.group(1).encode()
+                                       .decode('unicode_escape')))
+        except OSError:
+            pass
+        candidates.append(base)
+        for d in candidates:
+            styles = d / 'styles'
+            if styles not in seen:
+                seen.add(styles)
+                dirs.append(styles)
+    return dirs
+
+
+def _installed_csl_path(csl_style, client=None):
+    """Path to \`csl_style\` in an installed Zotero/Jurism styles folder, or None.
+    This copy is the user's canonical, Zotero-managed version \u2014 prefer it over
+    a download or pandoc's bundled default."""
+    for d in _zotero_style_dirs(client):
+        p = d / f'{csl_style}.csl'
+        if p.is_file():
+            return str(p)
+    return None
+
+
+def _fetch_csl_style_file(csl_style, client=None):
+    """Return a local path to the given CSL style's XML, or None when no file
+    is needed (pandoc's built-in default). Resolution order:
+
+      1. An installed Zotero/Jurism style (\`~/Zotero/styles/<style>.csl\`, or a
+         custom data dir) \u2014 the user's own, up-to-date, Zotero-managed copy.
+      2. Pandoc's built-in default \u2014 return None, pandoc uses its own copy.
+      3. This session's on-disk cache from a previous download.
+      4. A one-time download from citation-style-language/styles, then cached.
+
+    No freshness check: CSL styles change rarely, so a cached copy is fine;
+    a newer one is picked up whenever the cache is next cleared or Zotero
+    updates its own folder.
+    """
+    local = _installed_csl_path(csl_style, client)
+    if local:
+        return local
+    if csl_style == _PANDOC_DEFAULT_CSL_STYLE:
+        return None
+    import tempfile
+    import urllib.error
     cache_dir = Path(tempfile.gettempdir()) / 'scholarweave-csl-cache'
-    cache_dir.mkdir(parents=True, exist_ok=True)
     cache_path = cache_dir / f'{csl_style}.csl'
     if not cache_path.exists():
+        cache_dir.mkdir(parents=True, exist_ok=True)
         url = (
             'https://raw.githubusercontent.com/citation-style-language/'
             f'styles/master/{csl_style}.csl'
         )
         try:
-            with urllib.request.urlopen(url, timeout=20) as resp:
-                cache_path.write_bytes(resp.read())
+            cache_path.write_bytes(_https_get(url, timeout=20))
         except (OSError, urllib.error.URLError) as e:
             raise RuntimeError(
-                f'Could not download CSL style "{csl_style}" from '
-                f'citation-style-language/styles: {e}') from e
+                f'Could not find CSL style "{csl_style}" in the Zotero styles '
+                f'folder or download it from citation-style-language/styles: '
+                f'{e}') from e
     return str(cache_path)
 
 
@@ -77242,12 +77614,24 @@ def _parse_yaml_metadata(text, stem):
     }
 
 
+def _resolve_output_stem(output_name, default_stem):
+    """Filename stem for an export. \`output_name\` is the export dialog's
+    'Desired output filename' (may carry an extension, which is dropped here \u2014
+    the caller re-adds the format's own). Blank/None \u2192 the source note's stem."""
+    if not output_name:
+        return default_stem
+    stem = Path(str(output_name)).name
+    stem = re.sub(r'\\.(docx|odt|pdf|md)$', '', stem, flags=re.IGNORECASE)
+    return stem.strip() or default_stem
+
+
 def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
                     tof=False, template_dir=None, output_dir=None,
                     default_author=None, new_page_headings=True,
                     restart_footnotes=True, mappings_data=None, generate_date=True,
                     roman_frontmatter=False, page1_starts_with='',
-                    static_citations=False):
+                    static_citations=False, csl_style_override=None,
+                    csl_from_template=False, output_name=None):
     """Unified export pipeline for DOCX and ODT.
 
     static_citations: when True, skip sw-zotero.lua's live-Zotero-field
@@ -77304,7 +77688,11 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
     out_dir.mkdir(parents=True, exist_ok=True)
     ext        = '.docx' if fmt == 'docx' else '.odt'
     clean_path = out_dir / f"{compiled_md.stem}.clean{ext}"
-    out_path   = out_dir / f"{compiled_md.stem}{ext}"
+    # A caller-supplied name (export dialog) is written to DIRECTLY \u2014 never
+    # generate the default-named file first (that would clobber a real export
+    # the user keeps under the note's own name).
+    out_stem   = _resolve_output_stem(output_name, compiled_md.stem)
+    out_path   = out_dir / f"{out_stem}{ext}"
 
     # \u2500\u2500 Citation conversion (identical for both formats) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     citations_md = compiled_md.with_suffix('.citations.md')
@@ -77315,6 +77703,7 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
 
     # \u2500\u2500 Markdown pre-processing (identical for both formats) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     cit_text = citations_md.read_text(encoding='utf-8')
+    cit_text = ensure_blank_before_headings(cit_text)
     cit_text = rewrite_poetry_callouts(cit_text)
     cit_text = preprocess_md_syntax(cit_text)
     cit_text = resolve_embed_links(cit_text)  # fixes images in direct-note exports
@@ -77368,30 +77757,25 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
     elif not template_path.endswith(f'{tpl}{ext}'):
         print(f"WARNING: template '{tpl}{ext}' not found; using {template_path} as fallback.")
 
+    # \u2500\u2500 CSL style resolution (see _resolve_export_csl_style for priority).
+    # \`_csl_is_override\` marks a deliberate choice (dialog checkbox or the
+    # note's own csl: property) \u2014 only then do we write the style into the
+    # output file's Zotero document preferences (merge --csl-style).
+    zmeta = _parse_zotero_meta(text)
+    csl_style, _csl_is_override = _resolve_export_csl_style(
+        text, template_path, fmt,
+        override=csl_style_override, from_template=csl_from_template)
+
     # \u2500\u2500 Static-citation mode (PDF path): fetch a CSL-JSON bibliography and
     # the CSL style file up front, and hand citation processing to pandoc's
     # own --citeproc instead of sw-zotero.lua's live-field generation.
-    #
-    # Style priority: a template that has already had Zotero's own "Document
-    # Preferences" set on it (i.e. it carries a real ZOTERO_PREF_1/_2/...
-    # payload \u2014 the same one Word/LibreOffice's Zotero integration writes)
-    # wins, since different templates legitimately target different
-    # journals/publishers with different required styles. Only when the
-    # template has no such preference does this fall back to a fixed
-    # default, rather than Obsidian's own live-preview style \u2014 that style is
-    # a per-user editing convenience, not necessarily what any given export
-    # template should render with.
     citeproc_args = []
     _tmp_biblio_dir = None
     if static_citations:
-        zmeta = _parse_zotero_meta(text)
-        csl_style = (_read_template_csl_style(template_path, fmt)
-                     if os.path.exists(template_path) else None) \\
-            or _DEFAULT_STATIC_CSL_STYLE
         citekeys = _extract_citekeys(cit_text)
         csl_items = _fetch_zotero_csl_items(
             citekeys, csl_style, zmeta['client'], zmeta['library'])
-        csl_path = _fetch_csl_style_file(csl_style)
+        csl_path = _fetch_csl_style_file(csl_style, zmeta['client'])
         import tempfile as _tempfile
         _tmp_biblio_dir = Path(_tempfile.mkdtemp())
         biblio_path = _tmp_biblio_dir / 'bibliography.json'
@@ -77399,9 +77783,12 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
         citeproc_args = [
             '--citeproc',
             '--bibliography', str(biblio_path),
-            '--csl', csl_path,
             '--metadata', 'reference-section-title=Bibliography',
         ]
+        # csl_path is None when the style is pandoc's built-in default \u2014
+        # omit --csl and let pandoc use its own bundled copy.
+        if csl_path:
+            citeproc_args += ['--csl', csl_path]
 
     # \u2500\u2500 pandoc invocation (format-specific) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     if fmt == 'docx':
@@ -77480,6 +77867,17 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
             merge_cmd += ['--page1-starts-with', page1_starts_with]
     if static_citations:
         merge_cmd.append('--static-citations')
+    if _csl_is_override and csl_style:
+        # Write the chosen style into the output's Zotero document
+        # preferences so a later Word/LibreOffice "Refresh" uses it without
+        # prompting. Pass the resolved .csl path when we have one (its <id>
+        # is authoritative); otherwise the bare short name.
+        _csl_ref = None
+        try:
+            _csl_ref = _installed_csl_path(csl_style, zmeta['client'])
+        except Exception:
+            _csl_ref = None
+        merge_cmd += ['--csl-style', _csl_ref or csl_style]
     print('Merging:', ' '.join(merge_cmd))
     subprocess.run(merge_cmd, check=True)
     clean_path.unlink(missing_ok=True)
@@ -77505,7 +77903,8 @@ def export_docx(compiled_md, vault_root=None, template=None, toc=False,
                 new_page_headings=True, restart_footnotes=True,
                 mappings_data=None, generate_date=True,
                 roman_frontmatter=False, page1_starts_with='',
-                static_citations=False):
+                static_citations=False, csl_style_override=None,
+                csl_from_template=False, output_name=None):
     """Export compiled markdown to DOCX. Thin wrapper around export_document."""
     return export_document('docx', compiled_md,
                            vault_root=vault_root, template=template, toc=toc,
@@ -77517,7 +77916,10 @@ def export_docx(compiled_md, vault_root=None, template=None, toc=False,
                            mappings_data=mappings_data, generate_date=generate_date,
                            roman_frontmatter=roman_frontmatter,
                            page1_starts_with=page1_starts_with,
-                           static_citations=static_citations)
+                           static_citations=static_citations,
+                           csl_style_override=csl_style_override,
+                           csl_from_template=csl_from_template,
+                           output_name=output_name)
 
 
 def _prep_reference_odt(ref_doc_path, style_names):
@@ -77623,7 +78025,8 @@ def export_odt(compiled_md, vault_root=None, template=None, toc=False,
                new_page_headings=True, restart_footnotes=True,
                mappings_data=None, generate_date=True,
                roman_frontmatter=False, page1_starts_with='',
-               static_citations=False):
+               static_citations=False, csl_style_override=None,
+               csl_from_template=False, output_name=None):
     """Export compiled markdown to ODT. Thin wrapper around export_document."""
     return export_document('odt', compiled_md,
                            vault_root=vault_root, template=template, toc=toc,
@@ -77635,7 +78038,10 @@ def export_odt(compiled_md, vault_root=None, template=None, toc=False,
                            mappings_data=mappings_data, generate_date=generate_date,
                            roman_frontmatter=roman_frontmatter,
                            page1_starts_with=page1_starts_with,
-                           static_citations=static_citations)
+                           static_citations=static_citations,
+                           csl_style_override=csl_style_override,
+                           csl_from_template=csl_from_template,
+                           output_name=output_name)
 
 
 
@@ -77644,7 +78050,8 @@ def export_pdf(compiled_md, vault_root=None, template=None, toc=False, tof=False
                template_dir=None, output_dir=None,
                new_page_headings=True, restart_footnotes=True,
                intermediate_format=None, keep_intermediate=False,
-               mappings_data=None):
+               mappings_data=None, csl_style_override=None,
+               csl_from_template=False, output_name=None):
     """Export to PDF via an intermediate ODT or DOCX file.
 
     The intermediate format is auto-determined from the template: ODT is
@@ -77698,6 +78105,8 @@ def export_pdf(compiled_md, vault_root=None, template=None, toc=False, tof=False
             restart_footnotes=restart_footnotes,
             mappings_data=mappings_data, generate_date=generate_date,
             roman_frontmatter=roman_frontmatter, page1_starts_with=page1_starts_with,
+            csl_style_override=csl_style_override,
+            csl_from_template=csl_from_template,
             # PDF has no live document to refresh fields in later, so let
             # pandoc's own --citeproc render final citations + bibliography
             # instead of live Zotero fields (see export_document's docstring).
@@ -77707,7 +78116,8 @@ def export_pdf(compiled_md, vault_root=None, template=None, toc=False, tof=False
         else:
             inter_path = Path(export_odt(compiled_md, **common_kwargs))
 
-        out_pdf = out_dir / f"{compiled_md.stem}.pdf"
+        out_stem = _resolve_output_stem(output_name, compiled_md.stem)
+        out_pdf = out_dir / f"{out_stem}.pdf"
 
         # LibreOffice headless \u2014 renders the document identically to what the
         # user sees on screen, honouring all template styles. Required: there
@@ -77719,19 +78129,23 @@ def export_pdf(compiled_md, vault_root=None, template=None, toc=False, tof=False
                 'DOCX/ODT to PDF). Install LibreOffice, or export to DOCX/ODT '
                 'and convert to PDF yourself.')
         import subprocess
+        # Convert INTO the temp dir, never the output dir \u2014 LibreOffice names
+        # its output <intermediate-stem>.pdf, which would clobber a real
+        # export the user keeps under the note's own name. Move it to the
+        # final name afterwards (the only file we touch in out_dir).
         cmd = [soffice, '--headless', '--convert-to', 'pdf',
-               '--outdir', str(out_dir), str(inter_path)]
+               '--outdir', str(tmp_dir), str(inter_path)]
         print('Converting to PDF via LibreOffice:', ' '.join(cmd))
         subprocess.run(cmd, check=True)
-        # LibreOffice names the output <stem>.pdf in outdir.
-        lo_out = out_dir / f"{inter_path.stem}.pdf"
-        if lo_out.exists() and lo_out != out_pdf:
-            lo_out.rename(out_pdf)
+        lo_out = tmp_dir / f"{inter_path.stem}.pdf"
+        if not lo_out.exists():
+            raise RuntimeError('LibreOffice did not produce a PDF '
+                               f'({lo_out} missing).')
+        _sh.move(str(lo_out), str(out_pdf))
 
         if keep_intermediate:
-            dest = out_dir / inter_path.name
-            if inter_path != dest:
-                _sh.copy2(str(inter_path), str(dest))
+            dest = out_dir / f"{out_stem}{inter_path.suffix}"
+            _sh.copy2(str(inter_path), str(dest))
             print(f'Intermediate {intermediate_format.upper()} kept at: {dest}')
 
         print(f'\\nExported PDF written to {out_pdf}')
@@ -77795,9 +78209,23 @@ def main():
     parser.add_argument('--output-dir', default=None,
                        help='Directory for the compiled markdown and exported file (default: the source '
                             'file\\'s own folder)')
+    parser.add_argument('--output-name', default=None, dest='output_name',
+                       help='Filename for the exported document (extension optional \u2014 '
+                            'the format\\'s own is used). Default: the source note\\'s '
+                            'name. The file is written to this name directly, so a '
+                            'different name never touches an existing export.')
     parser.add_argument('--mappings', default=None,
                        help='JSON array of {source, styleName} objects for style mappings '
                             '(overrides mappings.json in the templates directory)')
+    parser.add_argument('--csl-style', default=None, dest='csl_style',
+                       help='Citation style for the export (a Zotero style name, a '
+                            '.csl path, or a style URL). Overrides the template\\'s '
+                            'own style and the note\\'s csl: property, and is written '
+                            'into the exported DOCX/ODT\\'s Zotero document preferences.')
+    parser.add_argument('--csl-style-from-template', action='store_true',
+                       dest='csl_from_template',
+                       help='Ignore the note\\'s csl: property; use the template\\'s '
+                            'embedded style (or the global default) only.')
 
     args = parser.parse_args()
 
@@ -77872,7 +78300,10 @@ def main():
             mappings_data=active_mappings,
             generate_date=not args.no_generated_date,
             roman_frontmatter=use_roman,
-            page1_starts_with=args.page1_starts_with)
+            page1_starts_with=args.page1_starts_with,
+            csl_style_override=args.csl_style,
+            csl_from_template=args.csl_from_template,
+            output_name=args.output_name)
         if args.export_format == 'pdf':
             export_pdf(compiled, keep_intermediate=args.keep_intermediate, **_common)
         elif args.export_format == 'odt':
@@ -77890,6 +78321,17 @@ def main():
             except OSError as e:
                 print(f'WARNING: could not remove compiled markdown: {e}',
                       file=sys.stderr)
+    elif args.output_name:
+        # Compile-only ('md' format) with a chosen filename: rename the
+        # compiled markdown to it (never for an already-compiled input the
+        # user handed us \u2014 that's their source note).
+        src = Path(compiled)
+        if src != master_file and src.exists():
+            dest = src.with_name(_resolve_output_stem(args.output_name, src.stem)
+                                 + '.md')
+            if dest != src:
+                src.replace(dest)
+                print(str(dest))
 
 if __name__ == "__main__":
     import sys
@@ -81011,6 +81453,7 @@ from sw_merge_helpers import (
     is_main_start, is_toc_heading, is_tof_heading, strip_chapter_prefix,
     find_page_reset_index, bundled_template, ensure_docx_styles,
     append_extra_sections,
+    csl_style_id, zotero_pref_blob, zotero_pref_chunks,
 )
 
 W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
@@ -81533,6 +81976,45 @@ def _ensure_pgnumtype(sectpr):
 #: so those sections must NOT carry the restart. Direct DOCX export (opened in
 #: Word) keeps it.
 _SUPPRESS_FN_RESTART = False
+
+
+def _normalize_footnote_restart(doc_root, data, restart_footnotes):
+    """Make document-wide footnote numbering agree with the export's
+    continuity choice.
+
+    When footnotes are continuous (or _SUPPRESS_FN_RESTART forces continuity
+    because the PDF path goes through LibreOffice, which renders
+    numRestart="eachSect" from DOCX as a per-section restart even with a
+    single section), strip every <w:numRestart>/<w:numStart> from BOTH the
+    body sectPr elements AND settings.xml's document-level <w:footnotePr> \u2014
+    document.docx ships with eachSect there, and neither make_section_break
+    nor the sectPr re-append touches settings.xml. Per-chapter restart
+    (book output opened in Word) is left exactly as the template + section
+    breaks set it."""
+    if restart_footnotes and not _SUPPRESS_FN_RESTART:
+        return
+    for sect in doc_root.iter(tag('sectPr')):
+        fnpr = sect.find(tag('footnotePr'))
+        if fnpr is None:
+            continue
+        for c in fnpr.findall(tag('numRestart')) + fnpr.findall(tag('numStart')):
+            fnpr.remove(c)
+    if 'word/settings.xml' in data:
+        try:
+            s_root = etree.fromstring(data['word/settings.xml'])
+            fnpr = s_root.find(tag('footnotePr'))
+            if fnpr is not None:
+                removed = False
+                for c in (fnpr.findall(tag('numRestart'))
+                          + fnpr.findall(tag('numStart'))):
+                    fnpr.remove(c)
+                    removed = True
+                if removed:
+                    data['word/settings.xml'] = etree.tostring(
+                        s_root, xml_declaration=True, encoding='UTF-8',
+                        standalone=True)
+        except etree.XMLSyntaxError as e:
+            print(f'WARNING: could not normalize settings.xml footnotes: {e}')
 
 
 def make_section_break(sectpr_kind, rsid='00DE2936'):
@@ -82168,7 +82650,8 @@ def merge(template_path, input_path, output_path, title=None, author=None,
           subtitle=None, date_val=None, toc=False, tof=False, short_title=None,
           basename=None, abstract=None, extra_sections=None,
           new_page_headings=True, restart_footnotes=True, generate_date=True,
-          roman_frontmatter=False, page1_starts_with='', static_citations=False):
+          roman_frontmatter=False, page1_starts_with='', static_citations=False,
+          csl_style=None):
     global _SUPPRESS_FN_RESTART
     _SUPPRESS_FN_RESTART = static_citations
     with zipfile.ZipFile(template_path) as z:
@@ -82366,7 +82849,8 @@ def merge(template_path, input_path, output_path, title=None, author=None,
     _write_docx(template_path, output_path, tmpl_doc, new_footnotes,
                 short_title=short_title, author=author, title=title,
                 subtitle=subtitle, input_path=input_path,
-                extra_style_ids=_tof_style_ids + _extra_style_ids_for_aliases)
+                extra_style_ids=_tof_style_ids + _extra_style_ids_for_aliases,
+                csl_style=csl_style, restart_footnotes=restart_footnotes)
 
 def _fill_title_block(title_block, title, subtitle, author, date_val):
     """Replace placeholder text in the template title block (a list of deep
@@ -82753,6 +83237,84 @@ def _remove_orphan_bookmark_ends(doc):
             if parent is not None:
                 parent.remove(el)
 
+_CT_NS = 'http://schemas.openxmlformats.org/package/2006/content-types'
+_REL_NS = 'http://schemas.openxmlformats.org/package/2006/relationships'
+_CP_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/custom-properties'
+_VT_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes'
+
+
+def _write_zotero_prefs_docx(zipdata, csl_style):
+    """Write Zotero document preferences (ZOTERO_PREF_1/_2/...) into
+    docProps/custom.xml so a later Word/LibreOffice "Refresh" uses \`csl_style\`
+    without prompting. Replaces any existing ZOTERO_PREF_* properties; creates
+    custom.xml (and its content-type + relationship) when the template has none.
+    \`csl_style\` is a Zotero style name or a path to a .csl file."""
+    blob = zotero_pref_blob(csl_style_id(csl_style), field_type='Field')
+    chunks = zotero_pref_chunks(blob)
+
+    if 'docProps/custom.xml' in zipdata:
+        root = etree.fromstring(zipdata['docProps/custom.xml'])
+    else:
+        root = etree.fromstring(
+            ('<Properties xmlns="%s" xmlns:vt="%s"/>' % (_CP_NS, _VT_NS)).encode())
+        _register_custom_xml_part(zipdata)
+
+    # Drop existing ZOTERO_PREF_* and note the highest pid in use.
+    max_pid = 1
+    for prop in list(root):
+        name = prop.get('name', '')
+        try:
+            max_pid = max(max_pid, int(prop.get('pid', '1')))
+        except ValueError:
+            pass
+        if re.fullmatch(r'ZOTERO_PREF_\\d+', name):
+            root.remove(prop)
+
+    for i, chunk in enumerate(chunks, start=1):
+        prop = etree.SubElement(root, '{%s}property' % _CP_NS)
+        prop.set('fmtid', '{D5CDD505-2E9C-101B-9397-08002B2CF9AE}')
+        prop.set('pid', str(max_pid + i))
+        prop.set('name', 'ZOTERO_PREF_%d' % i)
+        lp = etree.SubElement(prop, '{%s}lpwstr' % _VT_NS)
+        lp.text = chunk  # lxml XML-escapes on serialize
+
+    zipdata['docProps/custom.xml'] = etree.tostring(
+        root, xml_declaration=True, encoding='UTF-8', standalone=True)
+
+
+def _register_custom_xml_part(zipdata):
+    """Add the [Content_Types].xml override and docProps/_rels entry a
+    freshly-created docProps/custom.xml needs."""
+    ct_path = '[Content_Types].xml'
+    if ct_path in zipdata:
+        ct = etree.fromstring(zipdata[ct_path])
+        if not any(o.get('PartName') == '/docProps/custom.xml'
+                   for o in ct.findall('{%s}Override' % _CT_NS)):
+            o = etree.SubElement(ct, '{%s}Override' % _CT_NS)
+            o.set('PartName', '/docProps/custom.xml')
+            o.set('ContentType',
+                  'application/vnd.openxmlformats-officedocument.custom-properties+xml')
+        zipdata[ct_path] = etree.tostring(ct, xml_declaration=True,
+                                          encoding='UTF-8', standalone=True)
+
+    rels_path = '_rels/.rels'
+    if rels_path in zipdata:
+        rels = etree.fromstring(zipdata[rels_path])
+        if not any(r.get('Target') in ('docProps/custom.xml', '/docProps/custom.xml')
+                   for r in rels.findall('{%s}Relationship' % _REL_NS)):
+            used = {r.get('Id') for r in rels}
+            n = 1
+            while ('rId%d' % n) in used:
+                n += 1
+            r = etree.SubElement(rels, '{%s}Relationship' % _REL_NS)
+            r.set('Id', 'rId%d' % n)
+            r.set('Type', 'http://schemas.openxmlformats.org/officeDocument/'
+                          '2006/relationships/custom-properties')
+            r.set('Target', 'docProps/custom.xml')
+        zipdata[rels_path] = etree.tostring(rels, xml_declaration=True,
+                                            encoding='UTF-8', standalone=True)
+
+
 def normalize_headers_footers(zipdata, short_title=None, author=None,
                               title=None, subtitle=None):
     """
@@ -82995,7 +83557,8 @@ def _merge_numbering(data, pdc_num_bytes, doc_root):
 
 def _write_docx(template_path, output_path, new_document_xml, new_footnotes_xml=None,
                 short_title=None, author=None, title=None, subtitle=None,
-                input_path=None, extra_style_ids=None):
+                input_path=None, extra_style_ids=None, csl_style=None,
+                restart_footnotes=True):
     """Write output docx = template parts with document.xml (and optionally
     footnotes.xml) replaced, and headers/footers/docProps normalized.
 
@@ -83020,6 +83583,7 @@ def _write_docx(template_path, output_path, new_document_xml, new_footnotes_xml=
                 data['word/styles.xml'], extra_style_ids, _src)
         except Exception as e:
             print(f'WARNING: could not inject ToF styles: {e}')
+    _normalize_footnote_restart(new_document_xml, data, restart_footnotes)
     data['word/document.xml'] = etree.tostring(
         new_document_xml, xml_declaration=True, encoding='UTF-8', standalone=True
     )
@@ -83227,6 +83791,8 @@ def _write_docx(template_path, output_path, new_document_xml, new_footnotes_xml=
 
     normalize_headers_footers(data, short_title=short_title, author=author,
                               title=title, subtitle=subtitle)
+    if csl_style:
+        _write_zotero_prefs_docx(data, csl_style)
     with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zout:
         for n in data:
             zout.writestr(n, data[n])
@@ -83319,6 +83885,11 @@ def main():
                          'bibliography via --citeproc (PDF path) \u2014 preserve '
                          'it instead of stripping and replacing with a live '
                          'Zotero field placeholder')
+    ap.add_argument('--csl-style', default=None, dest='csl_style',
+                    help='Write this citation style (a Zotero style name or a '
+                         '.csl path) into the output\\'s Zotero document '
+                         'preferences (ZOTERO_PREF_*), replacing any the '
+                         'template carries.')
     args = ap.parse_args()
     extra_sections = None
     if args.extra_sections:
@@ -83338,7 +83909,8 @@ def main():
           generate_date=not args.no_generated_date,
           roman_frontmatter=args.roman_frontmatter,
           page1_starts_with=args.page1_starts_with,
-          static_citations=args.static_citations)
+          static_citations=args.static_citations,
+          csl_style=args.csl_style)
     print(f'Merged: {args.output}')
 
 if __name__ == '__main__':
@@ -83392,7 +83964,8 @@ from sw_merge_helpers import (split_paragraphs, find_bibliography_range,
     resolve_cover, title_case as _title_case, strip_markdown as _strip_markdown,
     is_toc_heading, process_figures, bundled_template, ensure_odt_styles,
     strip_chapter_prefix, parse_chapter_number, append_extra_sections,
-    find_page_reset_index)
+    find_page_reset_index,
+    csl_style_id, zotero_pref_blob, zotero_pref_chunks)
 
 # \u2500\u2500 ODF namespace constants \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 
@@ -84888,6 +85461,39 @@ def _update_meta(z_data, title, author, short_title=None, subtitle=None):
         print(f'WARNING: could not update meta.xml: {e}')
 
 
+def _write_zotero_prefs_odt(z_data, csl_style):
+    """Write Zotero document preferences (ZOTERO_PREF_1/_2/...) as
+    <meta:user-defined> properties in meta.xml, so a later LibreOffice/Word
+    "Refresh" uses \`csl_style\` without prompting. Replaces any existing
+    ZOTERO_PREF_* the template carries. \`csl_style\` is a style name or .csl path."""
+    if 'meta.xml' not in z_data:
+        print('WARNING: template has no meta.xml \u2014 cannot write Zotero style prefs')
+        return
+    META_NS = _NS['meta']
+    OFFICE_NS = _NS['office']
+    blob = zotero_pref_blob(csl_style_id(csl_style), field_type='ReferenceMark')
+    chunks = zotero_pref_chunks(blob)
+    try:
+        root = etree.fromstring(z_data['meta.xml'])
+        meta_el = root.find('{%s}meta' % OFFICE_NS)
+        if meta_el is None:
+            meta_el = etree.SubElement(root, '{%s}meta' % OFFICE_NS)
+        for el in list(meta_el):
+            if (el.tag == '{%s}user-defined' % META_NS
+                    and re.fullmatch(r'ZOTERO_PREF_\\d+',
+                                     el.get('{%s}name' % META_NS, ''))):
+                meta_el.remove(el)
+        for i, chunk in enumerate(chunks, start=1):
+            el = etree.SubElement(meta_el, '{%s}user-defined' % META_NS)
+            el.set('{%s}name' % META_NS, 'ZOTERO_PREF_%d' % i)
+            el.set('{%s}value-type' % META_NS, 'string')
+            el.text = chunk
+        z_data['meta.xml'] = etree.tostring(
+            root, xml_declaration=True, encoding='UTF-8', standalone=True)
+    except Exception as e:
+        print(f'WARNING: could not write Zotero style prefs to meta.xml: {e}')
+
+
 def _update_odt_field_placeholders(z_data, author, short_title):
     """Rewrite the cached text of every <text:user-defined text:name="Author"
     | "Short Title"> field in styles.xml's headers/footers, mirroring DOCX's
@@ -84968,7 +85574,7 @@ def merge_odt(template_path, input_path, output_path,
               abstract=None, extra_sections=None,
               new_page_headings=True, restart_footnotes=True,
               generate_date=True, roman_frontmatter=False, page1_starts_with='',
-              static_citations=False):
+              static_citations=False, csl_style=None):
     """
     Merge pandoc ODT output into the ODT template.
 
@@ -85432,6 +86038,8 @@ def merge_odt(template_path, input_path, output_path,
     # \u2500\u2500 Update document metadata \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     _update_meta(z_data, title, author, short_title=short_title, subtitle=subtitle)
     _update_odt_field_placeholders(z_data, author, short_title)
+    if csl_style:
+        _write_zotero_prefs_odt(z_data, csl_style)
 
     # \u2500\u2500 Write output ODT \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zout:
@@ -85489,6 +86097,11 @@ def main():
                          'bibliography via --citeproc (PDF path) \u2014 preserve '
                          'it instead of stripping and replacing with a live '
                          'Zotero field placeholder')
+    ap.add_argument('--csl-style', default=None, dest='csl_style',
+                    help='Write this citation style (a Zotero style name or a '
+                         '.csl path) into the output\\'s Zotero document '
+                         'preferences (ZOTERO_PREF_*), replacing any the '
+                         'template carries.')
     args = ap.parse_args()
 
     extra_sections = None
@@ -85516,6 +86129,7 @@ def main():
         roman_frontmatter=args.roman_frontmatter,
         page1_starts_with=args.page1_starts_with,
         static_citations=args.static_citations,
+        csl_style=args.csl_style,
     )
     print(f'Merged: {args.output}')
 
@@ -85549,6 +86163,61 @@ def bundled_template(name):
     need to synthesize (e.g. a Table of Figures)."""
     return os.path.join(os.path.dirname(os.path.abspath(__file__)),
                         '..', 'templates', name)
+
+
+# \u2500\u2500 Zotero document-preferences (ZOTERO_PREF) blob \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+# Shared by both merge scripts so DOCX (docProps/custom.xml) and ODT
+# (meta.xml <meta:user-defined>) write an identical payload \u2014 the same one
+# Zotero's own Word / LibreOffice integration writes for "Document
+# Preferences". Lets a later "Refresh" in the word processor use the chosen
+# citation style without prompting the user.
+
+def csl_style_id(name_or_path):
+    """Canonical Zotero style id URL for a style name or .csl file path.
+    Reads the file's own <id> when given a path to a readable .csl; otherwise
+    returns http://www.zotero.org/styles/<short-name>."""
+    val = (name_or_path or '').strip()
+    if val.lower().endswith('.csl') and os.path.isfile(val):
+        try:
+            with open(val, 'r', encoding='utf-8', errors='ignore') as fh:
+                head = fh.read(4000)
+            m = re.search(r'<id>\\s*([^<\\s]+)\\s*</id>', head)
+            if m:
+                return m.group(1)
+        except OSError:
+            pass
+    short = re.sub(r'\\.csl$', '', val, flags=re.IGNORECASE).rstrip('/')
+    short = short.rsplit('/', 1)[-1]
+    return 'http://www.zotero.org/styles/%s' % short
+
+
+def zotero_pref_blob(style_id, field_type='Field', locale='en-US'):
+    """The raw <data> document-preferences string for \`style_id\`.
+    field_type: 'Field' for DOCX (Word fields), 'ReferenceMark' for ODT."""
+    session = ''.join(random.choice(
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789')
+        for _ in range(8))
+    return (
+        '<data data-version="3" zotero-version="6.0">'
+        '<session id="%s"/>'
+        '<style id="%s" locale="%s" hasBibliography="1" '
+        'bibliographyStyleHasBeenSet="1"/>'
+        '<prefs>'
+        '<pref name="fieldType" value="%s"/>'
+        '<pref name="automaticJournalAbbreviations" value="false"/>'
+        '<pref name="noteType" value="0"/>'
+        '</prefs>'
+        '</data>'
+    ) % (session, style_id, locale, field_type)
+
+
+def zotero_pref_chunks(blob, size=255):
+    """Split a ZOTERO_PREF blob into <=\`size\`-char raw chunks, the way Zotero
+    stores it across numbered ZOTERO_PREF_1/_2/... properties. Each chunk is
+    XML-escaped independently at write time; concatenating the unescaped
+    chunks reconstructs \`blob\` (escaping never spans a chunk boundary since
+    the split is on the raw string)."""
+    return [blob[i:i + size] for i in range(0, len(blob), size)] or ['']
 
 
 def ensure_docx_styles(styles_bytes, needed_ids, source_styles_bytes):
@@ -86081,24 +86750,29 @@ def process_figures(elements, *, get_style, get_text, set_body_style,
         if get_style(el) in image_styles:
             set_body_style(el)
             out.append(el)
-            has_figures = True
             i += 1
-            # Discard pandoc's auto caption paragraph (holds the image filename).
-            fallback_desc = None
+            # Discard pandoc's auto caption paragraph. For ![[img.png]] embeds
+            # this is just the filename / alt text \u2014 NOT a real caption. Only a
+            # paragraph that begins with the word "Figure" (whether it is
+            # pandoc's auto caption or the vault's own "Figure. \u2026" line beneath
+            # the image) counts as a caption and earns a computed "Figure N."
+            # number; anything else leaves the image uncaptioned, so informal
+            # documents can embed images without every one becoming a figure.
+            fallback_raw = None
             if i < n and get_style(elements[i]) in caption_styles:
-                fallback_desc = strip_figure_prefix(get_text(elements[i]))
+                fallback_raw = get_text(elements[i])
                 i += 1
-            # The real caption is the vault's "Figure. \u2026" line, if present.
             desc = None
             if i < n and get_style(elements[i]) in body_styles \\
                     and looks_like_caption(get_text(elements[i])):
                 desc = strip_figure_prefix(get_text(elements[i]))
                 i += 1
-            elif fallback_desc:
-                desc = fallback_desc
+            elif fallback_raw and looks_like_caption(fallback_raw):
+                desc = strip_figure_prefix(fallback_raw)
             if desc is None:
-                continue  # image with no caption \u2014 leave it uncaptioned
+                continue  # image with no explicit "Figure \u2026" caption
 
+            has_figures = True
             fig_in_chapter += 1
             fig_global += 1
             number = ('%d.%d' % (chapter, fig_in_chapter) if chapter_scoped

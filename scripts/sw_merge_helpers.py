@@ -28,6 +28,61 @@ def bundled_template(name):
                         '..', 'templates', name)
 
 
+# ── Zotero document-preferences (ZOTERO_PREF) blob ───────────────────────────
+# Shared by both merge scripts so DOCX (docProps/custom.xml) and ODT
+# (meta.xml <meta:user-defined>) write an identical payload — the same one
+# Zotero's own Word / LibreOffice integration writes for "Document
+# Preferences". Lets a later "Refresh" in the word processor use the chosen
+# citation style without prompting the user.
+
+def csl_style_id(name_or_path):
+    """Canonical Zotero style id URL for a style name or .csl file path.
+    Reads the file's own <id> when given a path to a readable .csl; otherwise
+    returns http://www.zotero.org/styles/<short-name>."""
+    val = (name_or_path or '').strip()
+    if val.lower().endswith('.csl') and os.path.isfile(val):
+        try:
+            with open(val, 'r', encoding='utf-8', errors='ignore') as fh:
+                head = fh.read(4000)
+            m = re.search(r'<id>\s*([^<\s]+)\s*</id>', head)
+            if m:
+                return m.group(1)
+        except OSError:
+            pass
+    short = re.sub(r'\.csl$', '', val, flags=re.IGNORECASE).rstrip('/')
+    short = short.rsplit('/', 1)[-1]
+    return 'http://www.zotero.org/styles/%s' % short
+
+
+def zotero_pref_blob(style_id, field_type='Field', locale='en-US'):
+    """The raw <data> document-preferences string for `style_id`.
+    field_type: 'Field' for DOCX (Word fields), 'ReferenceMark' for ODT."""
+    session = ''.join(random.choice(
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789')
+        for _ in range(8))
+    return (
+        '<data data-version="3" zotero-version="6.0">'
+        '<session id="%s"/>'
+        '<style id="%s" locale="%s" hasBibliography="1" '
+        'bibliographyStyleHasBeenSet="1"/>'
+        '<prefs>'
+        '<pref name="fieldType" value="%s"/>'
+        '<pref name="automaticJournalAbbreviations" value="false"/>'
+        '<pref name="noteType" value="0"/>'
+        '</prefs>'
+        '</data>'
+    ) % (session, style_id, locale, field_type)
+
+
+def zotero_pref_chunks(blob, size=255):
+    """Split a ZOTERO_PREF blob into <=`size`-char raw chunks, the way Zotero
+    stores it across numbered ZOTERO_PREF_1/_2/... properties. Each chunk is
+    XML-escaped independently at write time; concatenating the unescaped
+    chunks reconstructs `blob` (escaping never spans a chunk boundary since
+    the split is on the raw string)."""
+    return [blob[i:i + size] for i in range(0, len(blob), size)] or ['']
+
+
 def ensure_docx_styles(styles_bytes, needed_ids, source_styles_bytes):
     """Return word/styles.xml bytes with any of `needed_ids` that are missing
     copied verbatim from `source_styles_bytes` (a known-good template). Pulls in
@@ -558,24 +613,29 @@ def process_figures(elements, *, get_style, get_text, set_body_style,
         if get_style(el) in image_styles:
             set_body_style(el)
             out.append(el)
-            has_figures = True
             i += 1
-            # Discard pandoc's auto caption paragraph (holds the image filename).
-            fallback_desc = None
+            # Discard pandoc's auto caption paragraph. For ![[img.png]] embeds
+            # this is just the filename / alt text — NOT a real caption. Only a
+            # paragraph that begins with the word "Figure" (whether it is
+            # pandoc's auto caption or the vault's own "Figure. …" line beneath
+            # the image) counts as a caption and earns a computed "Figure N."
+            # number; anything else leaves the image uncaptioned, so informal
+            # documents can embed images without every one becoming a figure.
+            fallback_raw = None
             if i < n and get_style(elements[i]) in caption_styles:
-                fallback_desc = strip_figure_prefix(get_text(elements[i]))
+                fallback_raw = get_text(elements[i])
                 i += 1
-            # The real caption is the vault's "Figure. …" line, if present.
             desc = None
             if i < n and get_style(elements[i]) in body_styles \
                     and looks_like_caption(get_text(elements[i])):
                 desc = strip_figure_prefix(get_text(elements[i]))
                 i += 1
-            elif fallback_desc:
-                desc = fallback_desc
+            elif fallback_raw and looks_like_caption(fallback_raw):
+                desc = strip_figure_prefix(fallback_raw)
             if desc is None:
-                continue  # image with no caption — leave it uncaptioned
+                continue  # image with no explicit "Figure …" caption
 
+            has_figures = True
             fig_in_chapter += 1
             fig_global += 1
             number = ('%d.%d' % (chapter, fig_in_chapter) if chapter_scoped

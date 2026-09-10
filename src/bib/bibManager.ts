@@ -33,6 +33,7 @@ import {
   getLitNoteForCitekey,
 } from 'src/zotlit';
 import { cite } from 'src/parser/citeproc';
+import { resolveZoteroStylePath } from 'src/settings/ZoteroStylePicker';
 import { setCiteKeyCache } from 'src/editorExtension';
 import equal from 'fast-deep-equal';
 import { t } from 'src/lang/helpers';
@@ -467,16 +468,30 @@ export class BibManager {
     let langs = [settings.lang];
 
     if (settings.style) {
+      // A bare Zotero style name (no slash / .csl / URL) is resolved against
+      // the Zotero styles folder; paths and URLs pass through untouched.
+      let resolvedStyle = settings.style;
+      const looksBare =
+        !/[\\/]/.test(resolvedStyle) &&
+        !/^https?:/i.test(resolvedStyle) &&
+        !/\.csl$/i.test(resolvedStyle);
+      if (looksBare) {
+        resolvedStyle =
+          resolveZoteroStylePath(
+            resolvedStyle,
+            this.plugin.settings.zoteroDataDir
+          ) ?? resolvedStyle;
+      }
       try {
-        const isURL = /^http/.test(settings.style);
+        const isURL = /^http/.test(resolvedStyle);
         const styleObj = isURL
-          ? { id: settings.style }
-          : { id: settings.style, explicitPath: settings.style };
+          ? { id: resolvedStyle }
+          : { id: resolvedStyle, explicitPath: resolvedStyle };
         const styles = await this.loadStyles([styleObj]);
         for (const styleStr of styles) {
           langs = extractRawLocales(styleStr, settings.lang);
         }
-        style = settings.style;
+        style = resolvedStyle;
       } catch (e) {
         console.error(e);
         this.plugin.view?.setMessage((e as Error).message);

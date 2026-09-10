@@ -47,7 +47,8 @@ from sw_merge_helpers import (split_paragraphs, find_bibliography_range,
     resolve_cover, title_case as _title_case, strip_markdown as _strip_markdown,
     is_toc_heading, process_figures, bundled_template, ensure_odt_styles,
     strip_chapter_prefix, parse_chapter_number, append_extra_sections,
-    find_page_reset_index)
+    find_page_reset_index,
+    csl_style_id, zotero_pref_blob, zotero_pref_chunks)
 
 # ── ODF namespace constants ───────────────────────────────────────────────────
 
@@ -1543,6 +1544,39 @@ def _update_meta(z_data, title, author, short_title=None, subtitle=None):
         print(f'WARNING: could not update meta.xml: {e}')
 
 
+def _write_zotero_prefs_odt(z_data, csl_style):
+    """Write Zotero document preferences (ZOTERO_PREF_1/_2/...) as
+    <meta:user-defined> properties in meta.xml, so a later LibreOffice/Word
+    "Refresh" uses `csl_style` without prompting. Replaces any existing
+    ZOTERO_PREF_* the template carries. `csl_style` is a style name or .csl path."""
+    if 'meta.xml' not in z_data:
+        print('WARNING: template has no meta.xml — cannot write Zotero style prefs')
+        return
+    META_NS = _NS['meta']
+    OFFICE_NS = _NS['office']
+    blob = zotero_pref_blob(csl_style_id(csl_style), field_type='ReferenceMark')
+    chunks = zotero_pref_chunks(blob)
+    try:
+        root = etree.fromstring(z_data['meta.xml'])
+        meta_el = root.find('{%s}meta' % OFFICE_NS)
+        if meta_el is None:
+            meta_el = etree.SubElement(root, '{%s}meta' % OFFICE_NS)
+        for el in list(meta_el):
+            if (el.tag == '{%s}user-defined' % META_NS
+                    and re.fullmatch(r'ZOTERO_PREF_\d+',
+                                     el.get('{%s}name' % META_NS, ''))):
+                meta_el.remove(el)
+        for i, chunk in enumerate(chunks, start=1):
+            el = etree.SubElement(meta_el, '{%s}user-defined' % META_NS)
+            el.set('{%s}name' % META_NS, 'ZOTERO_PREF_%d' % i)
+            el.set('{%s}value-type' % META_NS, 'string')
+            el.text = chunk
+        z_data['meta.xml'] = etree.tostring(
+            root, xml_declaration=True, encoding='UTF-8', standalone=True)
+    except Exception as e:
+        print(f'WARNING: could not write Zotero style prefs to meta.xml: {e}')
+
+
 def _update_odt_field_placeholders(z_data, author, short_title):
     """Rewrite the cached text of every <text:user-defined text:name="Author"
     | "Short Title"> field in styles.xml's headers/footers, mirroring DOCX's
@@ -1623,7 +1657,7 @@ def merge_odt(template_path, input_path, output_path,
               abstract=None, extra_sections=None,
               new_page_headings=True, restart_footnotes=True,
               generate_date=True, roman_frontmatter=False, page1_starts_with='',
-              static_citations=False):
+              static_citations=False, csl_style=None):
     """
     Merge pandoc ODT output into the ODT template.
 
@@ -2087,6 +2121,8 @@ def merge_odt(template_path, input_path, output_path,
     # ── Update document metadata ───────────────────────────────────────────
     _update_meta(z_data, title, author, short_title=short_title, subtitle=subtitle)
     _update_odt_field_placeholders(z_data, author, short_title)
+    if csl_style:
+        _write_zotero_prefs_odt(z_data, csl_style)
 
     # ── Write output ODT ───────────────────────────────────────────────────
     with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zout:
@@ -2144,6 +2180,11 @@ def main():
                          'bibliography via --citeproc (PDF path) — preserve '
                          'it instead of stripping and replacing with a live '
                          'Zotero field placeholder')
+    ap.add_argument('--csl-style', default=None, dest='csl_style',
+                    help='Write this citation style (a Zotero style name or a '
+                         '.csl path) into the output\'s Zotero document '
+                         'preferences (ZOTERO_PREF_*), replacing any the '
+                         'template carries.')
     args = ap.parse_args()
 
     extra_sections = None
@@ -2171,6 +2212,7 @@ def main():
         roman_frontmatter=args.roman_frontmatter,
         page1_starts_with=args.page1_starts_with,
         static_citations=args.static_citations,
+        csl_style=args.csl_style,
     )
     print(f'Merged: {args.output}')
 

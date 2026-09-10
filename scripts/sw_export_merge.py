@@ -61,6 +61,7 @@ from sw_merge_helpers import (
     is_main_start, is_toc_heading, is_tof_heading, strip_chapter_prefix,
     find_page_reset_index, bundled_template, ensure_docx_styles,
     append_extra_sections,
+    csl_style_id, zotero_pref_blob, zotero_pref_chunks,
 )
 
 W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
@@ -583,6 +584,45 @@ def _ensure_pgnumtype(sectpr):
 #: so those sections must NOT carry the restart. Direct DOCX export (opened in
 #: Word) keeps it.
 _SUPPRESS_FN_RESTART = False
+
+
+def _normalize_footnote_restart(doc_root, data, restart_footnotes):
+    """Make document-wide footnote numbering agree with the export's
+    continuity choice.
+
+    When footnotes are continuous (or _SUPPRESS_FN_RESTART forces continuity
+    because the PDF path goes through LibreOffice, which renders
+    numRestart="eachSect" from DOCX as a per-section restart even with a
+    single section), strip every <w:numRestart>/<w:numStart> from BOTH the
+    body sectPr elements AND settings.xml's document-level <w:footnotePr> —
+    document.docx ships with eachSect there, and neither make_section_break
+    nor the sectPr re-append touches settings.xml. Per-chapter restart
+    (book output opened in Word) is left exactly as the template + section
+    breaks set it."""
+    if restart_footnotes and not _SUPPRESS_FN_RESTART:
+        return
+    for sect in doc_root.iter(tag('sectPr')):
+        fnpr = sect.find(tag('footnotePr'))
+        if fnpr is None:
+            continue
+        for c in fnpr.findall(tag('numRestart')) + fnpr.findall(tag('numStart')):
+            fnpr.remove(c)
+    if 'word/settings.xml' in data:
+        try:
+            s_root = etree.fromstring(data['word/settings.xml'])
+            fnpr = s_root.find(tag('footnotePr'))
+            if fnpr is not None:
+                removed = False
+                for c in (fnpr.findall(tag('numRestart'))
+                          + fnpr.findall(tag('numStart'))):
+                    fnpr.remove(c)
+                    removed = True
+                if removed:
+                    data['word/settings.xml'] = etree.tostring(
+                        s_root, xml_declaration=True, encoding='UTF-8',
+                        standalone=True)
+        except etree.XMLSyntaxError as e:
+            print(f'WARNING: could not normalize settings.xml footnotes: {e}')
 
 
 def make_section_break(sectpr_kind, rsid='00DE2936'):
@@ -1218,7 +1258,8 @@ def merge(template_path, input_path, output_path, title=None, author=None,
           subtitle=None, date_val=None, toc=False, tof=False, short_title=None,
           basename=None, abstract=None, extra_sections=None,
           new_page_headings=True, restart_footnotes=True, generate_date=True,
-          roman_frontmatter=False, page1_starts_with='', static_citations=False):
+          roman_frontmatter=False, page1_starts_with='', static_citations=False,
+          csl_style=None):
     global _SUPPRESS_FN_RESTART
     _SUPPRESS_FN_RESTART = static_citations
     with zipfile.ZipFile(template_path) as z:
@@ -1416,7 +1457,8 @@ def merge(template_path, input_path, output_path, title=None, author=None,
     _write_docx(template_path, output_path, tmpl_doc, new_footnotes,
                 short_title=short_title, author=author, title=title,
                 subtitle=subtitle, input_path=input_path,
-                extra_style_ids=_tof_style_ids + _extra_style_ids_for_aliases)
+                extra_style_ids=_tof_style_ids + _extra_style_ids_for_aliases,
+                csl_style=csl_style, restart_footnotes=restart_footnotes)
 
 def _fill_title_block(title_block, title, subtitle, author, date_val):
     """Replace placeholder text in the template title block (a list of deep
@@ -1803,6 +1845,84 @@ def _remove_orphan_bookmark_ends(doc):
             if parent is not None:
                 parent.remove(el)
 
+_CT_NS = 'http://schemas.openxmlformats.org/package/2006/content-types'
+_REL_NS = 'http://schemas.openxmlformats.org/package/2006/relationships'
+_CP_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/custom-properties'
+_VT_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes'
+
+
+def _write_zotero_prefs_docx(zipdata, csl_style):
+    """Write Zotero document preferences (ZOTERO_PREF_1/_2/...) into
+    docProps/custom.xml so a later Word/LibreOffice "Refresh" uses `csl_style`
+    without prompting. Replaces any existing ZOTERO_PREF_* properties; creates
+    custom.xml (and its content-type + relationship) when the template has none.
+    `csl_style` is a Zotero style name or a path to a .csl file."""
+    blob = zotero_pref_blob(csl_style_id(csl_style), field_type='Field')
+    chunks = zotero_pref_chunks(blob)
+
+    if 'docProps/custom.xml' in zipdata:
+        root = etree.fromstring(zipdata['docProps/custom.xml'])
+    else:
+        root = etree.fromstring(
+            ('<Properties xmlns="%s" xmlns:vt="%s"/>' % (_CP_NS, _VT_NS)).encode())
+        _register_custom_xml_part(zipdata)
+
+    # Drop existing ZOTERO_PREF_* and note the highest pid in use.
+    max_pid = 1
+    for prop in list(root):
+        name = prop.get('name', '')
+        try:
+            max_pid = max(max_pid, int(prop.get('pid', '1')))
+        except ValueError:
+            pass
+        if re.fullmatch(r'ZOTERO_PREF_\d+', name):
+            root.remove(prop)
+
+    for i, chunk in enumerate(chunks, start=1):
+        prop = etree.SubElement(root, '{%s}property' % _CP_NS)
+        prop.set('fmtid', '{D5CDD505-2E9C-101B-9397-08002B2CF9AE}')
+        prop.set('pid', str(max_pid + i))
+        prop.set('name', 'ZOTERO_PREF_%d' % i)
+        lp = etree.SubElement(prop, '{%s}lpwstr' % _VT_NS)
+        lp.text = chunk  # lxml XML-escapes on serialize
+
+    zipdata['docProps/custom.xml'] = etree.tostring(
+        root, xml_declaration=True, encoding='UTF-8', standalone=True)
+
+
+def _register_custom_xml_part(zipdata):
+    """Add the [Content_Types].xml override and docProps/_rels entry a
+    freshly-created docProps/custom.xml needs."""
+    ct_path = '[Content_Types].xml'
+    if ct_path in zipdata:
+        ct = etree.fromstring(zipdata[ct_path])
+        if not any(o.get('PartName') == '/docProps/custom.xml'
+                   for o in ct.findall('{%s}Override' % _CT_NS)):
+            o = etree.SubElement(ct, '{%s}Override' % _CT_NS)
+            o.set('PartName', '/docProps/custom.xml')
+            o.set('ContentType',
+                  'application/vnd.openxmlformats-officedocument.custom-properties+xml')
+        zipdata[ct_path] = etree.tostring(ct, xml_declaration=True,
+                                          encoding='UTF-8', standalone=True)
+
+    rels_path = '_rels/.rels'
+    if rels_path in zipdata:
+        rels = etree.fromstring(zipdata[rels_path])
+        if not any(r.get('Target') in ('docProps/custom.xml', '/docProps/custom.xml')
+                   for r in rels.findall('{%s}Relationship' % _REL_NS)):
+            used = {r.get('Id') for r in rels}
+            n = 1
+            while ('rId%d' % n) in used:
+                n += 1
+            r = etree.SubElement(rels, '{%s}Relationship' % _REL_NS)
+            r.set('Id', 'rId%d' % n)
+            r.set('Type', 'http://schemas.openxmlformats.org/officeDocument/'
+                          '2006/relationships/custom-properties')
+            r.set('Target', 'docProps/custom.xml')
+        zipdata[rels_path] = etree.tostring(rels, xml_declaration=True,
+                                            encoding='UTF-8', standalone=True)
+
+
 def normalize_headers_footers(zipdata, short_title=None, author=None,
                               title=None, subtitle=None):
     """
@@ -2045,7 +2165,8 @@ def _merge_numbering(data, pdc_num_bytes, doc_root):
 
 def _write_docx(template_path, output_path, new_document_xml, new_footnotes_xml=None,
                 short_title=None, author=None, title=None, subtitle=None,
-                input_path=None, extra_style_ids=None):
+                input_path=None, extra_style_ids=None, csl_style=None,
+                restart_footnotes=True):
     """Write output docx = template parts with document.xml (and optionally
     footnotes.xml) replaced, and headers/footers/docProps normalized.
 
@@ -2070,6 +2191,7 @@ def _write_docx(template_path, output_path, new_document_xml, new_footnotes_xml=
                 data['word/styles.xml'], extra_style_ids, _src)
         except Exception as e:
             print(f'WARNING: could not inject ToF styles: {e}')
+    _normalize_footnote_restart(new_document_xml, data, restart_footnotes)
     data['word/document.xml'] = etree.tostring(
         new_document_xml, xml_declaration=True, encoding='UTF-8', standalone=True
     )
@@ -2277,6 +2399,8 @@ def _write_docx(template_path, output_path, new_document_xml, new_footnotes_xml=
 
     normalize_headers_footers(data, short_title=short_title, author=author,
                               title=title, subtitle=subtitle)
+    if csl_style:
+        _write_zotero_prefs_docx(data, csl_style)
     with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zout:
         for n in data:
             zout.writestr(n, data[n])
@@ -2369,6 +2493,11 @@ def main():
                          'bibliography via --citeproc (PDF path) — preserve '
                          'it instead of stripping and replacing with a live '
                          'Zotero field placeholder')
+    ap.add_argument('--csl-style', default=None, dest='csl_style',
+                    help='Write this citation style (a Zotero style name or a '
+                         '.csl path) into the output\'s Zotero document '
+                         'preferences (ZOTERO_PREF_*), replacing any the '
+                         'template carries.')
     args = ap.parse_args()
     extra_sections = None
     if args.extra_sections:
@@ -2388,7 +2517,8 @@ def main():
           generate_date=not args.no_generated_date,
           roman_frontmatter=args.roman_frontmatter,
           page1_starts_with=args.page1_starts_with,
-          static_citations=args.static_citations)
+          static_citations=args.static_citations,
+          csl_style=args.csl_style)
     print(f'Merged: {args.output}')
 
 if __name__ == '__main__':

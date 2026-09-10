@@ -176,6 +176,13 @@ export interface CompilerOptions {
   keepIntermediateMd?: boolean;
   /** IDs of StyleMappings to apply on this export (subset of settings.styleMappings). */
   enabledMappingIds?: string[];
+  /** Export dialog: apply an explicit citation style, overriding the
+   *  template's own. undefined = dialog not used (CLI defaults apply);
+   *  false = use the template's style / global default; true = use `cslStyle`. */
+  overrideCslStyle?: boolean;
+  /** The style to apply when overrideCslStyle is true: a Zotero style name,
+   *  a .csl path, or a URL. */
+  cslStyle?: string;
 }
 
 /** Convert a user-supplied folder (vault-relative, absolute, or ~) to an
@@ -259,6 +266,11 @@ export async function runDocumentCompiler(
     args.push('--roman-frontmatter');
     if (opts.romanStart) args.push('--page1-starts-with', opts.romanStart);
   }
+  if (isExport && opts.overrideCslStyle === true && opts.cslStyle) {
+    args.push('--csl-style', opts.cslStyle);
+  } else if (isExport && opts.overrideCslStyle === false) {
+    args.push('--csl-style-from-template');
+  }
 
   // Pass the Obsidian account display name as a fallback author so the
   // merge script can set dc:creator even when `author:` is absent from YAML.
@@ -276,6 +288,12 @@ export async function runDocumentCompiler(
   if (templateName) args.push('--template', templateName);
   const outputDir = resolveFolder(opts.outputDir, vaultBase);
   if (outputDir) args.push('--output-dir', outputDir);
+  // Let the script write the final filename directly — generating the
+  // default-named file first and renaming it clobbers an existing export the
+  // user keeps under the note's own name.
+  if (opts.outputFilename) {
+    args.push('--output-name', opts.outputFilename);
+  }
 
   // Resolve enabled style mappings and pass as JSON.
   if (isExport && opts.enabledMappingIds && opts.enabledMappingIds.length > 0) {
@@ -297,6 +315,17 @@ export async function runDocumentCompiler(
   {
     const a = plugin.app.vault.adapter as any;
     if (typeof a?.getBasePath === 'function') env.SW_VAULT = a.getBasePath();
+  }
+  // Zotero styles folder + the plugin's configured live-render style, so the
+  // Python side can resolve bare style names and use the same fallback the
+  // editor uses when a template carries no style.
+  if (plugin.settings.zoteroDataDir) {
+    env.SW_ZOTERO_DIR = plugin.settings.zoteroDataDir;
+  }
+  {
+    const configured =
+      plugin.settings.cslStylePath || plugin.settings.cslStyleURL || '';
+    if (configured) env.SW_DEFAULT_CSL = configured;
   }
   if (isExport) {
     const node = await findNode();
@@ -321,32 +350,15 @@ export async function runDocumentCompiler(
 
   try {
     const res = await execFileAsync(py, [script, ...args], { env });
+    // The script writes the final filename itself (see --output-name) and
+    // prints its path as the last stdout line.
     const rawOutputPath = res.stdout.trim().split('\n').pop() ?? '';
-
-    // Optionally rename to the user-supplied filename.
-    let finalOutputPath = rawOutputPath;
-    if (
-      opts.outputFilename &&
-      rawOutputPath &&
-      require('path').basename(rawOutputPath) !== opts.outputFilename
-    ) {
-      try {
-        const path = require('path') as typeof import('path');
-        const fs = require('fs') as typeof import('fs');
-        const renamed = path.join(path.dirname(rawOutputPath), opts.outputFilename);
-        fs.renameSync(rawOutputPath, renamed);
-        finalOutputPath = renamed;
-      } catch (renameErr) {
-        console.warn('[scholar-weave] Could not rename output file:', renameErr);
-        // Non-fatal — still report the original path.
-      }
-    }
 
     return {
       ok: true,
       stdout: res.stdout,
       stderr: res.stderr,
-      outputPath: finalOutputPath || undefined,
+      outputPath: rawOutputPath || undefined,
     };
   } catch (e) {
     const err = e as any;

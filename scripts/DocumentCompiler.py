@@ -306,11 +306,52 @@ def resolve_attachment_path(filename: str):
         return None
     return min(matches, key=lambda p: len(p.parts))
 
+# Excalidraw drawings are embedded as ![[Name.excalidraw]] (Obsidian omits the
+# trailing .md). The Excalidraw plugin keeps sidecar image files next to the
+# drawing when autoexportSVG / autoexportPNG are on ("Name.excalidraw.svg" /
+# "Name.excalidraw.png", kept in sync with the drawing). We embed the sidecar
+# instead of the drawing source. PNG is tried first: it is a faithful raster of
+# what Obsidian shows, whereas Word and LibreOffice render the SVG with a
+# substitute font (the Excalidraw hand-drawn font isn't installed) and
+# LibreOffice drops some shape fills. SVG is the fallback when no PNG sidecar
+# exists.
+_EXCALIDRAW_SIDECAR_FORMATS = ('png', 'svg')
+
+
+def _parse_embed_pipe(parts):
+    """Split the segments after the first '|' of an Obsidian embed into
+    (alt_text, width, height). A purely numeric segment (optionally NxN) is a
+    pixel size; anything else is alt text."""
+    alt_bits, width, height = [], None, None
+    for seg in parts[1:]:
+        dm = re.fullmatch(r'(\d+)(?:x(\d+))?', seg)
+        if dm:
+            width, height = dm.group(1), dm.group(2)
+        elif seg:
+            alt_bits.append(seg)
+    return ' '.join(alt_bits), width, height
+
+
+def _embed_markdown(resolved, alt, width, height):
+    """Build the pandoc image markdown for a resolved attachment path."""
+    rel = os.path.relpath(resolved, os.getcwd())
+    attrs = ''
+    if width:
+        dims = ['width=%spx' % width]
+        if height:
+            dims.append('height=%spx' % height)
+        # No space before '{' — pandoc only reads it as an image attribute
+        # when it is directly adjacent to the ')'.
+        attrs = '{%s}' % ' '.join(dims)
+    return f'![{alt}]({rel}){attrs}'
+
+
 def resolve_embed_links(content: str) -> str:
     """Rewrite Obsidian image embeds (![[name.ext]]) to vault-relative paths
     so pandoc can fetch them. Without this, pandoc looks relative to the
     compiled file's directory and replaces the image with its filename.
-    Non-image embeds (![[other note]]) are left untouched (wikilinks).
+    Excalidraw embeds (![[name.excalidraw]]) resolve to their exported sidecar
+    image. Non-image embeds (![[other note]]) are left untouched (wikilinks).
     """
     img_ext = r'(?:png|jpe?g|gif|bmp|tiff?|webp|svg)'
     def repl(m):
@@ -323,30 +364,30 @@ def resolve_embed_links(content: str) -> str:
         # renders no image.
         parts = [p.strip() for p in m.group(1).split('|')]
         target = parts[0].strip()
+
+        # Excalidraw: ![[Name.excalidraw]] / [[...excalidraw.md]] / with a
+        # #frame or #^ref fragment — always embed the whole-drawing sidecar.
+        exc = re.match(r'(?i)^(.*\.excalidraw)(?:\.md)?(?:#.*)?$', target)
+        if exc:
+            base = exc.group(1)
+            resolved = next(
+                (p for ext in _EXCALIDRAW_SIDECAR_FORMATS
+                 for p in (resolve_attachment_path(f'{base}.{ext}'),) if p),
+                None,
+            )
+            if resolved is None:
+                return m.group(0)
+            alt, width, height = _parse_embed_pipe(parts)
+            return _embed_markdown(resolved, alt or re.sub(r'\.excalidraw$', '', base, flags=re.I),
+                                   width, height)
+
         if not re.search(rf'\.{img_ext}$', target, re.IGNORECASE):
             return m.group(0)
-        alt_bits, width, height = [], None, None
-        for seg in parts[1:]:
-            dm = re.fullmatch(r'(\d+)(?:x(\d+))?', seg)
-            if dm:
-                width, height = dm.group(1), dm.group(2)
-            elif seg:
-                alt_bits.append(seg)
-        alt = ' '.join(alt_bits)
+        alt, width, height = _parse_embed_pipe(parts)
         resolved = resolve_attachment_path(target)
         if resolved is None:
             return m.group(0)
-        # Path relative to the vault root (which is the cwd).
-        rel = os.path.relpath(resolved, os.getcwd())
-        attrs = ''
-        if width:
-            dims = ['width=%spx' % width]
-            if height:
-                dims.append('height=%spx' % height)
-            # No space before '{' — pandoc only reads it as an image attribute
-            # when it is directly adjacent to the ')'.
-            attrs = '{%s}' % ' '.join(dims)
-        return f'![{alt or target}]({rel}){attrs}'
+        return _embed_markdown(resolved, alt or target, width, height)
     return re.sub(r'!\[\[([^\]]+)\]\]', repl, content)
 
 def adjust_heading_levels(content: str, depth: int) -> str:
@@ -905,6 +946,40 @@ def preprocess_md_syntax(text: str) -> str:
         text
     )
     return text
+
+
+def ensure_blank_before_headings(text: str) -> str:
+    """Obsidian renders any line starting with '# ' as a heading regardless of
+    what precedes it. Pandoc (treating single newlines as soft breaks) folds a
+    heading that directly follows a paragraph or list item into that block as
+    literal text — "# Research Process" ends up mid-sentence. Insert a blank
+    line before every ATX heading that isn't already preceded by one. (Pandoc's
+    +lists_without_preceding_blankline extension already covers the mirror-image
+    problem for lists.) Lines inside fenced code blocks are left untouched so a
+    '# comment' in a code sample is never treated as a heading.
+    """
+    out = []
+    fence = None          # opening fence marker while inside a code block
+    prev_blank = True     # start of file behaves as if preceded by a blank line
+    for line in text.split('\n'):
+        fence_m = re.match(r'\s*(`{3,}|~{3,})', line)
+        if fence is not None:
+            out.append(line)
+            if fence_m and fence_m.group(1)[0] == fence[0] \
+                    and len(fence_m.group(1)) >= len(fence):
+                fence = None
+            prev_blank = False
+            continue
+        if fence_m:
+            fence = fence_m.group(1)
+            out.append(line)
+            prev_blank = False
+            continue
+        if re.match(r'#{1,6} ', line) and not prev_blank:
+            out.append('')
+        out.append(line)
+        prev_blank = not line.strip()
+    return '\n'.join(out)
 
 
 def generate_mappings_filter(mappings_data, auto_name=True):
@@ -1675,30 +1750,200 @@ def _read_template_csl_style(template_path, fmt):
     return m.group(1).rstrip('/').rsplit('/', 1)[-1]
 
 
-def _fetch_csl_style_file(csl_style):
-    """Return a local path to the given CSL style's XML, downloading (and
-    disk-caching) it from the citation-style-language/styles GitHub repo —
-    the same source BibManager.ts uses for in-editor citeproc.js rendering,
-    so PDF citations use the same style file as Obsidian's live preview.
+def _note_frontmatter_csl(text):
+    """The note's own top-level `csl:` / `citation-style:` YAML property
+    (a bare style name, a path, or a URL), or None. This is the same key the
+    live Obsidian renderer honours; here it feeds export style selection for
+    direct CLI use (the plugin resolves it itself and passes --csl-style)."""
+    yaml_block, _ = extract_yaml(text)
+    if not yaml_block:
+        return None
+    for key in ('csl', 'citation-style'):
+        val = read_yaml_prop(yaml_block, key)
+        if val:
+            return val.strip()
+    return None
+
+
+def _csl_short_name(value):
+    """Reduce a style name / path / URL / style-id to its short id
+    ('.../styles/chicago-author-date' or '/x/apa.csl' -> 'chicago-author-date' /
+    'apa'). A bare name passes through unchanged."""
+    if not value:
+        return value
+    v = value.strip().rstrip('/')
+    v = re.sub(r'\.csl$', '', v, flags=re.IGNORECASE)
+    return v.rsplit('/', 1)[-1]
+
+
+def _resolve_export_csl_style(text, template_path, fmt, override=None,
+                              from_template=False):
+    """Decide which CSL style an export should use.
+
+    Returns (short_style_name, is_explicit_override). `is_explicit_override`
+    is True when the style came from a deliberate choice (the export dialog's
+    override checkbox, or the note's own `csl:` property) rather than a
+    template/global default — only then is the style written into the output
+    file's Zotero document preferences.
+
+    Priority:
+      1. `override`            (dialog: "apply the selected style")
+      2. `from_template`       (dialog: checkbox off) -> template pref / global
+                               default, skipping the note's csl: property
+      3. note `csl:` property
+      4. template ZOTERO_PREF
+      5. SW_DEFAULT_CSL        (the plugin's configured live-render style)
+      6. _DEFAULT_STATIC_CSL_STYLE ('chicago-author-date')
     """
-    import tempfile
+    tpl_style = (_read_template_csl_style(template_path, fmt)
+                 if template_path and os.path.exists(template_path) else None)
+    env_default = _csl_short_name(os.environ.get('SW_DEFAULT_CSL', '').strip()) \
+        or None
+
+    if override:
+        return _csl_short_name(override), True
+    if from_template:
+        return (tpl_style or env_default or _DEFAULT_STATIC_CSL_STYLE), False
+    fm = _note_frontmatter_csl(text)
+    if fm:
+        return _csl_short_name(fm), True
+    if tpl_style:
+        return tpl_style, False
+    return (env_default or _DEFAULT_STATIC_CSL_STYLE), False
+
+
+#: Pandoc's citeproc bundles this style as its built-in default. When the
+#: resolved style IS this one, skip the network fetch entirely and let pandoc
+#: use its own copy (emit no --csl argument).
+_PANDOC_DEFAULT_CSL_STYLE = 'chicago-author-date'
+
+
+def _https_get(url, timeout):
+    """GET *url*, tolerating the python.org macOS build's un-wired CA store
+    (a very common setup: the installer ships certs but leaves them inactive
+    until "Install Certificates.command" is run). Tries the normal verified
+    context, then certifi's bundle if importable, then falls back to an
+    unverified context with a warning — the payload here is a public, static,
+    non-executed file that we cache and hand to pandoc, so an unverified TLS
+    fetch is an acceptable last resort. Non-certificate errors (offline, 404)
+    are not retried."""
+    import ssl
     import urllib.request
     import urllib.error
+
+    attempts = [None]  # verified default context
+    try:
+        import certifi
+        attempts.append(ssl.create_default_context(cafile=certifi.where()))
+    except ImportError:
+        pass
+    unverified = ssl._create_unverified_context()
+    attempts.append(unverified)
+
+    last_err = None
+    for ctx in attempts:
+        try:
+            with urllib.request.urlopen(url, timeout=timeout, context=ctx) as resp:
+                data = resp.read()
+            if ctx is unverified:
+                print('WARNING: fetched %s over an UNVERIFIED HTTPS connection — '
+                      'your Python has no active CA certificates. Run the '
+                      '"Install Certificates.command" that ships with python.org '
+                      'Python, or `pip install certifi`.' % url)
+            return data
+        except urllib.error.URLError as e:
+            last_err = e
+            if not isinstance(getattr(e, 'reason', None),
+                              ssl.SSLCertVerificationError):
+                break  # offline / DNS / HTTP error — retrying won't help
+    raise last_err
+
+
+def _zotero_style_dirs(client=None):
+    """Candidate `<data-dir>/styles` folders of an installed Zotero / Jurism,
+    most-preferred first. Honours a custom data directory set in prefs.js
+    (`extensions.zotero.dataDir`); otherwise the default `~/Zotero` (`~/Jurism`).
+    `client` ('zotero' | 'jurism', from the note's zotero: block) just reorders
+    the two — both are always checked."""
+    dirs, seen = [], set()
+    env_dir = os.environ.get('SW_ZOTERO_DIR', '').strip()
+    if env_dir:
+        p = Path(env_dir).expanduser()
+        # Accept either the data dir or the styles dir itself.
+        for styles in ((p if p.name == 'styles' else p / 'styles'), p / 'styles'):
+            if styles not in seen:
+                seen.add(styles)
+                dirs.append(styles)
+    names = ['Jurism', 'Zotero'] if client == 'jurism' else ['Zotero', 'Jurism']
+    for name in names:
+        base = Path.home() / name
+        candidates = []
+        try:
+            prefs = (base / 'prefs.js').read_text(encoding='utf-8', errors='ignore')
+            m = re.search(
+                r'user_pref\("extensions\.zotero\.dataDir",\s*"((?:[^"\\]|\\.)*)"\)',
+                prefs)
+            if m:
+                candidates.append(Path(m.group(1).encode()
+                                       .decode('unicode_escape')))
+        except OSError:
+            pass
+        candidates.append(base)
+        for d in candidates:
+            styles = d / 'styles'
+            if styles not in seen:
+                seen.add(styles)
+                dirs.append(styles)
+    return dirs
+
+
+def _installed_csl_path(csl_style, client=None):
+    """Path to `csl_style` in an installed Zotero/Jurism styles folder, or None.
+    This copy is the user's canonical, Zotero-managed version — prefer it over
+    a download or pandoc's bundled default."""
+    for d in _zotero_style_dirs(client):
+        p = d / f'{csl_style}.csl'
+        if p.is_file():
+            return str(p)
+    return None
+
+
+def _fetch_csl_style_file(csl_style, client=None):
+    """Return a local path to the given CSL style's XML, or None when no file
+    is needed (pandoc's built-in default). Resolution order:
+
+      1. An installed Zotero/Jurism style (`~/Zotero/styles/<style>.csl`, or a
+         custom data dir) — the user's own, up-to-date, Zotero-managed copy.
+      2. Pandoc's built-in default — return None, pandoc uses its own copy.
+      3. This session's on-disk cache from a previous download.
+      4. A one-time download from citation-style-language/styles, then cached.
+
+    No freshness check: CSL styles change rarely, so a cached copy is fine;
+    a newer one is picked up whenever the cache is next cleared or Zotero
+    updates its own folder.
+    """
+    local = _installed_csl_path(csl_style, client)
+    if local:
+        return local
+    if csl_style == _PANDOC_DEFAULT_CSL_STYLE:
+        return None
+    import tempfile
+    import urllib.error
     cache_dir = Path(tempfile.gettempdir()) / 'scholarweave-csl-cache'
-    cache_dir.mkdir(parents=True, exist_ok=True)
     cache_path = cache_dir / f'{csl_style}.csl'
     if not cache_path.exists():
+        cache_dir.mkdir(parents=True, exist_ok=True)
         url = (
             'https://raw.githubusercontent.com/citation-style-language/'
             f'styles/master/{csl_style}.csl'
         )
         try:
-            with urllib.request.urlopen(url, timeout=20) as resp:
-                cache_path.write_bytes(resp.read())
+            cache_path.write_bytes(_https_get(url, timeout=20))
         except (OSError, urllib.error.URLError) as e:
             raise RuntimeError(
-                f'Could not download CSL style "{csl_style}" from '
-                f'citation-style-language/styles: {e}') from e
+                f'Could not find CSL style "{csl_style}" in the Zotero styles '
+                f'folder or download it from citation-style-language/styles: '
+                f'{e}') from e
     return str(cache_path)
 
 
@@ -1779,12 +2024,24 @@ def _parse_yaml_metadata(text, stem):
     }
 
 
+def _resolve_output_stem(output_name, default_stem):
+    """Filename stem for an export. `output_name` is the export dialog's
+    'Desired output filename' (may carry an extension, which is dropped here —
+    the caller re-adds the format's own). Blank/None → the source note's stem."""
+    if not output_name:
+        return default_stem
+    stem = Path(str(output_name)).name
+    stem = re.sub(r'\.(docx|odt|pdf|md)$', '', stem, flags=re.IGNORECASE)
+    return stem.strip() or default_stem
+
+
 def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
                     tof=False, template_dir=None, output_dir=None,
                     default_author=None, new_page_headings=True,
                     restart_footnotes=True, mappings_data=None, generate_date=True,
                     roman_frontmatter=False, page1_starts_with='',
-                    static_citations=False):
+                    static_citations=False, csl_style_override=None,
+                    csl_from_template=False, output_name=None):
     """Unified export pipeline for DOCX and ODT.
 
     static_citations: when True, skip sw-zotero.lua's live-Zotero-field
@@ -1841,7 +2098,11 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
     out_dir.mkdir(parents=True, exist_ok=True)
     ext        = '.docx' if fmt == 'docx' else '.odt'
     clean_path = out_dir / f"{compiled_md.stem}.clean{ext}"
-    out_path   = out_dir / f"{compiled_md.stem}{ext}"
+    # A caller-supplied name (export dialog) is written to DIRECTLY — never
+    # generate the default-named file first (that would clobber a real export
+    # the user keeps under the note's own name).
+    out_stem   = _resolve_output_stem(output_name, compiled_md.stem)
+    out_path   = out_dir / f"{out_stem}{ext}"
 
     # ── Citation conversion (identical for both formats) ───────────────────────
     citations_md = compiled_md.with_suffix('.citations.md')
@@ -1852,6 +2113,7 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
 
     # ── Markdown pre-processing (identical for both formats) ───────────────────
     cit_text = citations_md.read_text(encoding='utf-8')
+    cit_text = ensure_blank_before_headings(cit_text)
     cit_text = rewrite_poetry_callouts(cit_text)
     cit_text = preprocess_md_syntax(cit_text)
     cit_text = resolve_embed_links(cit_text)  # fixes images in direct-note exports
@@ -1905,30 +2167,25 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
     elif not template_path.endswith(f'{tpl}{ext}'):
         print(f"WARNING: template '{tpl}{ext}' not found; using {template_path} as fallback.")
 
+    # ── CSL style resolution (see _resolve_export_csl_style for priority).
+    # `_csl_is_override` marks a deliberate choice (dialog checkbox or the
+    # note's own csl: property) — only then do we write the style into the
+    # output file's Zotero document preferences (merge --csl-style).
+    zmeta = _parse_zotero_meta(text)
+    csl_style, _csl_is_override = _resolve_export_csl_style(
+        text, template_path, fmt,
+        override=csl_style_override, from_template=csl_from_template)
+
     # ── Static-citation mode (PDF path): fetch a CSL-JSON bibliography and
     # the CSL style file up front, and hand citation processing to pandoc's
     # own --citeproc instead of sw-zotero.lua's live-field generation.
-    #
-    # Style priority: a template that has already had Zotero's own "Document
-    # Preferences" set on it (i.e. it carries a real ZOTERO_PREF_1/_2/...
-    # payload — the same one Word/LibreOffice's Zotero integration writes)
-    # wins, since different templates legitimately target different
-    # journals/publishers with different required styles. Only when the
-    # template has no such preference does this fall back to a fixed
-    # default, rather than Obsidian's own live-preview style — that style is
-    # a per-user editing convenience, not necessarily what any given export
-    # template should render with.
     citeproc_args = []
     _tmp_biblio_dir = None
     if static_citations:
-        zmeta = _parse_zotero_meta(text)
-        csl_style = (_read_template_csl_style(template_path, fmt)
-                     if os.path.exists(template_path) else None) \
-            or _DEFAULT_STATIC_CSL_STYLE
         citekeys = _extract_citekeys(cit_text)
         csl_items = _fetch_zotero_csl_items(
             citekeys, csl_style, zmeta['client'], zmeta['library'])
-        csl_path = _fetch_csl_style_file(csl_style)
+        csl_path = _fetch_csl_style_file(csl_style, zmeta['client'])
         import tempfile as _tempfile
         _tmp_biblio_dir = Path(_tempfile.mkdtemp())
         biblio_path = _tmp_biblio_dir / 'bibliography.json'
@@ -1936,9 +2193,12 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
         citeproc_args = [
             '--citeproc',
             '--bibliography', str(biblio_path),
-            '--csl', csl_path,
             '--metadata', 'reference-section-title=Bibliography',
         ]
+        # csl_path is None when the style is pandoc's built-in default —
+        # omit --csl and let pandoc use its own bundled copy.
+        if csl_path:
+            citeproc_args += ['--csl', csl_path]
 
     # ── pandoc invocation (format-specific) ────────────────────────────────────
     if fmt == 'docx':
@@ -2017,6 +2277,17 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
             merge_cmd += ['--page1-starts-with', page1_starts_with]
     if static_citations:
         merge_cmd.append('--static-citations')
+    if _csl_is_override and csl_style:
+        # Write the chosen style into the output's Zotero document
+        # preferences so a later Word/LibreOffice "Refresh" uses it without
+        # prompting. Pass the resolved .csl path when we have one (its <id>
+        # is authoritative); otherwise the bare short name.
+        _csl_ref = None
+        try:
+            _csl_ref = _installed_csl_path(csl_style, zmeta['client'])
+        except Exception:
+            _csl_ref = None
+        merge_cmd += ['--csl-style', _csl_ref or csl_style]
     print('Merging:', ' '.join(merge_cmd))
     subprocess.run(merge_cmd, check=True)
     clean_path.unlink(missing_ok=True)
@@ -2042,7 +2313,8 @@ def export_docx(compiled_md, vault_root=None, template=None, toc=False,
                 new_page_headings=True, restart_footnotes=True,
                 mappings_data=None, generate_date=True,
                 roman_frontmatter=False, page1_starts_with='',
-                static_citations=False):
+                static_citations=False, csl_style_override=None,
+                csl_from_template=False, output_name=None):
     """Export compiled markdown to DOCX. Thin wrapper around export_document."""
     return export_document('docx', compiled_md,
                            vault_root=vault_root, template=template, toc=toc,
@@ -2054,7 +2326,10 @@ def export_docx(compiled_md, vault_root=None, template=None, toc=False,
                            mappings_data=mappings_data, generate_date=generate_date,
                            roman_frontmatter=roman_frontmatter,
                            page1_starts_with=page1_starts_with,
-                           static_citations=static_citations)
+                           static_citations=static_citations,
+                           csl_style_override=csl_style_override,
+                           csl_from_template=csl_from_template,
+                           output_name=output_name)
 
 
 def _prep_reference_odt(ref_doc_path, style_names):
@@ -2160,7 +2435,8 @@ def export_odt(compiled_md, vault_root=None, template=None, toc=False,
                new_page_headings=True, restart_footnotes=True,
                mappings_data=None, generate_date=True,
                roman_frontmatter=False, page1_starts_with='',
-               static_citations=False):
+               static_citations=False, csl_style_override=None,
+               csl_from_template=False, output_name=None):
     """Export compiled markdown to ODT. Thin wrapper around export_document."""
     return export_document('odt', compiled_md,
                            vault_root=vault_root, template=template, toc=toc,
@@ -2172,7 +2448,10 @@ def export_odt(compiled_md, vault_root=None, template=None, toc=False,
                            mappings_data=mappings_data, generate_date=generate_date,
                            roman_frontmatter=roman_frontmatter,
                            page1_starts_with=page1_starts_with,
-                           static_citations=static_citations)
+                           static_citations=static_citations,
+                           csl_style_override=csl_style_override,
+                           csl_from_template=csl_from_template,
+                           output_name=output_name)
 
 
 
@@ -2181,7 +2460,8 @@ def export_pdf(compiled_md, vault_root=None, template=None, toc=False, tof=False
                template_dir=None, output_dir=None,
                new_page_headings=True, restart_footnotes=True,
                intermediate_format=None, keep_intermediate=False,
-               mappings_data=None):
+               mappings_data=None, csl_style_override=None,
+               csl_from_template=False, output_name=None):
     """Export to PDF via an intermediate ODT or DOCX file.
 
     The intermediate format is auto-determined from the template: ODT is
@@ -2235,6 +2515,8 @@ def export_pdf(compiled_md, vault_root=None, template=None, toc=False, tof=False
             restart_footnotes=restart_footnotes,
             mappings_data=mappings_data, generate_date=generate_date,
             roman_frontmatter=roman_frontmatter, page1_starts_with=page1_starts_with,
+            csl_style_override=csl_style_override,
+            csl_from_template=csl_from_template,
             # PDF has no live document to refresh fields in later, so let
             # pandoc's own --citeproc render final citations + bibliography
             # instead of live Zotero fields (see export_document's docstring).
@@ -2244,7 +2526,8 @@ def export_pdf(compiled_md, vault_root=None, template=None, toc=False, tof=False
         else:
             inter_path = Path(export_odt(compiled_md, **common_kwargs))
 
-        out_pdf = out_dir / f"{compiled_md.stem}.pdf"
+        out_stem = _resolve_output_stem(output_name, compiled_md.stem)
+        out_pdf = out_dir / f"{out_stem}.pdf"
 
         # LibreOffice headless — renders the document identically to what the
         # user sees on screen, honouring all template styles. Required: there
@@ -2256,19 +2539,23 @@ def export_pdf(compiled_md, vault_root=None, template=None, toc=False, tof=False
                 'DOCX/ODT to PDF). Install LibreOffice, or export to DOCX/ODT '
                 'and convert to PDF yourself.')
         import subprocess
+        # Convert INTO the temp dir, never the output dir — LibreOffice names
+        # its output <intermediate-stem>.pdf, which would clobber a real
+        # export the user keeps under the note's own name. Move it to the
+        # final name afterwards (the only file we touch in out_dir).
         cmd = [soffice, '--headless', '--convert-to', 'pdf',
-               '--outdir', str(out_dir), str(inter_path)]
+               '--outdir', str(tmp_dir), str(inter_path)]
         print('Converting to PDF via LibreOffice:', ' '.join(cmd))
         subprocess.run(cmd, check=True)
-        # LibreOffice names the output <stem>.pdf in outdir.
-        lo_out = out_dir / f"{inter_path.stem}.pdf"
-        if lo_out.exists() and lo_out != out_pdf:
-            lo_out.rename(out_pdf)
+        lo_out = tmp_dir / f"{inter_path.stem}.pdf"
+        if not lo_out.exists():
+            raise RuntimeError('LibreOffice did not produce a PDF '
+                               f'({lo_out} missing).')
+        _sh.move(str(lo_out), str(out_pdf))
 
         if keep_intermediate:
-            dest = out_dir / inter_path.name
-            if inter_path != dest:
-                _sh.copy2(str(inter_path), str(dest))
+            dest = out_dir / f"{out_stem}{inter_path.suffix}"
+            _sh.copy2(str(inter_path), str(dest))
             print(f'Intermediate {intermediate_format.upper()} kept at: {dest}')
 
         print(f'\nExported PDF written to {out_pdf}')
@@ -2332,9 +2619,23 @@ def main():
     parser.add_argument('--output-dir', default=None,
                        help='Directory for the compiled markdown and exported file (default: the source '
                             'file\'s own folder)')
+    parser.add_argument('--output-name', default=None, dest='output_name',
+                       help='Filename for the exported document (extension optional — '
+                            'the format\'s own is used). Default: the source note\'s '
+                            'name. The file is written to this name directly, so a '
+                            'different name never touches an existing export.')
     parser.add_argument('--mappings', default=None,
                        help='JSON array of {source, styleName} objects for style mappings '
                             '(overrides mappings.json in the templates directory)')
+    parser.add_argument('--csl-style', default=None, dest='csl_style',
+                       help='Citation style for the export (a Zotero style name, a '
+                            '.csl path, or a style URL). Overrides the template\'s '
+                            'own style and the note\'s csl: property, and is written '
+                            'into the exported DOCX/ODT\'s Zotero document preferences.')
+    parser.add_argument('--csl-style-from-template', action='store_true',
+                       dest='csl_from_template',
+                       help='Ignore the note\'s csl: property; use the template\'s '
+                            'embedded style (or the global default) only.')
 
     args = parser.parse_args()
 
@@ -2409,7 +2710,10 @@ def main():
             mappings_data=active_mappings,
             generate_date=not args.no_generated_date,
             roman_frontmatter=use_roman,
-            page1_starts_with=args.page1_starts_with)
+            page1_starts_with=args.page1_starts_with,
+            csl_style_override=args.csl_style,
+            csl_from_template=args.csl_from_template,
+            output_name=args.output_name)
         if args.export_format == 'pdf':
             export_pdf(compiled, keep_intermediate=args.keep_intermediate, **_common)
         elif args.export_format == 'odt':
@@ -2427,6 +2731,17 @@ def main():
             except OSError as e:
                 print(f'WARNING: could not remove compiled markdown: {e}',
                       file=sys.stderr)
+    elif args.output_name:
+        # Compile-only ('md' format) with a chosen filename: rename the
+        # compiled markdown to it (never for an already-compiled input the
+        # user handed us — that's their source note).
+        src = Path(compiled)
+        if src != master_file and src.exists():
+            dest = src.with_name(_resolve_output_stem(args.output_name, src.stem)
+                                 + '.md')
+            if dest != src:
+                src.replace(dest)
+                print(str(dest))
 
 if __name__ == "__main__":
     import sys

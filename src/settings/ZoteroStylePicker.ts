@@ -10,15 +10,25 @@ export interface ZoteroStyle {
 
 /**
  * Return candidate directories where Zotero stores installed CSL styles.
- * Checks the default Zotero data dir location for macOS, Windows, and Linux.
+ * A user-configured data folder (settings.zoteroDataDir) is tried first;
+ * then the default Zotero data dir location for macOS, Windows, and Linux.
  */
-function zoteroStyleDirs(): string[] {
+export function zoteroStyleDirs(customDataDir?: string): string[] {
+  if (typeof require !== 'function') return [];
   const os = require('os') as typeof import('os');
   const path = require('path') as typeof import('path');
   const home = os.homedir();
   const platform = globalThis.process?.platform;
 
   const dataDirs: string[] = [];
+  const custom = (customDataDir ?? '').trim();
+  if (custom) {
+    // Accept either the data dir or the styles dir itself.
+    dataDirs.push(
+      path.basename(custom) === 'styles' ? custom : path.join(custom, 'styles'),
+      path.join(custom, 'styles')
+    );
+  }
   if (platform === 'win32') {
     dataDirs.push(
       path.join(home, 'Zotero', 'styles'),
@@ -43,12 +53,12 @@ function zoteroStyleDirs(): string[] {
  * Parses the <title> element from each file to produce a human-readable name.
  * Falls back to the filename stem when the title can't be extracted.
  */
-export function listZoteroInstalledStyles(): ZoteroStyle[] {
+export function listZoteroInstalledStyles(customDataDir?: string): ZoteroStyle[] {
   const fs = require('fs') as typeof import('fs');
   const path = require('path') as typeof import('path');
 
   let stylesDir: string | null = null;
-  for (const dir of zoteroStyleDirs()) {
+  for (const dir of zoteroStyleDirs(customDataDir)) {
     try {
       if (fs.existsSync(dir)) {
         stylesDir = dir;
@@ -87,6 +97,41 @@ export function listZoteroInstalledStyles(): ZoteroStyle[] {
 }
 
 /**
+ * Resolve a `csl:` frontmatter value or a stored style choice to a usable
+ * reference. A URL or an existing file path is returned unchanged; a bare
+ * style name (e.g. "chicago-note-bibliography") is looked up as
+ * `<zotero styles dir>/<name>.csl`. Returns null when a bare name can't be
+ * found in any styles folder.
+ */
+export function resolveZoteroStylePath(
+  value: string,
+  customDataDir?: string
+): string | null {
+  const v = (value ?? '').trim();
+  if (!v) return null;
+  if (/^https?:\/\//i.test(v)) return v;
+  // Node fs/path are desktop-only; on mobile a bare name can't be resolved.
+  if (typeof require !== 'function') return null;
+
+  const fs = require('fs') as typeof import('fs');
+  const path = require('path') as typeof import('path');
+  if (v.includes('/') || v.includes('\\') || v.toLowerCase().endsWith('.csl')) {
+    try {
+      if (fs.existsSync(v)) return v;
+    } catch { /* fall through to name lookup */ }
+  }
+
+  const name = v.replace(/\.csl$/i, '');
+  for (const dir of zoteroStyleDirs(customDataDir)) {
+    const candidate = path.join(dir, `${name}.csl`);
+    try {
+      if (fs.existsSync(candidate)) return candidate;
+    } catch { /* ignore */ }
+  }
+  return null;
+}
+
+/**
  * A fuzzy-search modal that lists all CSL styles installed in Zotero's data
  * directory and lets the user pick one. On selection it sets cslStylePath to
  * the chosen file's absolute path and reinitialises the citation engine.
@@ -106,7 +151,7 @@ export class ZoteroStylePicker extends FuzzySuggestModal<ZoteroStyle> {
     this.onPick = onPick;
     this.setPlaceholder('Search your installed Zotero CSL styles…');
 
-    const loaded = listZoteroInstalledStyles();
+    const loaded = listZoteroInstalledStyles(plugin.settings.zoteroDataDir);
     this.styles = loaded;
     if (loaded.length === 0) {
       new Notice(

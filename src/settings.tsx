@@ -46,6 +46,7 @@ export const DEFAULT_SETTINGS: ReferenceListSettings = {
   useAccountNameAsAuthor: false,
   styleMappings: [],
   styleMappingsEnabled: true,
+  zoteroDataDir: '',
 };
 
 export interface ZoteroGroup {
@@ -82,6 +83,12 @@ export interface ReferenceListSettings {
   cslStyleURL?: string;
   cslStylePath?: string;
   cslLang?: string;
+  /**
+   * Zotero (or Jurism) data folder. Blank = auto-detect (`~/Zotero`). Used to
+   * resolve a bare style name in a note's `csl:` / `citation-style:`
+   * frontmatter and to list installed styles in the export dialog.
+   */
+  zoteroDataDir?: string;
 
   hideLinks?: boolean;
   showCitekeyTooltips?: boolean;
@@ -569,7 +576,7 @@ export class ReferenceListSettingsTab extends PluginSettingTab {
       .setName(t('Custom citation style'))
       .setDesc(
         t(
-          'Path to a CSL file (vault-relative or absolute). Overrides the style selected above. Can be overridden per-note via the "csl" or "citation-style" frontmatter key. A URL can be supplied when setting the style via frontmatter.'
+          'Path to a CSL file (vault-relative or absolute). Overrides the style selected above. Can be overridden per-note via the "csl" or "citation-style" frontmatter key — a bare Zotero style name, a path, or a URL.'
         )
       )
       .then((setting) => {
@@ -601,6 +608,27 @@ export class ReferenceListSettingsTab extends PluginSettingTab {
           });
         }
       });
+
+    if (Platform.isDesktop) {
+      new Setting(containerEl)
+        .setName(t('Zotero data folder'))
+        .setDesc(
+          t(
+            'Folder where Zotero keeps installed styles (its data directory, or the "styles" folder itself). Leave blank to auto-detect (~/Zotero). Used to resolve a bare style name in a note\'s "csl" frontmatter and to list styles for export.'
+          )
+        )
+        .addText((text) =>
+          text
+            .setPlaceholder('~/Zotero')
+            .setValue(this.plugin.settings.zoteroDataDir ?? '')
+            .onChange((value) => {
+              this.plugin.settings.zoteroDataDir = value.trim();
+              this.plugin.saveSettings(() =>
+                this.plugin.bibManager.reinit(false)
+              );
+            })
+        );
+    }
 
     const defaultLanguage = langListRaw.find(
       (item) => item.value === this.plugin.settings.cslLang
