@@ -7,8 +7,13 @@ const BIB_EXTENSIONS = new Set(['bib', 'json', 'yaml', 'yml']);
  * .yaml, .yml) from the vault as the user types.
  */
 export class BibFileSuggest extends AbstractInputSuggest<TFile> {
+  // See FolderSuggest.ts for why we keep our own reference: AbstractInputSuggest
+  // no longer exposes inputEl publicly.
+  private textInputEl: HTMLInputElement;
+
   constructor(app: App, inputEl: HTMLInputElement) {
     super(app, inputEl);
+    this.textInputEl = inputEl;
   }
 
   getSuggestions(inputStr: string): TFile[] {
@@ -33,8 +38,8 @@ export class BibFileSuggest extends AbstractInputSuggest<TFile> {
   }
 
   selectSuggestion(file: TFile): void {
-    this.inputEl.value = file.path;
-    this.inputEl.trigger('input');
+    this.setValue(file.path);
+    this.textInputEl.trigger('input');
     this.close();
   }
 }

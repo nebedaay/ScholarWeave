@@ -51,6 +51,17 @@ import argparse
 _PLUGIN_SCRIPTS_DIR = Path(os.path.dirname(os.path.realpath(os.path.abspath(__file__))))
 _PLUGIN_DIR = _PLUGIN_SCRIPTS_DIR.parent            # …/plugins/scholar-weave
 
+sys.path.insert(0, str(_PLUGIN_SCRIPTS_DIR))
+# Shared, format-agnostic helpers also used by the DOCX/ODT merge scripts —
+# cover-value resolution (title/subtitle/author/date-default) and the
+# roman-frontmatter reset-heading finder. The LaTeX export path (no merge
+# step of its own) reuses these directly rather than reimplementing them.
+from sw_merge_helpers import (  # noqa: E402
+    resolve_cover, find_page_reset_index, looks_like_caption, strip_figure_prefix,
+    append_extra_sections, resolve_note_sections,
+    strip_bibliography_heading_from_markdown,
+)
+
 
 def _find_vault_root():
     env = os.environ.get('SW_VAULT')
@@ -95,6 +106,27 @@ def plugin_script_path(*parts):
 def plugin_template_path(name):
     """An Export Template inside the plugin's templates dir (fallback)."""
     return str(Path(_PLUGIN_DIR, 'templates', name))
+
+def _resolve_template_path(tpl, ext, template_dir):
+    """Template file candidate chain, shared by every export format: the
+    user's own templates dir (if any) → the plugin's bundled templates/ →
+    same two locations for 'document<ext>' as a final fallback. Returns the
+    first candidate that exists, else the last candidate (so callers can
+    still report a clear "not found" using the same path they tried)."""
+    candidates = []
+    if template_dir:
+        candidates.append(os.path.join(template_dir, f'{tpl}{ext}'))
+    candidates.append(plugin_template_path(f'{tpl}{ext}'))
+    if template_dir:
+        candidates.append(os.path.join(template_dir, f'document{ext}'))
+    candidates.append(plugin_template_path(f'document{ext}'))
+    path = next((c for c in candidates if os.path.exists(c)), candidates[-1])
+    if not os.path.exists(path):
+        print(f"WARNING: no template found for '{tpl}' (and no document{ext} fallback). "
+              f"Tried: {candidates}")
+    elif not path.endswith(f'{tpl}{ext}'):
+        print(f"WARNING: template '{tpl}{ext}' not found; using {path} as fallback.")
+    return path
 
 def get_indent_level(line: str) -> int:
     line_expand = line.replace("\t", "    ")
@@ -376,7 +408,20 @@ def resolve_embed_links(content: str) -> str:
                 None,
             )
             if resolved is None:
-                return m.group(0)
+                # Leaving the raw ![[...]] wikilink in place used to look
+                # like a mysterious parsing bug: pandoc's own wikilinks
+                # extension (-f markdown+wikilinks_title_after_pipe, needed
+                # elsewhere) still parses an unresolved image embed as
+                # ![pipe-part](target) — so a size like "|500" silently
+                # became the alt text and the raw wikilink target became a
+                # literal (nonexistent) file path, with no visible warning.
+                print(f'WARNING: Excalidraw drawing "{base}" has no '
+                      f'exported PNG/SVG sidecar next to it (re-export the '
+                      f'drawing — e.g. open it in Excalidraw and save — or '
+                      f'check it hasn\'t been renamed since the sidecar was '
+                      f'last generated). Substituting a placeholder.',
+                      file=sys.stderr)
+                return f'**[Missing image: {base}]**'
             alt, width, height = _parse_embed_pipe(parts)
             return _embed_markdown(resolved, alt or re.sub(r'\.excalidraw$', '', base, flags=re.I),
                                    width, height)
@@ -386,7 +431,9 @@ def resolve_embed_links(content: str) -> str:
         alt, width, height = _parse_embed_pipe(parts)
         resolved = resolve_attachment_path(target)
         if resolved is None:
-            return m.group(0)
+            print(f'WARNING: Image "{target}" not found in vault attachments. '
+                  f'Substituting a placeholder.', file=sys.stderr)
+            return f'**[Missing image: {target}]**'
         return _embed_markdown(resolved, alt or target, width, height)
     return re.sub(r'!\[\[([^\]]+)\]\]', repl, content)
 
@@ -1675,6 +1722,108 @@ def find_soffice():
     return None
 
 
+def find_latex_engine():
+    """Find the xelatex binary (pandoc's --pdf-engine for LaTeX export —
+    chosen over lualatex for its more mature polyglossia/bidi support, needed
+    for Arabic-script content)."""
+    import shutil as _sh
+    candidates = [
+        os.environ.get('SW_XELATEX', ''),
+        'xelatex',
+        '/Library/TeX/texbin/xelatex',            # MacTeX / BasicTeX
+        '/usr/bin/xelatex',                        # Linux (distro TeX Live)
+        '/usr/local/bin/xelatex',
+        r'C:\Program Files\MiKTeX\miktex\bin\x64\xelatex.exe',
+        r'C:\texlive\2026\bin\windows\xelatex.exe',
+    ]
+    for c in candidates:
+        if c and _sh.which(c):
+            return c
+    return None
+
+
+#: Plain-text -> LaTeX special-character escaping, for values (author name,
+#: short title) substituted into a .tex template's raw preamble — these are
+#: NOT markdown, so pandoc's own escaping never sees them.
+_LATEX_ESCAPE_MAP = {
+    '\\': r'\textbackslash{}',
+    '&': r'\&', '%': r'\%', '$': r'\$', '#': r'\#',
+    '_': r'\_', '{': r'\{', '}': r'\}',
+    '~': r'\textasciitilde{}', '^': r'\textasciicircum{}',
+}
+_LATEX_ESCAPE_RE = re.compile('|'.join(re.escape(c) for c in _LATEX_ESCAPE_MAP))
+
+
+def _latex_escape(text):
+    if not text:
+        return ''
+    return _LATEX_ESCAPE_RE.sub(lambda m: _LATEX_ESCAPE_MAP[m.group(0)], text)
+
+
+#: A solo image markdown line — `![alt](path)` optionally followed by a
+#: pandoc attribute block on the same line, e.g. `{width=200px}`.
+_LATEX_SOLO_IMAGE_RE = re.compile(
+    r'^(!\[)[^\]]*(\]\([^)\n]+\)(?:\{[^}\n]*\})?)[ \t]*\n'
+    r'(?:\n+([^\n]+(?:\n[^\n]+)*))?',
+    re.M,
+)
+
+
+def latex_process_images(text):
+    """Make every solo image embed a floating, centered figure, and give it
+    a real caption ONLY when an explicit 'Figure...' paragraph follows it —
+    same vault convention DOCX/ODT apply (centered image styles +
+    looks_like_caption/strip_figure_prefix in the merge step); there is no
+    merge step for LaTeX, so this runs on the compiled markdown instead,
+    before pandoc.
+
+    resolve_embed_links() always gives an image non-empty alt text (the
+    Obsidian embed's own alt, or else the filename) so pandoc's own image
+    handling has something to work with. But pandoc's `implicit_figures`
+    extension treats ANY solo image with non-empty alt text as a captioned,
+    numbered figure using that alt text as the caption — so left alone,
+    every image would get a "dummy" filename-derived caption, whether or
+    not the note actually captioned it.
+
+    When a 'Figure...' paragraph follows, the alt text becomes the real
+    (unnumbered — pandoc computes the figure number) description and the
+    now-redundant caption paragraph is dropped, so implicit_figures produces
+    one correctly-captioned figure. Otherwise the alt text is cleared so
+    implicit_figures does not trigger — no numbering, no caption, matching
+    DOCX/ODT's "no Figure paragraph -> no caption" behaviour — but the image
+    is still wrapped in a plain (uncaptioned) `figure` environment rather
+    than left as an ordinary inline \\includegraphics: without SOME float
+    environment, a large image that doesn't fit the remaining space on a
+    page still can't split, so it just pushes everything after it onto the
+    next page, leaving the current page short — exactly the kind of gap
+    \\raggedbottom (see the templates) accepts for text but an image doesn't
+    need to cause, since a float can instead move up to fill that space with
+    a nearby smaller block of text, or move itself to the top/bottom of the
+    best-fitting page. A caption-less `figure` gets no number and no ToF
+    entry — \\caption{} is what creates both — so this is purely a placement
+    mechanism, invisible in the output except for where the image ends up.
+    Returns (text, has_figures) — has_figures is True when at least one
+    image got a real caption, so the caller can skip \\listoffigures (tof)
+    the same way DOCX/ODT skip an empty Table of Figures when there's
+    nothing to list.
+    """
+    found_caption = [False]
+    def repl(m):
+        prefix, rest, maybe_next = m.group(1), m.group(2), m.group(3)
+        if maybe_next and looks_like_caption(maybe_next):
+            found_caption[0] = True
+            desc = ' '.join(strip_figure_prefix(maybe_next).split())
+            desc = desc.replace(']', '\\]')
+            return f'{prefix}{desc}{rest}\n'
+        img = (f'```{{=latex}}\n\\begin{{figure}}\n\\centering\n```\n'
+               f'{prefix}{rest}\n```{{=latex}}\n\\end{{figure}}\n```\n')
+        if maybe_next:
+            return f'{img}\n{maybe_next}'
+        return img
+    text = _LATEX_SOLO_IMAGE_RE.sub(repl, text)
+    return text, found_caption[0]
+
+
 _CITEKEY_TOKEN_RE = re.compile(r'(?<![\w@.])-?@([A-Za-z][\w:.#$%&+?<>~/-]*)')
 
 
@@ -2072,23 +2221,27 @@ def _parse_yaml_metadata(text, stem):
     m = re.search(r'^date:[^\S\n]*["\']?([^"\'\n]+)', text, re.M)
     date_val = m.group(1).strip() if m else None
 
-    m = re.search(r'^abstract:[^\S\n]*(?:["\']([^"\']+)["\']|(\S.*?))(?:\s*#.*)?$',
-                  text, re.M)
-    if m and (m.group(1) or m.group(2)):
-        raw = (m.group(1) or m.group(2)).strip()
-        abstract = _yaml_block(text, m.end(), raw) if re.match(r'^[|>]', raw) else raw
-    else:
-        abstract = None
-
+    # abstract and note:/sw-* extra sections are extracted in ONE
+    # position-ordered pass (re.finditer yields matches in source order) so
+    # extra_sections preserves the note's own YAML order — a 'note:'
+    # property between two sw-* properties stays between them, rather than
+    # abstract always being forced first regardless of where it actually
+    # appears. abstract is also kept as its own field below (unchanged
+    # value, just no longer separately-positioned) since some callers want
+    # it standalone.
+    abstract = None
     extra_sections = []
     for m in re.finditer(
-            r'^(note|sw-[\w-]+):[^\S\n]*(?:["\']([^"\']+)["\']|(\S[^\n]*?))(?:\s*#[^\n]*)?\s*$',
+            r'^(abstract|note|sw-[\w-]+):[^\S\n]*(?:["\']([^"\']+)["\']|(\S[^\n]*?))(?:\s*#[^\n]*)?\s*$',
             text, re.M):
         key = m.group(1)
         raw = (m.group(2) or m.group(3) or '').strip()
         val = _yaml_block(text, m.end(), raw) if re.match(r'^[|>]', raw) else raw
-        if val:
-            extra_sections.append([key, val])
+        if not val:
+            continue
+        if key == 'abstract':
+            abstract = val
+        extra_sections.append([key, val])
 
     # Shorttitle: explicit 'shorttitle' prop → title before ':' → stem.
     # Markdown markers are preserved here; merge scripts strip them for plain
@@ -2242,20 +2395,8 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
     for f in filters:
         filter_args += ['--lua-filter', f]
 
-    # ── Template path lookup (identical candidate chain for both formats) ──────
-    candidates = []
-    if template_dir:
-        candidates.append(os.path.join(template_dir, f'{tpl}{ext}'))
-    candidates.append(plugin_template_path(f'{tpl}{ext}'))
-    if template_dir:
-        candidates.append(os.path.join(template_dir, f'document{ext}'))
-    candidates.append(plugin_template_path(f'document{ext}'))
-    template_path = next((c for c in candidates if os.path.exists(c)), candidates[-1])
-    if not os.path.exists(template_path):
-        print(f"WARNING: no template found for '{tpl}' (and no document{ext} fallback). "
-              f"Tried: {candidates}")
-    elif not template_path.endswith(f'{tpl}{ext}'):
-        print(f"WARNING: template '{tpl}{ext}' not found; using {template_path} as fallback.")
+    # ── Template path lookup (identical candidate chain for every format) ──────
+    template_path = _resolve_template_path(tpl, ext, template_dir)
 
     # ── CSL style resolution (see _resolve_export_csl_style for priority).
     # `_csl_is_override` marks a deliberate choice (dialog checkbox or the
@@ -2558,6 +2699,456 @@ def export_odt(compiled_md, vault_root=None, template=None, toc=False,
                            output_name=output_name)
 
 
+def _latex_notes_parts(abstract, extra_sections):
+    """Abstract (if present) followed by each note:/sw-* extra section, as a
+    flat list of markdown/raw-LaTeX string fragments ready to join into the
+    title page/block. This is the SAME format-agnostic ordering/labeling
+    logic DOCX and ODT use for their own title blocks — resolve_note_sections
+    (abstract-first ordering) and append_extra_sections (title_case labels +
+    split_paragraphs body chunks) both live in sw_merge_helpers.py and are
+    shared unchanged; only the make_heading/make_body callbacks below are
+    LaTeX-specific (DOCX/ODT supply their own, building XML elements instead
+    of markdown strings).
+
+    Every fragment (heading or paragraph) carries a LEADING \\medskip: pandoc's
+    default LaTeX template loads the `parskip` package unconditionally, which
+    removes first-line paragraph indentation in favor of vertical space
+    between paragraphs — but that vertical space is barely visible at the
+    small font size used on the title page, reading as one run-on paragraph
+    even when it's several. \\medskip gives a clearly visible gap before
+    every heading and every paragraph, regardless of font size/context.
+    """
+    parts = []
+    append_extra_sections(
+        parts, resolve_note_sections(abstract, extra_sections),
+        make_heading=lambda label: f'```{{=latex}}\n\\medskip\n```\n**{label}**\n\n',
+        make_body=lambda chunk: f'```{{=latex}}\n\\medskip\n```\n{chunk}\n\n',
+    )
+    return parts
+
+
+def _latex_titlepage_block(title, subtitle, author, date_val, abstract, extra_sections):
+    """A standalone title page, as markdown+raw-LaTeX body content: raw
+    \\begin{titlepage}/size commands wrapping ordinary markdown paragraphs
+    (title/subtitle/author/date/abstract each still go through pandoc's
+    normal markdown->LaTeX rendering, so e.g. *italics* in a title works).
+
+    Needed because pandoc's own \\maketitle only lands on its own page
+    automatically for the book/report classes — not article — so this same
+    construction is used for all three doc types instead of relying on
+    per-class native behaviour. Same information as the DOCX/ODT title
+    block's Title/Subtitle/Author/Date/Abstract + note:/sw-* slots.
+
+    \\swTitleLogo is a template-defined hook (empty by default — see
+    book.tex) a user can redefine to \\includegraphics a logo above the
+    title, without touching this function.
+    """
+    parts = ['```{=latex}\n\\begin{titlepage}\n\\thispagestyle{empty}\n'
+             '\\centering\n\\swTitleLogo\n\\vspace*{3cm}\n\\LARGE\n```\n']
+    parts.append(f'{title}\n\n' if title else '\n')
+    if subtitle:
+        parts.append('```{=latex}\n\\large\n```\n')
+        parts.append(f'{subtitle}\n\n')
+    parts.append('```{=latex}\n\\vspace{2cm}\n\\normalsize\n```\n')
+    if author:
+        parts.append(f'{author}\n\n')
+    if date_val:
+        parts.append(f'{date_val}\n\n')
+    notes_parts = _latex_notes_parts(abstract, extra_sections)
+    if notes_parts:
+        parts.append('```{=latex}\n\\vspace{1.5cm}\n'
+                     '\\begin{minipage}{0.8\\textwidth}\\small\n```\n')
+        parts.extend(notes_parts)
+        parts.append('```{=latex}\n\\end{minipage}\n```\n')
+    parts.append('```{=latex}\n\\end{titlepage}\n```\n\n')
+    return ''.join(parts)
+
+
+def _latex_title_block(title, subtitle, author, date_val, abstract, extra_sections):
+    """A title BLOCK (not a page), as markdown+raw-LaTeX body content:
+    title/subtitle/author/date centered at the top of page 1, immediately
+    followed by the abstract/note:/sw-* sections (if any) and body content
+    on the SAME page — no page break. Matches document.docx/document.odt
+    and article.docx/article.odt, whose title/subtitle/author/date are
+    ordinary paragraphs, not a dedicated cover page (only book.docx/book.odt
+    gets a real cover page — see _latex_titlepage_block above).
+
+    \\swTitleLogo is a template-defined hook (empty by default — see
+    document.tex) a user can redefine to \\includegraphics a logo above the
+    title, without touching this function.
+    """
+    parts = ['```{=latex}\n\\thispagestyle{plain}\n\\begin{center}\n'
+             '\\swTitleLogo\n{\\huge\\bfseries\n```\n']
+    parts.append(f'{title}\n\n' if title else '\n')
+    parts.append('```{=latex}\n}\n```\n')
+    if subtitle:
+        parts.append('```{=latex}\n{\\Large\n```\n')
+        parts.append(f'{subtitle}\n\n')
+        parts.append('```{=latex}\n}\n```\n')
+    if author:
+        parts.append(f'{author}\n\n')
+    if date_val:
+        parts.append(f'{date_val}\n\n')
+    parts.append('```{=latex}\n\\end{center}\n\\vspace{1em}\n```\n\n')
+    notes_parts = _latex_notes_parts(abstract, extra_sections)
+    if notes_parts:
+        parts.append('```{=latex}\n\\begin{quotation}\\noindent\n```\n')
+        parts.extend(notes_parts)
+        parts.append('```{=latex}\n\\end{quotation}\n```\n')
+    return ''.join(parts)
+
+
+def export_latex(compiled_md, vault_root=None, template=None, toc=False,
+                 tof=False, template_dir=None, output_dir=None,
+                 default_author=None, new_page_headings=True,
+                 restart_footnotes=True, mappings_data=None, generate_date=True,
+                 roman_frontmatter=False, page1_starts_with='',
+                 csl_style_override=None, csl_from_template=False,
+                 output_name=None, as_pdf=False):
+    """Export compiled markdown to LaTeX (.tex), or — when as_pdf — straight
+    to PDF via pandoc's own --pdf-engine=xelatex. No LibreOffice, no
+    intermediate file: pandoc goes from markdown to PDF in one call.
+
+    Unlike export_document (DOCX/ODT), there is no merge step: LaTeX's own
+    engine computes TOC/figure/footnote numbering and pagination natively
+    (a book-class \\chapter always starts a new page and always resets to the
+    `plain` page style for its own first page — the "no header on a chapter
+    opener" rule falls out of that for free), so none of sw_merge_helpers'
+    DOCX/ODT XML machinery applies here. Citations are always static
+    (pandoc's own --citeproc) — LaTeX has no live-field concept, matching the
+    PDF-via-DOCX/ODT path. Custom style mappings (arbitrary callout -> named
+    style) have no LaTeX equivalent and are not applied here.
+
+    tof (Table of Figures) and new_page_headings (page break before each
+    top-level heading) both apply here too — via \\listoffigures and a
+    template-side \\newpage token respectively — matching DOCX/ODT, though
+    book's top-level heading (\\chapter) always starts a new page regardless
+    of new_page_headings, same as DOCX/ODT's own book template.
+    restart_footnotes drives section-scoped FIGURE numbering for
+    document/article via a template-side token (article-class has no native
+    equivalent to fall back on). Footnotes are deliberately NOT tied to this
+    flag: book.cls already resets them to plain numbers at every \\chapter,
+    and article-class footnotes are naturally continuous — both exactly the
+    desired behaviour with zero custom code, so reimplementing either would
+    just be redundant (DOCX/ODT need their own restart logic because
+    Word/LibreOffice have no native equivalent at all; LaTeX does).
+    """
+    import subprocess
+    import shutil as _sh
+    import tempfile as _tempfile
+    compiled_md  = Path(compiled_md)
+    vault_root   = vault_root or vault_rel()
+    template_dir = resolve_template_dir(template_dir, vault_root)
+
+    text = compiled_md.read_text(encoding='utf-8')
+    meta = _parse_yaml_metadata(text, compiled_md.stem)
+
+    tpl = template if template is not None else meta['tpl']
+    tpl = re.sub(r'\.(docx|odt|tex)$', '', tpl, flags=re.IGNORECASE)
+    if tpl.startswith('compile-'):
+        tpl = tpl[len('compile-'):]
+    is_book = tpl.startswith('book')
+
+    doc_title, doc_subtitle, doc_author, doc_date = resolve_cover(
+        meta['title'], meta['subtitle'], meta['author'] or default_author,
+        meta['date_val'], compiled_md.stem, generate_date=generate_date)
+    doc_abstract   = meta['abstract']
+    extra_sections = meta['extra_sections']
+    short_title    = meta['short_title'] or doc_title
+
+    out_dir = Path(output_dir).expanduser() if output_dir else compiled_md.parent
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_ext  = '.pdf' if as_pdf else '.tex'
+    out_stem = _resolve_output_stem(output_name, compiled_md.stem)
+    out_path = out_dir / f"{out_stem}{out_ext}"
+
+    template_path = _resolve_template_path(tpl, '.tex', template_dir)
+
+    # ── Citation conversion + markdown pre-processing (shared with DOCX/ODT) ──
+    citations_md = compiled_md.with_suffix('.citations.md')
+    conv_script  = plugin_script_path('convert-citations.mjs')
+    node_bin     = os.environ.get('SW_NODE', 'node')
+    subprocess.run([node_bin, conv_script, str(compiled_md), str(citations_md)],
+                   check=True)
+
+    cit_text = citations_md.read_text(encoding='utf-8')
+    cit_text = ensure_blank_before_headings(cit_text)
+    cit_text = rewrite_poetry_callouts(cit_text)
+    cit_text = preprocess_md_syntax(cit_text)
+    cit_text = resolve_embed_links(cit_text)
+    cit_text, has_figures = latex_process_images(cit_text)
+    cit_text = strip_wikilinks(cit_text)
+    cit_text = linkify_bare_urls(cit_text)
+
+    # Strip the note's own YAML frontmatter — pandoc reads title/author/date
+    # from IT directly (independent of any --metadata CLI flag, and even an
+    # empty --metadata override doesn't unset a $if(title)$ check), which
+    # would trigger pandoc's own \maketitle. Everything in it we still need
+    # (title/subtitle/author/date/abstract) is already in the Python
+    # variables above (via _parse_yaml_metadata + resolve_cover).
+    # Must happen BEFORE the book frontmatter injection below: extract_yaml
+    # only matches a "---" block at the very start of the text, and the
+    # \frontmatter raw block would otherwise get prepended first, pushing the
+    # YAML out of position-0 and silently defeating the strip (only visible
+    # for book, since article/document never prepend anything here).
+    _, cit_text = extract_yaml(cit_text)
+
+    # ── CSL style resolution (same priority chain as the static/PDF path) ──────
+    zmeta = _parse_zotero_meta(text)
+    csl_style, _csl_is_override = _resolve_export_csl_style(
+        text, template_path, 'latex',
+        override=csl_style_override, from_template=csl_from_template)
+    citekeys  = _extract_citekeys(cit_text)
+    csl_items = _fetch_zotero_csl_items(citekeys, csl_style, zmeta['client'], zmeta['library'])
+    csl_path  = _fetch_csl_style_file(csl_style, zmeta['client'])
+
+    # A note's own pre-existing 'Bibliography' heading (e.g. hand-typed
+    # references predating ScholarWeave's citation system) duplicates
+    # pandoc's own --citeproc-rendered one once real bibliography entries are
+    # actually resolved (DocumentCompiler.py passes --metadata
+    # reference-section-title=Bibliography below) — strip it from the source
+    # before pandoc ever sees it, mirroring DOCX/ODT's own
+    # duplicate-bibliography handling (sw_export_merge.py /
+    # sw_export_odt_merge.py, via the shared strip_duplicate_bibliographies).
+    # Gated on csl_items (the actually-fetched entries), not just citekeys:
+    # citekeys is a raw text scan for "@key" patterns and stays non-empty even
+    # when Zotero isn't running / a key doesn't resolve, in which case pandoc
+    # renders no bibliography of its own — the note's hand-typed one is the
+    # only content there is, and stripping it would silently delete it.
+    if csl_items:
+        cit_text = strip_bibliography_heading_from_markdown(cit_text)
+
+    # ── Book only: roman-numeral frontmatter -> \mainmatter, inserted at the
+    # reset heading DOCX/ODT use too (find_page_reset_index, shared) — a raw
+    # LaTeX block in the compiled markdown, since it must sit in the BODY,
+    # not the preamble (it fires mid-document, at whichever heading resets
+    # to arabic numbering).
+    if is_book and roman_frontmatter:
+        h1_positions = [m.start() for m in re.finditer(r'^# .+$', cit_text, re.M)]
+        h1_texts = [cit_text[p:cit_text.find('\n', p)].lstrip('# ').strip()
+                   for p in h1_positions]
+        reset_idx = find_page_reset_index(h1_texts, page1_starts_with)
+        if reset_idx is not None:
+            cut = h1_positions[reset_idx]
+            cit_text = (cit_text[:cut]
+                       + '```{=latex}\n\\mainmatter\n```\n\n'
+                       + cit_text[cut:])
+
+    # ── Front matter, in reading order: title page/block first, then (book
+    # only, roman_frontmatter) \frontmatter switching to roman page numbers,
+    # then the table of contents. All built as body content (raw LaTeX
+    # wrapping ordinary markdown paragraphs, so title/subtitle/etc. still go
+    # through pandoc's normal markdown->LaTeX rendering) and placed manually
+    # here rather than via pandoc's own --toc, which would render the TOC
+    # BEFORE $body$ entirely — i.e. before the title page/block itself,
+    # since pandoc's template always emits TOC ahead of body content.
+    # Manual placement also means the TOC sits under the same \frontmatter
+    # roman-numbering as the title page, with no separate
+    # --include-before-body plumbing needed.
+    #
+    # "document"/"article" get a title block flowing directly into the body
+    # (matching their DOCX/ODT analogs, which have no section break there);
+    # "book" gets a dedicated title page (matching book.docx/.odt's own
+    # section-break-separated cover). Either way we deliberately do NOT pass
+    # title/subtitle/author/date as pandoc metadata — that would trigger a
+    # redundant \maketitle, which only gets its own page automatically for
+    # book/report anyway, not article.
+    title_block_fn = _latex_titlepage_block if is_book else _latex_title_block
+    front_matter = title_block_fn(
+        doc_title, doc_subtitle, doc_author, doc_date, doc_abstract, extra_sections)
+    if is_book and roman_frontmatter:
+        front_matter += '```{=latex}\n\\frontmatter\n```\n\n'
+    if toc:
+        front_matter += ('```{=latex}\n{\\setcounter{tocdepth}{3}\n'
+                         '\\tableofcontents\n}\n```\n\n')
+    # Matches DOCX/ODT: only render a Table of Figures when the "Include
+    # table of figures" checkbox is on AND the document actually contains at
+    # least one captioned figure — otherwise \listoffigures would print an
+    # empty, heading-only section.
+    if tof and has_figures:
+        front_matter += '```{=latex}\n\\listoffigures\n```\n\n'
+    cit_text = front_matter + cit_text
+
+    citations_md.write_text(cit_text, encoding='utf-8')
+
+    # ── Lua filters: Notes-section suppression, poetry -> verse. No
+    # sw-doc-title.lua — its "fall back to source-note" title logic would set
+    # meta.title from --metadata source-note=..., re-triggering pandoc's own
+    # \maketitle (which we deliberately avoid — see the title-page block
+    # below); resolve_cover already gives the same basename fallback. No
+    # sw-zotero.lua (always static) and no style-mappings filter (no LaTeX
+    # equivalent for a named custom style).
+    filters = [
+        plugin_script_path('sw-export.lua'),
+        plugin_script_path('sw-poetry.lua'),
+    ]
+    filters += find_user_lua_filters(template_dir)
+    filter_args = []
+    for f in filters:
+        filter_args += ['--lua-filter', f]
+
+    tmp_dir = Path(_tempfile.mkdtemp())
+    try:
+        biblio_path = tmp_dir / 'bibliography.json'
+        biblio_path.write_text(json.dumps(csl_items, ensure_ascii=False), encoding='utf-8')
+
+        # ── Preamble include: the resolved .tex template, with its
+        # SWTOKAUTHOR / SWTOKSHORTTITLE placeholders substituted for the real
+        # (LaTeX-escaped) values — NOT pandoc $variable$ syntax, which raw
+        # --include-in-header content would have LaTeX read as inline math.
+        preamble_src = (Path(template_path).read_text(encoding='utf-8')
+                        if os.path.exists(template_path) else '')
+
+        # Extra \documentclass options, read from a marker COMMENT line in
+        # the template (e.g. "% SWEXTRACLASSOPTIONS: twocolumn") — a plain
+        # --include-in-header preamble can't change \documentclass's own
+        # options (twoside is fixed, needed by the running-header
+        # convention), since that line has already executed by the time
+        # this file's content runs. This is the one documentclass-level knob
+        # exposed to the template anyway, for things like twocolumn/12pt
+        # that only take effect as class options, not as later \usepackage
+        # settings.
+        extra_classoptions = []
+        m = re.search(r'^%[ \t]*SWEXTRACLASSOPTIONS:[ \t]*(.*)$', preamble_src, re.M)
+        if m:
+            extra_classoptions = [o.strip() for o in m.group(1).split(',') if o.strip()]
+
+        # "Restart footnote and figure numbering per chapter" (restart_footnotes)
+        # only affects FIGURE numbering here, and only for document/article —
+        # footnotes are deliberately left to each class's own native behaviour
+        # instead of being reimplemented: book.cls already resets footnotes to
+        # plain "1, 2, 3..." at every \chapter and gives figures a "chapter.N"
+        # \thefigure, both unconditionally and with zero custom code (confirmed
+        # empirically — a bare \documentclass{book} already does both); article-
+        # class footnotes are naturally continuous, which IS the desired
+        # "non-book top-level sections don't restart" behaviour, so there's
+        # nothing to add there either. The one gap LaTeX doesn't fill natively:
+        # article-class has no per-section figure numbering, so
+        # SWTOKFIGURECOUNTER supplies \counterwithin{figure}{section} for
+        # document/article when the checkbox is on (see document.tex's own
+        # list of tokens; book.tex doesn't have this token at all).
+        #
+        # "Top-level headings start on a new page" (new_page_headings) has no
+        # native equivalent for document/article either, hence
+        # SWTOKNEWPAGEHEADING there (book's \chapter always starts a new page
+        # regardless, so book.tex has no such token).
+        #
+        # Single-line substitution values, deliberately: both tokens are also
+        # named (as literal text) in each template's own top-of-file
+        # documentation comment, so the blind string-replace below touches
+        # that mention too — a value with an embedded newline would leave
+        # everything after the break un-commented (missing its own leading
+        # "%"), which is exactly what "! LaTeX Error: Missing \begin{document}"
+        # turned out to mean the first time this was tried with a multi-line
+        # value. A single-line value can never split a comment line in two,
+        # whatever line it lands on.
+        figure_counter_latex = (
+            '\\counterwithin{figure}{section}' if restart_footnotes else ''
+        )
+        newpage_latex = '\\newpage' if new_page_headings else ''
+
+        preamble_src = (preamble_src
+                        .replace('SWTOKAUTHOR', _latex_escape(doc_author or ''))
+                        .replace('SWTOKSHORTTITLE', _latex_escape(short_title or ''))
+                        .replace('SWTOKTITLE', _latex_escape(doc_title or ''))
+                        .replace('SWTOKFIGURECOUNTER', figure_counter_latex)
+                        .replace('SWTOKNEWPAGEHEADING', newpage_latex))
+        preamble_path = tmp_dir / 'preamble.tex'
+        preamble_path.write_text(preamble_src, encoding='utf-8')
+
+        engine = find_latex_engine()
+        if as_pdf and not engine:
+            raise RuntimeError(
+                'PDF export via LaTeX needs xelatex installed (part of any '
+                'TeX distribution: MacTeX/BasicTeX on macOS, MiKTeX on '
+                'Windows, TeX Live on Linux). Install one, or export to '
+                'DOCX/ODT and convert to PDF via LibreOffice instead.')
+
+        cmd = [os.environ.get('SW_PANDOC', 'pandoc'), str(citations_md),
+               '-t', 'latex',
+               '-f', 'markdown+wikilinks_title_after_pipe'
+                     '+lists_without_preceding_blankline+raw_attribute',
+               *filter_args,
+               '--citeproc', '--bibliography', str(biblio_path),
+               '--metadata', 'reference-section-title=Bibliography',
+               '--include-in-header', str(preamble_path),
+               '--metadata', f'documentclass={"book" if is_book else "article"}',
+               '--metadata', 'classoption=twoside',
+               # numbersections=true keeps pandoc from setting secnumdepth to
+               # -\maxdimen (its default when this is unset) — headings still
+               # show NO visible number (titlesec's \titleformat calls below
+               # use an empty label) and the TOC still shows no number
+               # (titletoc's \titlecontents calls do the same for TOC
+               # entries), but critically the underlying \thechapter/
+               # \thesection counter now actually increments: at
+               # secnumdepth -\maxdimen it never does (confirmed empirically
+               # — \thechapter reads 0 after every single \chapter), which
+               # silently broke \counterwithin{figure/footnote}{chapter} —
+               # every chapter's figures numbered "Figure 0.1", and footnotes
+               # never reset at all, regardless of restart_footnotes.
+               '--metadata', 'numbersections=true',
+               *[a for opt in extra_classoptions
+                 for a in ('--metadata', f'classoption={opt}')],
+               # Font, page size/margins, and link color are NOT set here —
+               # each template sets its own via \setmainfont/geometry/
+               # \definecolor{swlinkcolor}(...) directly, so a user can copy
+               # a template and edit those values without touching Python.
+               # colorlinks/linkcolor/citecolor/urlcolor below just wire
+               # pandoc's own hypersetup call (which runs AFTER our
+               # --include-in-header content, so it can already see
+               # swlinkcolor) to the template-defined color name.
+               '--metadata', 'colorlinks=true',
+               '--metadata', 'linkcolor=swlinkcolor',
+               '--metadata', 'citecolor=swlinkcolor',
+               '--metadata', 'urlcolor=swlinkcolor',
+               '--metadata', f'source-note={compiled_md.stem}']
+        if is_book:
+            # Force \chapter for level-1 headings explicitly, rather than
+            # relying on pandoc's own book/report-class detection: that
+            # detection only fires when documentclass is set as a template
+            # VARIABLE (-V) rather than metadata (-M, used above so the value
+            # still reaches $documentclass$ in --include-in-header's
+            # surrounding template) — and it is bundled together with an
+            # auto-inserted \frontmatter/\mainmatter/\backmatter (pandoc's
+            # own $if(has-frontmatter)$ blocks) that would duplicate our own
+            # precisely-placed \frontmatter/\mainmatter raw blocks above,
+            # producing extra blank pages and page-numbering churn. Setting
+            # documentclass via -V to only ever get \chapter, without also
+            # getting has-frontmatter's side effect, isn't possible — the two
+            # are keyed off the same internal check — so --top-level-division
+            # is used instead: it selects \chapter independently of that
+            # book-class detection, leaving has-frontmatter false. Confirmed
+            # via isolated pandoc test: -M documentclass=book alone -> \section;
+            # -V documentclass=book -> \chapter + duplicate \frontmatter/etc.;
+            # -M documentclass=book --top-level-division=chapter -> \chapter,
+            # no duplicate \frontmatter/\mainmatter/\backmatter.
+            cmd += ['--top-level-division=chapter']
+        # title/subtitle/author/date are deliberately NOT passed as pandoc
+        # metadata — that would also trigger pandoc's own \maketitle,
+        # duplicating the title page/block we already built into the body
+        # above. The PDF's internal pdftitle/pdfauthor metadata is the one
+        # thing not replicated for LaTeX output as a result (a cosmetic gap,
+        # not a content one) — see document.tex's own note on this.
+        if csl_path:
+            cmd += ['--csl', csl_path]
+        # --toc is deliberately NOT passed: the table of contents is placed
+        # manually in the body above (right after the title page/block)
+        # instead, so it doesn't render before that content the way pandoc's
+        # own --toc always does.
+        if as_pdf:
+            cmd += ['--pdf-engine', engine, '-o', str(out_path)]
+        else:
+            cmd += ['-o', str(out_path)]
+        print('Running pandoc:', ' '.join(cmd))
+        subprocess.run(cmd, check=True)
+    finally:
+        _sh.rmtree(tmp_dir, ignore_errors=True)
+        citations_md.unlink(missing_ok=True)
+
+    print(f'Exported [{tpl}] → {out_path}')
+    print(str(out_path))   # last line — parsed by exportCompiler.ts as the output path
+    return str(out_path)
+
 
 def export_pdf(compiled_md, vault_root=None, template=None, toc=False, tof=False,
                generate_date=True, roman_frontmatter=False, page1_starts_with='',
@@ -2566,18 +3157,20 @@ def export_pdf(compiled_md, vault_root=None, template=None, toc=False, tof=False
                intermediate_format=None, keep_intermediate=False,
                mappings_data=None, csl_style_override=None,
                csl_from_template=False, output_name=None):
-    """Export to PDF via an intermediate ODT or DOCX file.
+    """Export to PDF via an intermediate ODT, DOCX, or LaTeX file.
 
     The intermediate format is auto-determined from the template: ODT is
-    preferred when an ODT template file exists, otherwise DOCX is used.
-    Pass intermediate_format='docx' or 'odt' to override.
+    preferred when an ODT template file exists, then DOCX, then LaTeX (a
+    bare template name with only a .tex file falls back to it; an explicit
+    "book.tex" always means LaTeX). Pass intermediate_format='docx' / 'odt' /
+    'latex' to override.
 
-    Uses LibreOffice headless for the DOCX/ODT -> PDF conversion. A pandoc
-    (LaTeX/weasyprint) fallback was removed deliberately: it needs a large
-    separate PDF engine, has unicode/font issues, and produces output that
-    looks nothing like the word-processor rendering. If LibreOffice is not
-    installed, PDF export raises with a clear message. (A future non-DOCX/ODT
-    export route — e.g. HTML+CSS -> PDF — could revisit pandoc then.)
+    ODT/DOCX use LibreOffice headless for the -> PDF conversion (no
+    fallback: needs a large separate PDF engine, has unicode/font issues,
+    and produces output unlike the word-processor rendering — see
+    export_document's docstring). LaTeX instead uses pandoc's own
+    --pdf-engine=xelatex, straight from markdown to PDF — no LibreOffice,
+    no intermediate file needed at all (see export_latex).
     """
     import tempfile, shutil as _sh
     compiled_md = Path(compiled_md)
@@ -2590,24 +3183,53 @@ def export_pdf(compiled_md, vault_root=None, template=None, toc=False, tof=False
         text = compiled_md.read_text(encoding='utf-8')
         meta = _parse_yaml_metadata(text, compiled_md.stem)
         raw_tpl = template if template is not None else meta['tpl']
-        ext_m = re.search(r'\.(docx|odt)$', raw_tpl or '', flags=re.IGNORECASE)
+        ext_m = re.search(r'\.(docx|odt|tex)$', raw_tpl or '', flags=re.IGNORECASE)
         if ext_m:
             # The export dialog passes a specific template ("book.docx" vs
-            # "book.odt") — that choice IS the intended intermediate format.
+            # "book.odt" vs "book.tex") — that choice IS the intended
+            # intermediate format.
             intermediate_format = ext_m.group(1).lower()
+            if intermediate_format == 'tex':
+                intermediate_format = 'latex'
         else:
-            # Bare name (from frontmatter): prefer ODT when a matching ODT
-            # template exists, else DOCX.
+            # Bare name (from frontmatter): prefer ODT, then DOCX, then
+            # LaTeX (only when neither of the word-processor formats has a
+            # matching template — keeps existing behaviour unchanged for
+            # every template that predates LaTeX support).
             tpl = raw_tpl
             template_dir_r = resolve_template_dir(template_dir, vault_root)
-            odt_candidates = []
-            if template_dir_r:
-                odt_candidates.append(os.path.join(template_dir_r, f'{tpl}.odt'))
-            odt_candidates.append(plugin_template_path(f'{tpl}.odt'))
-            intermediate_format = ('odt'
-                                   if any(os.path.exists(c) for c in odt_candidates)
-                                   else 'docx')
+            def _has(ext):
+                cands = []
+                if template_dir_r:
+                    cands.append(os.path.join(template_dir_r, f'{tpl}{ext}'))
+                cands.append(plugin_template_path(f'{tpl}{ext}'))
+                return any(os.path.exists(c) for c in cands)
+            intermediate_format = ('odt' if _has('.odt')
+                                  else 'docx' if _has('.docx')
+                                  else 'latex' if _has('.tex')
+                                  else 'docx')
         print(f'PDF intermediate format auto-determined: {intermediate_format}')
+
+    if intermediate_format == 'latex':
+        # pandoc goes straight from markdown to PDF — no intermediate file,
+        # no LibreOffice. keep_intermediate additionally asks for the .tex
+        # pandoc would have produced along the way, via one extra (cheap,
+        # no xelatex) pandoc call.
+        latex_kwargs = dict(
+            vault_root=vault_root, template=template, toc=toc,
+            template_dir=template_dir, output_dir=str(out_dir),
+            restart_footnotes=restart_footnotes,
+            mappings_data=mappings_data, generate_date=generate_date,
+            roman_frontmatter=roman_frontmatter, page1_starts_with=page1_starts_with,
+            csl_style_override=csl_style_override,
+            csl_from_template=csl_from_template, output_name=output_name)
+        if keep_intermediate:
+            tex_path = export_latex(compiled_md, as_pdf=False, **latex_kwargs)
+            print(f'Intermediate LaTeX kept at: {tex_path}')
+        out_pdf = export_latex(compiled_md, as_pdf=True, **latex_kwargs)
+        print(f'\nExported PDF written to {out_pdf}')
+        print(str(out_pdf))
+        return str(out_pdf)
 
     # Export to the intermediate format in a temp directory.
     tmp_dir = Path(tempfile.mkdtemp())
@@ -2679,10 +3301,10 @@ def main():
     parser.add_argument('--export', action='store_true',
                        help='Also export to docx/odt via pandoc (see --format)')
     parser.add_argument('--format', dest='export_format', default='docx',
-                       choices=['docx', 'odt', 'pdf'],
-                       help='Export format when --export is set: docx (default), odt, or pdf')
+                       choices=['docx', 'odt', 'latex', 'pdf'],
+                       help='Export format when --export is set: docx (default), odt, latex, or pdf')
     parser.add_argument('--keep-intermediate', action='store_true',
-                       help='Keep the intermediate docx/odt when exporting to PDF')
+                       help='Keep the intermediate docx/odt/tex when exporting to PDF')
     parser.add_argument('--keep-compiled-md', action='store_true',
                        dest='keep_compiled_md',
                        help='Keep the compiled markdown file after a docx/odt/pdf '
@@ -2822,6 +3444,8 @@ def main():
             export_pdf(compiled, keep_intermediate=args.keep_intermediate, **_common)
         elif args.export_format == 'odt':
             export_odt(compiled, **_common)
+        elif args.export_format == 'latex':
+            export_latex(compiled, default_author=args.default_author, **_common)
         else:
             export_docx(compiled, default_author=args.default_author, **_common)
 

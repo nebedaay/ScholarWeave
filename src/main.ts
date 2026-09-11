@@ -2,6 +2,7 @@ import { Prec } from '@codemirror/state';
 import {
   Editor,
   Events,
+  MarkdownFileInfo,
   MarkdownView,
   Menu,
   Modal,
@@ -319,7 +320,7 @@ export default class ReferenceList extends Plugin {
     this.addCommand({
       id: 'insert-bibliography',
       name: t('Insert bibliography at cursor'),
-      editorCallback: (editor: Editor, view: MarkdownView) => {
+      editorCallback: (editor: Editor, view: MarkdownView | MarkdownFileInfo) => {
         if (!view.file) return;
         const cache = this.bibManager.fileCache.get(view.file);
         if (!cache?.bib) return;

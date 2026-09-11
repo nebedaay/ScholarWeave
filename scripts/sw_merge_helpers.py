@@ -469,6 +469,134 @@ def find_bibliography_range(elements, heading_text_fn, is_bibl_entry_fn):
             return i, i + 1, j
     return None, None, None
 
+
+def find_all_bibliography_ranges(elements, heading_text_fn, is_bibl_entry_fn):
+    """Like find_bibliography_range, but returns every match in document order
+    instead of stopping at the first.
+
+    A source note can carry its own pre-existing 'Bibliography' heading (e.g.
+    hand-typed references predating ScholarWeave's citation system) in
+    addition to pandoc's own auto-generated one — see
+    strip_duplicate_bibliographies, which uses this to tell the two apart.
+
+    Returns a list of (heading_idx, entry_start, entry_end) tuples.
+    """
+    ranges = []
+    i = 0
+    n = len(elements)
+    while i < n:
+        text = heading_text_fn(elements[i])
+        if text is not None and 'bibliography' in text.lower():
+            j = i + 1
+            while j < n and is_bibl_entry_fn(elements[j]):
+                j += 1
+            ranges.append((i, i + 1, j))
+            i = j
+        else:
+            i += 1
+    return ranges
+
+
+def select_bibliography_matches_to_drop(match_count, keep_last):
+    """Given how many bibliography-like headings were found (in document
+    order), return the set of match indices (0-based, into that match list,
+    NOT into the document) that are duplicates and should be dropped.
+
+    keep_last=False: every match is a duplicate — the caller is about to
+    append one fresh, correct bibliography section of its own (a live
+    "Refresh Zotero" field, or LaTeX's own citeproc output), so nothing
+    pandoc produced needs to survive.
+
+    keep_last=True (static_citations/PDF path): pandoc's own --citeproc
+    already rendered a real, populated bibliography, and it is always the
+    LAST bibliography-heading match in the document — there is no live field
+    to refresh it with, so that one match is left alone. Any earlier match is
+    a stale duplicate from the source note's own content and is still
+    dropped.
+    """
+    if match_count == 0:
+        return set()
+    if keep_last:
+        return set(range(match_count - 1))
+    return set(range(match_count))
+
+
+def strip_duplicate_bibliographies(elements, heading_text_fn, is_bibl_entry_fn,
+                                    keep_last=False):
+    """Remove bibliography-like heading+entries section(s) from a flat list of
+    pandoc body elements, keeping at most one (see
+    select_bibliography_matches_to_drop for the keep_last semantics).
+
+    Returns (cleaned_elements, has_fresh_bibliography) where
+    has_fresh_bibliography is True iff the caller should append its own fresh
+    bibliography section afterward (i.e. every match was a duplicate to be
+    replaced) — always False when keep_last is True, since in that mode the
+    one surviving match already IS the real bibliography content.
+    """
+    ranges = find_all_bibliography_ranges(elements, heading_text_fn, is_bibl_entry_fn)
+    drop = select_bibliography_matches_to_drop(len(ranges), keep_last)
+    if not drop:
+        return list(elements), (bool(ranges) and not keep_last)
+    cleaned = list(elements)
+    for k in sorted(drop, reverse=True):
+        h, s, e = ranges[k]
+        del cleaned[h:e]
+    return cleaned, not keep_last
+
+
+def strip_bibliography_heading_from_markdown(text, level=1):
+    """Remove a pre-existing top-level 'Bibliography' heading section (and
+    everything under it, until the next heading of the same or shallower
+    depth) from compiled markdown, before it reaches pandoc.
+
+    LaTeX export hands compiled markdown straight to pandoc in one step
+    (unlike DOCX/ODT's two-step pandoc-then-merge), so pandoc's own
+    --citeproc bibliography is generated fresh, AFTER this function runs, and
+    is never present in `text` to detect or keep — unlike
+    strip_duplicate_bibliographies, there is no keep_last ambiguity: any
+    'Bibliography' heading found here is necessarily a stale duplicate from
+    the source note's own prior content (e.g. hand-typed references predating
+    ScholarWeave's citation system), so it is always removed unconditionally.
+
+    `level` is the Markdown heading depth (number of '#') that DocumentCompiler
+    .py's compiled output uses for a top-level section — 1 for book's chapters
+    and document/article's own top-level headings.
+
+    Footnote DEFINITIONS ('[^id]: ...' and their indented continuation lines)
+    are preserved even when they fall inside the stripped range. They are
+    out-of-band metadata pandoc renders at each reference's own location, not
+    where they're written, and a note commonly collects ALL of them at the
+    very end — exactly where a Bibliography heading with no heading after it
+    would otherwise drag them in wholesale and delete them along with the
+    stale bibliography content (confirmed: a real note's footnote definitions
+    were wiped out this way, breaking every footnote in the document).
+    """
+    marker = '#' * level + ' '
+    heading_re = re.compile(r'^#{1,%d} ' % level)
+    footnote_def_re = re.compile(r'^\[\^[^\]]+\]:')
+    lines = text.split('\n')
+    out = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        line = lines[i]
+        if (line.startswith(marker)
+                and 'bibliography' in line[len(marker):].strip().lower()):
+            i += 1
+            while i < n and not heading_re.match(lines[i]):
+                if footnote_def_re.match(lines[i]):
+                    out.append(lines[i])
+                    i += 1
+                    while i < n and lines[i] and lines[i][0] in (' ', '\t'):
+                        out.append(lines[i])
+                        i += 1
+                else:
+                    i += 1
+            continue
+        out.append(line)
+        i += 1
+    return '\n'.join(out)
+
 # ── figure captions (shared for DOCX and ODT) ────────────────────────────────
 
 #: A caption line begins with the word "Figure" (the vault convention is a
@@ -512,6 +640,22 @@ def parse_chapter_number(text):
     numbers identically for DOCX and ODT."""
     m = re.match(r'^\s*(?:chapter\s+)?(\d+)\b', text or '', re.IGNORECASE)
     return int(m.group(1)) if m else 0
+
+
+def resolve_note_sections(abstract, extra_sections):
+    """The full, ordered (key, value) list for append_extra_sections.
+
+    extra_sections already contains the abstract in its true YAML source
+    position (DocumentCompiler.py's _parse_yaml_metadata extracts abstract
+    and every note:/sw-* property in one position-ordered pass, so 'note'
+    between two sw-* properties stays between them, rather than abstract
+    always being forced first) — this function is now just a passthrough,
+    kept so DOCX, ODT, and LaTeX all still call one shared name instead of
+    each reaching into extra_sections directly. The `abstract` parameter is
+    accepted for call-site compatibility but is no longer used to re-insert
+    a second 'abstract' entry — doing that unconditionally used to be this
+    function's whole job, before ordering moved upstream."""
+    return list(extra_sections or [])
 
 
 def append_extra_sections(out_list, extra_sections, make_heading, make_body):

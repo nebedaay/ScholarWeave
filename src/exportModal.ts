@@ -7,7 +7,7 @@ import {
   resolveZoteroStylePath,
 } from './settings/ZoteroStylePicker';
 
-export type ExportFormat = 'md' | 'docx' | 'odt' | 'pdf';
+export type ExportFormat = 'md' | 'docx' | 'odt' | 'latex' | 'pdf';
 export type DocType = 'book' | 'article' | 'custom';
 
 export interface ExportOptions {
@@ -32,7 +32,7 @@ export interface ExportOptions {
   outputDir: string;
   /** Desired output filename (basename + extension). */
   outputFilename: string;
-  /** PDF only: keep the intermediate docx/odt after conversion. */
+  /** PDF only: keep the intermediate docx/odt/tex after conversion. */
   keepIntermediate: boolean;
   /** Non-md formats only: keep the compiled markdown instead of deleting it
    *  once the export is done. */
@@ -76,19 +76,21 @@ interface FileExportHistory {
  * List template filenames (WITH extension) from a directory that match the
  * given format, or [] on any error.
  *
- * format 'docx' → only .docx files
- * format 'odt'  → only .odt files
- * format 'pdf'  → both (template is for the intermediate docx/odt)
- * format 'md'   → both (unlikely to be used, but show all)
+ * format 'docx'  → only .docx files
+ * format 'odt'   → only .odt files
+ * format 'latex' → only .tex files
+ * format 'pdf'   → all three (template is for the intermediate docx/odt/tex)
+ * format 'md'    → all three (unlikely to be used, but show all)
  */
 function listTemplates(dir: string, format: ExportFormat): string[] {
   try {
     const fs = require('fs') as typeof import('fs');
     if (!fs.existsSync(dir)) return [];
     const exts =
-      format === 'docx' ? ['.docx'] :
-      format === 'odt'  ? ['.odt']  :
-      ['.docx', '.odt']; // pdf, md — show both
+      format === 'docx'  ? ['.docx'] :
+      format === 'odt'   ? ['.odt']  :
+      format === 'latex' ? ['.tex']  :
+      ['.docx', '.odt', '.tex']; // pdf, md — show all
     return (fs.readdirSync(dir) as string[])
       .filter((f) => exts.some((ext) => f.toLowerCase().endsWith(ext)))
       .sort();
@@ -107,9 +109,10 @@ function listTemplates(dir: string, format: ExportFormat): string[] {
  * Format selector comes first so the user knows which format they're targeting
  * before choosing a template.  Template list is filtered to show only files
  * whose extension matches the selected format (.docx for DOCX, .odt for ODT,
- * both for MD).  Template filenames include their extension so the user can
- * tell them apart at a glance.  The template selector is disabled for MD
- * output since that mode compiles to markdown only and uses no template.
+ * .tex for LaTeX, all three for MD/PDF).  Template filenames include their
+ * extension so the user can tell them apart at a glance.  The template
+ * selector is disabled for MD output since that mode compiles to markdown
+ * only and uses no template.
  */
 export class ExportModal extends Modal {
   private plugin: ReferenceList;
@@ -194,10 +197,11 @@ export class ExportModal extends Modal {
     });
     this.formatSelect.style.cssText = 'width:100%;margin-top:4px';
     const formats: { value: ExportFormat; label: string }[] = [
-      { value: 'md',   label: 'Compiled Markdown only (no export)' },
-      { value: 'docx', label: 'Word document (.docx)' },
-      { value: 'odt',  label: 'LibreOffice document (.odt)' },
-      { value: 'pdf',  label: 'PDF (via intermediate ODT or DOCX)' },
+      { value: 'md',    label: 'Compiled Markdown only (no export)' },
+      { value: 'docx',  label: 'Word document (.docx)' },
+      { value: 'odt',   label: 'LibreOffice document (.odt)' },
+      { value: 'latex', label: 'LaTeX (.tex)' },
+      { value: 'pdf',   label: 'PDF (via ODT, DOCX, or LaTeX)' },
     ];
     for (const { value, label } of formats) {
       const opt = this.formatSelect.createEl('option', { text: label });
@@ -212,9 +216,10 @@ export class ExportModal extends Modal {
     this.formatSelect.value = fileHistory?.format ?? lastFmt ?? (fmTpl ? 'docx' : 'md');
 
     this.pdfNote = fmtWrap.createEl('p', {
-      text: 'PDF export requires LibreOffice to be installed. An ODT template '
-        + 'generally produces better results than DOCX for PDF (footnote '
-        + 'numbering, figure references).',
+      text: 'PDF export requires either LibreOffice (for an ODT/DOCX template) '
+        + 'or a LaTeX distribution with xelatex (for a .tex template) to be '
+        + 'installed. An ODT template generally produces better results than '
+        + 'DOCX for PDF (footnote numbering, figure references).',
       cls: 'lc-mapping-modal-note',
     });
     this.pdfNote.style.marginTop = '4px';
@@ -234,7 +239,7 @@ export class ExportModal extends Modal {
     // note's frontmatter template differs from the globally last-used one.
     const lastTpl = fileHistory?.template ??
       (this.plugin.settings as any).lastTemplate ?? '';
-    const lastTplStem = lastTpl.replace(/\.(docx|odt)$/i, '');
+    const lastTplStem = lastTpl.replace(/\.(docx|odt|tex)$/i, '');
     const templateSwitched = !fileHistory && !!fmTpl && fmTpl !== lastTplStem;
     this.buildTemplateDropdown(
       this.formatSelect.value as ExportFormat,
@@ -368,7 +373,7 @@ export class ExportModal extends Modal {
     this.keepIntermediateCb = this.keepIntermediateRow.createEl('input', { type: 'checkbox' });
     this.keepIntermediateCb.id = 'lc-export-keep-inter';
     const keepInterLbl = this.keepIntermediateRow.createEl('label', {
-      text: 'Keep intermediate file (ODT/DOCX)',
+      text: 'Keep intermediate file (ODT/DOCX/LaTeX)',
     });
     keepInterLbl.htmlFor = 'lc-export-keep-inter';
     this.keepIntermediateCb.checked = fileHistory?.keepIntermediate ?? false;
@@ -666,9 +671,9 @@ export class ExportModal extends Modal {
       this.templateSelect.value = val;
       if (this.templateSelect.value === val) return true;
       // Stem match: "book" selects "book.docx".
-      const stem = val.replace(/\.(docx|odt)$/i, '');
+      const stem = val.replace(/\.(docx|odt|tex)$/i, '');
       for (const opt of Array.from(this.templateSelect.options)) {
-        if (opt.value.replace(/\.(docx|odt)$/i, '') === stem) {
+        if (opt.value.replace(/\.(docx|odt|tex)$/i, '') === stem) {
           this.templateSelect.value = opt.value;
           return true;
         }
@@ -686,7 +691,7 @@ export class ExportModal extends Modal {
     const tpl = (cache?.frontmatter as Record<string, unknown> | undefined)
       ?.template;
     // Return the stem (no extension) so callers can do stem matching.
-    return typeof tpl === 'string' ? tpl.replace(/\.(docx|odt)$/i, '') : '';
+    return typeof tpl === 'string' ? tpl.replace(/\.(docx|odt|tex)$/i, '') : '';
   }
 
   /** Read this file's export history entry, or null if none exists. */
@@ -743,7 +748,7 @@ export class ExportModal extends Modal {
       this.romanStartRow.style.display = this.romanFrontmatterCb.checked ? '' : 'none';
     } else {
       // Derive document type from template name stem.
-      const stem = this.templateSelect.value.replace(/\.(docx|odt)$/i, '');
+      const stem = this.templateSelect.value.replace(/\.(docx|odt|tex)$/i, '');
       const docType: DocType =
         stem.startsWith('book')    ? 'book' :
         stem.startsWith('article') ? 'article' : 'custom';
@@ -761,7 +766,11 @@ export class ExportModal extends Modal {
    */
   private refreshFilename(): void {
     const fmt = this.formatSelect.value as ExportFormat;
-    const ext = fmt === 'odt' ? 'odt' : fmt === 'md' ? 'md' : fmt === 'pdf' ? 'pdf' : 'docx';
+    const ext =
+      fmt === 'odt' ? 'odt' :
+      fmt === 'md' ? 'md' :
+      fmt === 'pdf' ? 'pdf' :
+      fmt === 'latex' ? 'tex' : 'docx';
     const noteBase = this.file.basename;
     // Use saved filename stem from per-file history when available.
     const history = this.getFileHistory();
@@ -774,10 +783,12 @@ export class ExportModal extends Modal {
       current === `${savedStem}.md` ||
       current === `${savedStem}.docx` ||
       current === `${savedStem}.odt` ||
+      current === `${savedStem}.tex` ||
       current === `${savedStem}.pdf` ||
       current === `${noteBase}.md` ||
       current === `${noteBase}.docx` ||
       current === `${noteBase}.odt` ||
+      current === `${noteBase}.tex` ||
       current === `${noteBase}.pdf`;
     if (looksDefault && this.filenameInput) {
       this.filenameInput.value = `${savedStem}.${ext}`;
@@ -885,10 +896,11 @@ export class ExportModal extends Modal {
     this.close();
 
     const label =
-      opts.format === 'md'   ? 'Compiling outline…' :
-      opts.format === 'odt'  ? 'Compiling + exporting to ODT…' :
-      opts.format === 'pdf'  ? 'Compiling + exporting to PDF…' :
-                               'Compiling + exporting to DOCX…';
+      opts.format === 'md'    ? 'Compiling outline…' :
+      opts.format === 'odt'   ? 'Compiling + exporting to ODT…' :
+      opts.format === 'latex' ? 'Compiling + exporting to LaTeX…' :
+      opts.format === 'pdf'   ? 'Compiling + exporting to PDF…' :
+                                'Compiling + exporting to DOCX…';
     const progress = new Notice(label, 0);
 
     const res = await runDocumentCompiler(this.plugin, this.file, opts);

@@ -42,11 +42,12 @@ from lxml import etree
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sw_merge_helpers import (split_paragraphs, find_bibliography_range,
-    strip_bibliography, ZOTERO_BIBL_INSTR, resize_images, STYLE_REMAP,
+    strip_duplicate_bibliographies, ZOTERO_BIBL_INSTR, resize_images, STYLE_REMAP,
     STYLE_ALIASES, resolve_style_alias,
     resolve_cover, title_case as _title_case, strip_markdown as _strip_markdown,
     is_toc_heading, process_figures, bundled_template, ensure_odt_styles,
     strip_chapter_prefix, parse_chapter_number, append_extra_sections,
+    resolve_note_sections,
     find_page_reset_index,
     csl_style_id, zotero_pref_blob, zotero_pref_chunks)
 
@@ -1762,14 +1763,11 @@ def merge_odt(template_path, input_path, output_path,
         layout['title_block'], title, subtitle, author, date_val)
 
     # ── Append abstract + extra sections ───────────────────────────────────
-    # Abstract is prepended so it appears first, before note/sw-* sections.
+    # resolve_note_sections prepends the abstract so it appears first, before
+    # note/sw-* sections (shared with DOCX and LaTeX — see sw_merge_helpers).
     # Both are injected uniformly via _append_extra_sections so the merge is
     # independent of whether the template's AKH sections were in the title block.
-    all_extra = []
-    if abstract:
-        all_extra.append(('abstract', abstract))
-    if extra_sections:
-        all_extra.extend(extra_sections)
+    all_extra = resolve_note_sections(abstract, extra_sections)
     if all_extra:
         _append_extra_sections(filled_title, all_extra)
 
@@ -1975,19 +1973,25 @@ def merge_odt(template_path, input_path, output_path,
             lambda lvl: 'Figure_20_Index_20_1')
         tmpl_text.append(_tof_el)
 
-    # 3. Strip the bibliography section (pandoc plain-text entries) so a fresh
-    #    Zotero section can be appended at the end.  Mirrors the DOCX approach:
-    #    both formats detect and strip via the shared strip_bibliography helper,
-    #    then each appends its own format-specific Zotero bibliography section.
+    # 3. Strip bibliography-like section(s) (pandoc plain-text entries) so a
+    #    fresh Zotero section can be appended at the end.  Mirrors the DOCX
+    #    approach: both formats detect and strip via the shared
+    #    strip_duplicate_bibliographies helper, then each appends its own
+    #    format-specific Zotero bibliography section.
     #
     #    In static_citations mode (PDF path — see DocumentCompiler.py), pandoc's
     #    own --citeproc already produced a real, populated bibliography (heading
-    #    + rendered entries, always positioned last, same as here) — there's no
-    #    live field to refresh, so it's left as ordinary body content instead of
-    #    being stripped and replaced with the "Refresh Zotero" placeholder. It
-    #    gets the same Heading_20_1 style pandoc gives any other heading, so it
-    #    flows through the general heading-remapping/chapter-exclusion logic
-    #    below exactly like a normal section.
+    #    + rendered entries) — there's no live field to refresh, so it's left as
+    #    ordinary body content instead of being stripped and replaced with the
+    #    "Refresh Zotero" placeholder. It gets the same Heading_20_1 style
+    #    pandoc gives any other heading, so it flows through the general
+    #    heading-remapping/chapter-exclusion logic below exactly like a normal
+    #    section. But a source note can ALSO carry its own pre-existing
+    #    'Bibliography' heading (e.g. hand-typed references predating
+    #    ScholarWeave's citation system) — left untouched, that duplicates
+    #    pandoc's own, real one. keep_last=True (below) strips any such
+    #    earlier duplicate while leaving pandoc's own (always the last match)
+    #    alone.
     def _bibl_heading_text(el):
         if el.tag == T('h'):
             return _elem_text(el)
@@ -2000,8 +2004,9 @@ def merge_odt(template_path, input_path, output_path,
         # This mirrors the DOCX approach, which also doesn't inspect entry styles.
         return el.tag != T('h')
 
+    body_elements, _has_bibliography = strip_duplicate_bibliographies(
+        body_elements, _bibl_heading_text, _is_bibl_entry, keep_last=static_citations)
     if static_citations:
-        _has_bibliography = False
         # Pandoc's citeproc wraps bibliography entries in <text:p
         # style-name="First_20_paragraph"> inside nested <text:section> — and
         # a template may style "First paragraph" distinctively (book.odt gives
@@ -2012,9 +2017,6 @@ def merge_odt(template_path, input_path, output_path,
                     if _p.get(T('style-name')) in (
                             'First_20_paragraph', 'Text_20_body', None):
                         _p.set(T('style-name'), _BODY_STYLE)
-    else:
-        body_elements, _has_bibliography = strip_bibliography(
-            body_elements, _bibl_heading_text, _is_bibl_entry)
 
     # 4. Pandoc body elements (moved from pdc_text to tmpl_text).
     for el in body_elements:

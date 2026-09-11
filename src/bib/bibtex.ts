@@ -132,15 +132,14 @@ export function parseBibTeX(raw: string): PartialCSLEntry[] {
   // Nothing to parse.
   if (!raw?.trim()) return [];
 
-  const options: BibTeXParser.ParserOptions = {
-    errorHandler: (err: unknown) => {
-      console.warn('scholar-weave: BibTeX parse warning:', err);
-    },
-  };
-
-  let parsed: BibTeXParser.Bibliography;
+  // Errors are reported via `parsed.errors` below, not a parse-time callback —
+  // the parser's Options type no longer has an errorHandler field (renamed
+  // from ParserOptions/Bibliography to Options/Library upstream; the old
+  // errorHandler callback here was already dead code at runtime since this
+  // version stopped invoking it).
+  let parsed: BibTeXParser.Library;
   try {
-    parsed = BibTeXParser.parse(raw, options) as BibTeXParser.Bibliography;
+    parsed = BibTeXParser.parse(raw) as BibTeXParser.Library;
   } catch (err) {
     console.error('scholar-weave: BibTeX parser threw — file may be severely malformed:', err);
     return [];
@@ -210,7 +209,7 @@ export function parseBibTeX(raw: string): PartialCSLEntry[] {
       // Earlier versions (and some forks) put them in entry.creators[role].
       // We check entry.creators first for backwards-compat, then fall back to
       // entry.fields so both layouts work without any version detection.
-      const rawCreators = entry.creators;
+      const rawCreators = (entry as Record<string, unknown>).creators;
       const creatorsMap: Record<string, unknown> =
         rawCreators !== null &&
         rawCreators !== undefined &&

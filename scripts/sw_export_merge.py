@@ -55,12 +55,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sw_merge_helpers import (
     tag, get_style, set_style, collect_ids, mint_id, ensure_para_id,
     split_paragraphs, find_bibliography_range, strip_bibliography, ZOTERO_BIBL_INSTR,
+    select_bibliography_matches_to_drop,
     resize_images, STYLE_REMAP, STYLE_ALIASES, resolve_style_alias,
     resolve_cover, process_figures,
     title_case as _title_case, strip_markdown as _strip_markdown,
     is_main_start, is_toc_heading, is_tof_heading, strip_chapter_prefix,
     find_page_reset_index, bundled_template, ensure_docx_styles,
-    append_extra_sections,
+    append_extra_sections, resolve_note_sections,
     csl_style_id, zotero_pref_blob, zotero_pref_chunks,
 )
 
@@ -1352,13 +1353,18 @@ def merge(template_path, input_path, output_path, title=None, author=None,
     #
     # In static_citations mode (PDF path — see DocumentCompiler.py), pandoc's
     # own --citeproc already produced a real, populated bibliography (Heading1
-    # + rendered entries, already last) — there's no live field to refresh, so
-    # it's left as ordinary body content instead of being stripped and
-    # replaced with the "Refresh Zotero" placeholder.
-    if static_citations:
-        _has_bibliography = False
-    else:
-        sections, _has_bibliography = _strip_bibliography_from_sections(sections)
+    # + rendered entries) — there's no live field to refresh, so it's left as
+    # ordinary body content instead of being stripped and replaced with the
+    # "Refresh Zotero" placeholder. But a source note can ALSO carry its own
+    # pre-existing 'Bibliography' heading (e.g. hand-typed references
+    # predating ScholarWeave's citation system) — left untouched, that
+    # duplicates pandoc's own, real one. keep_last=True strips any such
+    # earlier duplicate while leaving pandoc's own (always the last match)
+    # alone; see _strip_bibliography_from_sections / select_bibliography_
+    # matches_to_drop for the shared decision this and the ODT/LaTeX paths
+    # all use.
+    sections, _has_bibliography = _strip_bibliography_from_sections(
+        sections, keep_last=static_citations)
 
     # Figure captions → template caption layout; decides ToF presence.
     # Chapter-scoped numbering (Figure C.N) tracks the footnote-restart setting
@@ -1382,7 +1388,7 @@ def merge(template_path, input_path, output_path, title=None, author=None,
     # merge uses, so both formats build the abstract identically.
     _fill_title_block(layout['title_block'], title, subtitle, author, date_val)
 
-    all_extra = ([('abstract', abstract)] if abstract else []) + (extra_sections or [])
+    all_extra = resolve_note_sections(abstract, extra_sections)
 
     # Structured (book-style) templates: append the extra sections to the title
     # block (build_body renders it before the first section break). Simple
@@ -1558,24 +1564,30 @@ def _fill_title_block(title_block, title, subtitle, author, date_val):
                         continue
             i += 1
 
-def _strip_bibliography_from_sections(sections):
-    """Remove the section whose first block is a Heading1 'Bibliography' paragraph.
+def _strip_bibliography_from_sections(sections, keep_last=False):
+    """Remove bibliography-like section(s), keeping at most one.
 
     DOCX content comes pre-split into (kind, blocks) sections at each Heading1,
-    so the bibliography section is self-contained.  Returns (cleaned, found).
-    Scans from the end so the bibliography (always last) is found quickly.
-    The shared strip_bibliography helper is used for flat ODT element lists;
-    this companion handles the DOCX section-list structure.
+    so each bibliography-heading section is already self-contained — no need
+    for the flat-list range-finding find_all_bibliography_ranges() does for
+    ODT, but the SAME keep-at-most-one decision (select_bibliography_matches_
+    to_drop) is used, so both formats treat a note with more than one
+    'Bibliography' heading identically. See that function's docstring for the
+    keep_last semantics (static_citations/PDF path vs. live-citation path).
+
+    Returns (cleaned, has_fresh_bibliography) — see
+    strip_duplicate_bibliographies in sw_merge_helpers.py for what that means.
     """
-    for i in range(len(sections) - 1, -1, -1):
-        kind, blocks = sections[i]
-        if not blocks:
-            continue
-        first = blocks[0]
-        if first.tag == tag('p') and get_style(first) == 'Heading1':
-            if _para_text(first).strip().lower() == 'bibliography':
-                return list(sections[:i]), True
-    return list(sections), False
+    matches = [i for i, (kind, blocks) in enumerate(sections)
+               if blocks and blocks[0].tag == tag('p')
+               and get_style(blocks[0]) == 'Heading1'
+               and _para_text(blocks[0]).strip().lower() == 'bibliography']
+    drop = select_bibliography_matches_to_drop(len(matches), keep_last)
+    if not drop:
+        return list(sections), (bool(matches) and not keep_last)
+    drop_section_idxs = {matches[k] for k in drop}
+    cleaned = [s for i, s in enumerate(sections) if i not in drop_section_idxs]
+    return cleaned, not keep_last
 
 
 def _make_akh_heading(label):
@@ -1734,6 +1746,112 @@ def _set_fld_cached_rich(fld, text):
             add_run(m.group(1), italic=not is_bold, bold=is_bold)
         pos = m.end()
     add_run(text[pos:])
+
+def _build_markdown_runs(text):
+    """Like _set_fld_cached_rich's run-building, but returns a list of
+    DETACHED <w:r> elements instead of appending into a container — for
+    splicing into an arbitrary position (e.g. inside a complex field's
+    begin/instrText/separate/…/end run sequence, where the cached-result runs
+    are siblings mixed in with the field's own control runs, not a container
+    of their own the way fldSimple's cached runs are)."""
+    runs = []
+    def add_run(t, italic=False, bold=False):
+        if t == '':
+            return
+        r = etree.Element(tag('r'))
+        if italic or bold:
+            rpr = etree.SubElement(r, tag('rPr'))
+            if bold:
+                etree.SubElement(rpr, tag('b'))
+                etree.SubElement(rpr, tag('bCs'))
+            if italic:
+                etree.SubElement(rpr, tag('i'))
+                etree.SubElement(rpr, tag('iCs'))
+        tt = etree.SubElement(r, tag('t'))
+        if t != t.strip():
+            tt.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
+        tt.text = t
+        runs.append(r)
+    if not text or not re.search(r'[*_`]', text):
+        add_run(text or '')
+        return runs
+    pos = 0
+    for m in _MD_RE.finditer(text):
+        add_run(text[pos:m.start()])
+        if m.group(2) is not None:
+            add_run(m.group(2))
+        else:
+            delim = m.group(0)[:m.group(0).find(m.group(1))]
+            is_bold = '**' in delim or '__' in delim
+            add_run(m.group(1), italic=not is_bold, bold=is_bold)
+        pos = m.end()
+    add_run(text[pos:])
+    return runs
+
+
+def _refresh_complex_docprop_fields(p, author, short_title):
+    """Refresh cached DOCPROPERTY Author/Short-Title text for the OTHER way
+    Word represents a field: begin/instrText/separate/<cached runs>/end as
+    sibling <w:r> elements in the paragraph (vs. fldSimple, which wraps its
+    cached runs as children of one element). Same templates use fldSimple for
+    some fields and this complex form for others — Word picks the
+    representation per-field based on how it was authored/edited, so both
+    must be handled. Returns True if anything changed."""
+    for _pass in range(10):  # a field's own splice can shift indices; rescan
+        runs = list(p)
+        changed_this_pass = False
+        for i, r in enumerate(runs):
+            if r.tag != tag('r'):
+                continue
+            it = r.find(tag('instrText'))
+            if it is None or 'DOCPROPERTY' not in (it.text or ''):
+                continue
+            instr = it.text or ''
+            has_author = 'Author' in instr
+            has_short = 'Short Title' in instr
+            if has_author and has_short and author and short_title:
+                new_text = f'{author} – {short_title}'
+            elif has_short and short_title:
+                new_text = short_title
+            elif has_author and author:
+                new_text = author
+            else:
+                continue
+            sep_idx = None
+            for j in range(i + 1, len(runs)):
+                fc = runs[j].find(tag('fldChar'))
+                if fc is None:
+                    continue
+                if fc.get(tag('fldCharType')) == 'separate':
+                    sep_idx = j
+                break_outer = fc.get(tag('fldCharType')) in ('separate', 'end')
+                if break_outer:
+                    break
+            if sep_idx is None:
+                continue
+            end_idx = None
+            for j in range(sep_idx + 1, len(runs)):
+                fc = runs[j].find(tag('fldChar'))
+                if fc is not None and fc.get(tag('fldCharType')) == 'end':
+                    end_idx = j
+                    break
+            if end_idx is None:
+                continue
+            cached = ''.join(t.text or '' for j in range(sep_idx + 1, end_idx)
+                             for t in runs[j].iter(tag('t')))
+            if cached == new_text:
+                continue
+            for j in range(end_idx - 1, sep_idx, -1):
+                p.remove(runs[j])
+            insert_pos = list(p).index(runs[sep_idx]) + 1
+            for k, newr in enumerate(_build_markdown_runs(new_text)):
+                p.insert(insert_pos + k, newr)
+            changed_this_pass = True
+            break  # runs list is now stale — restart the scan
+        if not changed_this_pass:
+            return _pass > 0
+    return True
+
 
 def rebuild_footnotes(template_path, input_path):
     """
@@ -1927,11 +2045,21 @@ def normalize_headers_footers(zipdata, short_title=None, author=None,
                               title=None, subtitle=None):
     """
     Patch header/footer XML parts to match the ScholarWeave header/footer spec:
-      - even-page header (header1): Author – Short Title, LEFT aligned,
-        WITHOUT the vestigial STYLEREF "Heading 1 - frontmatter"
-      - odd-page headers (header2 TOC / header4 chapters): RIGHT aligned
+      - any header whose DOCPROPERTY field(s) reference Author / Short Title:
+        refresh the cached text to the real values, WITHOUT the vestigial
+        STYLEREF "Heading 1 - frontmatter" field some templates carry
       - footers with a PAGE field: CENTERED
-      - first-page headers/footers: blank (already)
+      - first-page headers/footers: blank (already, via the template's own
+        titlePg + first-type headerReference — untouched here)
+    Alignment is NOT forced — every template bakes its own `jc` into the header
+    paragraph directly (this is template-authoring territory, same as any other
+    paragraph style), so whatever the template's designer set is kept as-is.
+    Deliberately content-driven, not filename-driven: which of Word's
+    header1.xml/header2.xml/... happens to hold the Author/Short-Title field
+    depends on the order headers were first referenced when that PARTICULAR
+    template was authored, and differs between book/article/document — a fixed
+    filename list silently stopped refreshing whichever template didn't match
+    book.docx's own numbering (see scholarweave-header-footer-agnostic memory).
     Also replace document-specific docProps: dc:title, dc:creator,
     TitlesOfParts, 'Short Title', 'Subtitle'.
     """
@@ -1939,62 +2067,59 @@ def normalize_headers_footers(zipdata, short_title=None, author=None,
     W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
     def tag(n): return '{%s}%s' % (W, n)
 
-    # Set header alignment: header1 left; header2/header4 right.
-    for hdr in ('word/header1.xml', 'word/header2.xml', 'word/header4.xml'):
-        if hdr not in zipdata: continue
+    for hdr in [f for f in zipdata
+                if f.startswith('word/header') and f.endswith('.xml')]:
         root = etree.fromstring(zipdata[hdr])
+        changed = False
+        # Remove the vestigial STYLEREF "Heading 1 - frontmatter" field,
+        # wherever it appears (fldSimple or begin/instrText/end run triplet).
         for p in root.iter(tag('p')):
-            ppr = p.find(tag('pPr'))
-            if ppr is None:
-                ppr = etree.SubElement(p, tag('pPr'))
-                p.move(ppr, 0)
-            for jc in ppr.findall(tag('jc')):
-                ppr.remove(jc)
-            align = 'left' if hdr == 'word/header1.xml' else 'right'
-            jc = etree.SubElement(ppr, tag('jc'))
-            jc.set(tag('val'), align)
-        # header1: remove the trailing STYLEREF "Heading 1 - frontmatter" field
-        if hdr == 'word/header1.xml':
-            for p in root.iter(tag('p')):
-                for fldsimple in list(p.findall(tag('fldSimple'))):
-                    instr = fldsimple.get(tag('instr')) or ''
-                    if 'Heading 1 - frontmatter' in instr:
-                        p.remove(fldsimple)
-                runs = list(p.findall(tag('r')))
-                for i in range(len(runs)):
-                    r = runs[i]
-                    it = r.find(tag('instrText'))
-                    if it is not None and 'Heading 1 - frontmatter' in (it.text or ''):
-                        for j in (i-1, i, i+1):
-                            if 0 <= j < len(runs):
-                                p.remove(runs[j])
-                        break
-        # header1: refresh the cached DOCPROPERTY results so the exported
-        # file shows the REAL author / short title without needing F9
-        # (the template's header1 caches "Joseph Hill" / "The Book's Short
-        # Title" inside its fldSimple fields). A field may combine both:
+            for fldsimple in list(p.findall(tag('fldSimple'))):
+                instr = fldsimple.get(tag('instr')) or ''
+                if 'Heading 1 - frontmatter' in instr:
+                    p.remove(fldsimple)
+                    changed = True
+            runs = list(p.findall(tag('r')))
+            for i in range(len(runs)):
+                it = runs[i].find(tag('instrText'))
+                if it is not None and 'Heading 1 - frontmatter' in (it.text or ''):
+                    for j in (i-1, i, i+1):
+                        if 0 <= j < len(runs):
+                            p.remove(runs[j])
+                    changed = True
+                    break
+        # Refresh cached DOCPROPERTY text so the exported file shows the REAL
+        # author / short title without needing F9 (the template caches
+        # placeholder text like "Joseph Hill" / "The Book's Short Title"
+        # inside its fldSimple fields). A field may combine both:
         #   DOCPROPERTY "Author" - DOCPROPERTY "Short Title"
         # → cached "Author – Short Title".
-        if hdr == 'word/header1.xml':
-            for p in root.iter(tag('p')):
-                for fld in list(p.findall(tag('fldSimple'))):
-                    instr = fld.get(tag('instr')) or ''
-                    if 'DOCPROPERTY' not in instr:
-                        continue
-                    has_author = 'Author' in instr
-                    has_short = 'Short Title' in instr
-                    if has_author and has_short and author and short_title:
-                        new_text = f'{author} – {short_title}'
-                    elif has_short and short_title:
-                        new_text = short_title
-                    elif has_author and author:
-                        new_text = author
-                    else:
-                        continue
-                    cached = ''.join(t.text or '' for t in fld.iter(tag('t')))
-                    if cached != new_text:
-                        _set_fld_cached_rich(fld, new_text)
-        zipdata[hdr] = etree.tostring(root, xml_declaration=True, encoding='UTF-8', standalone=True)
+        for p in root.iter(tag('p')):
+            for fld in list(p.findall(tag('fldSimple'))):
+                instr = fld.get(tag('instr')) or ''
+                if 'DOCPROPERTY' not in instr:
+                    continue
+                has_author = 'Author' in instr
+                has_short = 'Short Title' in instr
+                if has_author and has_short and author and short_title:
+                    new_text = f'{author} – {short_title}'
+                elif has_short and short_title:
+                    new_text = short_title
+                elif has_author and author:
+                    new_text = author
+                else:
+                    continue
+                cached = ''.join(t.text or '' for t in fld.iter(tag('t')))
+                if cached != new_text:
+                    _set_fld_cached_rich(fld, new_text)
+                    changed = True
+            # Word represents some fields as fldSimple, others (depending on
+            # how they were authored/edited) as a begin/instrText/separate/
+            # end run sequence — same DOCPROPERTY refresh, different shape.
+            if _refresh_complex_docprop_fields(p, author, short_title):
+                changed = True
+        if changed:
+            zipdata[hdr] = etree.tostring(root, xml_declaration=True, encoding='UTF-8', standalone=True)
 
     # Set footer alignment: any footer with a PAGE field → centered.
     for ftr in zipdata:

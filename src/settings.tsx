@@ -124,7 +124,7 @@ export interface ReferenceListSettings {
   /** Default output folder for compiled/exported documents (blank = source folder). */
   defaultOutputDir?: string;
   /** Last export format chosen in the export modal — remembered across opens. */
-  lastExportFormat?: 'md' | 'docx' | 'odt';
+  lastExportFormat?: 'md' | 'docx' | 'odt' | 'latex' | 'pdf';
   /** Default author name used when the note has no `author:` frontmatter property. */
   defaultAuthor?: string;
   /** When true, fall back to the Obsidian account display name if defaultAuthor is also empty. */

@@ -1,0 +1,120 @@
+% ScholarWeave LaTeX export — "book" doc type.
+% See document.tex for the full explanation of how this file is used
+% (--include-in-header, available substitutions/hooks/markers).
+%
+% Unlike document/article, "book" keeps a dedicated title PAGE (matching
+% book.docx/book.odt's own section-break-separated cover page) — see
+% export_latex's is_book branch. Chapter-opener pages need NO extra code to
+% suppress the header: LaTeX's `book` class already puts every \chapter's
+% own first page on the `plain` page style (page number only), and
+% DocumentCompiler.py already emits top-level headings as \chapter — this is
+% standard, unmodified LaTeX book-class behaviour. Heading 1 = \chapter,
+% Heading 2 = \section for this doc type (document/article have no chapters,
+% so their Heading 1/2 are \section/\subsection instead).
+%
+% Per-chapter footnote AND figure numbering are both the `book` class's own
+% NATIVE, unconditional behaviour — book.cls resets the footnote counter at
+% every \chapter (plain "1, 2, 3", no chapter prefix) and gives figures a
+% "chapter.N" \thefigure (e.g. "Figure 2.3") natively, with no custom code
+% needed at all (confirmed empirically — a bare \documentclass{book} with no
+% \counterwithin already does both). This is deliberately NOT tied to the
+% "Restart footnote and figure numbering per chapter" export checkbox — for
+% book, chapter-scoped numbering is how the class works, not an optional
+% style choice, matching DOCX/ODT's own "Figure C.N" convention for exactly
+% this doc type. (document.tex/article.tex DO tie figure numbering to that
+% checkbox, since article-class has no equivalent native behaviour to fall
+% back on — see SWTOKFIGURECOUNTER there. Footnote restart is never applied
+% for document/article either way: article-class footnotes are naturally
+% continuous, and that's the desired "non-book top-level sections don't
+% restart" behaviour, so there's nothing to add.)
+%
+% Roman-numeral frontmatter mirrors roman_frontmatter — \frontmatter/
+% \mainmatter are emitted as raw LaTeX blocks directly into the compiled
+% markdown by DocumentCompiler.py, since they must sit in the BODY, not the
+% preamble.
+
+% SWEXTRACLASSOPTIONS:
+
+% ── Customize this template ────────────────────────────────────────────
+% Copy this file (e.g. into your own Export Templates folder) and edit any
+% of the four lines below to get your own fonts/margins/link color/spacing.
+\setmainfont{Noto Serif}[BoldFont={Noto Serif},BoldFeatures={FakeBold=3.5}]  % body text font (must be installed; matches book.docx/.odt) — FakeBold: Noto Serif ships as ONE variable-weight file with no separately-loadable true bold instance XeTeX can select (confirmed: even explicitly requesting its Bold named instance silently produces the same regular-weight glyphs, with no warning), so \textbf/\bfseries need a synthetic (stroke-emboldened) bold instead of a real one
+\usepackage[letterpaper,margin=1.3in]{geometry}  % page size + margins (try a4paper, or a per-side margin like "top=1in,bottom=1in,left=1.25in,right=1in")
+\definecolor{swlinkcolor}{HTML}{467886}        % link/citation color, as a hex RRGGBB (no '#') — matches book.docx/.odt's Hyperlink style
+\usepackage{setspace}\setstretch{1.15}         % paragraph line spacing (1 = single; matches book.docx/.odt's 1.15)
+\raggedbottom                                  % let pages end wherever content naturally does — see document.tex
+                                                % for why (stretchy spacing otherwise fills to an even bottom
+                                                % margin, at the cost of inconsistent-looking gaps). Switch to
+                                                % \flushbottom for even bottom margins instead (the traditional
+                                                % choice for a twoside book, at this same cost).
+% ────────────────────────────────────────────────────────────────────────
+
+% Title-page logo hook — empty by default. Redefine to add a journal/
+% institution logo above the title, e.g.:
+%   \renewcommand{\swTitleLogo}{\includegraphics[width=3cm]{/path/to/logo.png}\\[1em]}
+\newcommand{\swTitleLogo}{}
+
+% Arabic poetry font — see document.tex for why this is needed (Noto Serif
+% has no Arabic glyphs at all) and why it's declared with the
+% [Script=Arabic,RTL] fontspec feature pair rather than a plain
+% \newfontfamily, or \TeXXeTstate+\beginR/\endR, or polyglossia+bidi (all
+% tried first, all had a real problem on the actual document). Change the
+% font name here to use a different Arabic typeface (e.g. "Noto Sans
+% Arabic").
+\newfontfamily\arabicfont[Script=Arabic,RTL]{Noto Naskh Arabic}
+
+% Bullet-list levels alternate bullet/dash instead of LaTeX's own default
+% bullet/dash/asterisk/centered-dot cascade.
+\usepackage{enumitem}
+\setlist[itemize,1]{label=\textbullet}
+\setlist[itemize,2]{label=\textendash}
+\setlist[itemize,3]{label=\textbullet}
+\setlist[itemize,4]{label=\textendash}
+
+% Heading 1 (\chapter) / Heading 2 (\section) styles — edit these to change
+% appearance (bold/size/spacing/etc.); deeper heading levels use LaTeX's own
+% defaults. No number prefix by default.
+%
+% \titlespacing's before/after values are FIXED lengths (no "plus/minus"
+% stretch component) deliberately — see document.tex for why: the class's
+% own default heading spacing is stretchy, so a heading's gap from the text
+% above it can end up much larger on one page than another with no visible
+% cause, whenever the page-breaking algorithm stretches it to fill a page.
+% \chapter's own "before" skip is moot (it always starts a fresh page) but
+% titlesec still wants a value.
+\usepackage{titlesec}
+\titleformat{\chapter}{\normalfont\huge\bfseries}{}{0pt}{}
+\titlespacing*{\chapter}{0pt}{0pt}{40pt}
+\titleformat{\section}{\normalfont\Large\bfseries}{}{0pt}{}
+\titlespacing*{\section}{0pt}{3.5ex}{2.3ex}
+% Headings show no number (above), and the TOC entries below match — but
+% \thechapter/\thesection still increment normally (--metadata
+% numbersections=true, set in DocumentCompiler.py): the class's own native
+% per-chapter footnote/figure numbering (see the top-of-file note) needs a
+% real, incrementing chapter counter to key off, which secnumdepth's usual
+% "no visible number" approach silently prevents (it stops the counter
+% incrementing entirely, not just its display — confirmed empirically).
+\usepackage{titletoc}
+\titlecontents{chapter}[0pt]{}{}{}{\hfill\thecontentspage}
+\titlecontents{section}[1.5em]{}{}{}{\hfill\thecontentspage}
+
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[LE]{SWTOKAUTHOR}
+\fancyhead[RO]{SWTOKSHORTTITLE}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+% Book class + twoside forces a blank left-hand page whenever \chapter (or
+% \frontmatter/\mainmatter, both raw-block-inserted into the body) would
+% otherwise start on an even page. Left un-styled that blank page still
+% carries the running header and a page number, which reads as a rendering
+% glitch since there's no content on it. Standard LaTeX fix: make the
+% auto-inserted blank page use the empty page style.
+\let\swOrigClearDoublePage\cleardoublepage
+\renewcommand{\cleardoublepage}{%
+  \clearpage
+  {\pagestyle{empty}\swOrigClearDoublePage}%
+}
+% See document.tex for why \hypersetup{pdftitle=...} isn't set here, and for
+% how colorlinks/linkcolor above still reaches pandoc's own hypersetup call.

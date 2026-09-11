@@ -338,13 +338,17 @@ export class TooltipManager {
     };
 
     return {
-      scroll: (evt: UIEvent) => {
+      // CodeMirror's DOMEventHandlers types every handler by the DOM lib's own
+      // HTMLElementEventMap, where "scroll" is a plain Event (not UIEvent) —
+      // cast to read .view, same as always.
+      scroll: (evt: Event) => {
+        const view = (evt as UIEvent).view;
         if (activeKey) {
-          evt.view?.clearTimeout(dbOutTimer);
-          evt.view?.clearTimeout(dbOverTimer);
+          view?.clearTimeout(dbOutTimer);
+          view?.clearTimeout(dbOverTimer);
           activeKey = null;
         }
-        if (lpTimer) lpCancel((evt.view as Window) ?? window);
+        if (lpTimer) lpCancel(view ?? window);
       },
 
       // Start the long-press timer when a finger touches a citation span.

@@ -8,11 +8,19 @@ export class PromiseCapability<T> {
   readonly promise: Promise<T>;
   resolve!: (value: T | PromiseLike<T>) => void;
   reject!: (reason?: unknown) => void;
+  /** true once resolve() or reject() has been called. */
+  settled = false;
 
   constructor() {
     this.promise = new Promise<T>((resolve, reject) => {
-      this.resolve = resolve;
-      this.reject = reject;
+      this.resolve = (value) => {
+        this.settled = true;
+        resolve(value);
+      };
+      this.reject = (reason) => {
+        this.settled = true;
+        reject(reason);
+      };
     });
   }
 }

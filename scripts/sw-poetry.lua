@@ -149,6 +149,11 @@ local function verse_from_hemistichs(hemistichs, is_arabic)
           inlines:insert(pandoc.RawInline('openxml', '<w:r><w:tab/></w:r>'))
         elseif FORMAT == 'odt' then
           inlines:insert(pandoc.RawInline('opendocument', '<text:tab/>'))
+        elseif FORMAT == 'latex' then
+          -- A literal tab character collapses to a single space in LaTeX
+          -- (no real tab-stop concept outside a tabbing-like environment) —
+          -- \hspace gives an actual visible gap between hemistichs instead.
+          inlines:insert(pandoc.RawInline('latex', '\\hspace{2em}'))
         else
           inlines:insert(pandoc.Str('\t'))
         end
@@ -225,6 +230,73 @@ function BlockQuote(el)
 
   local verses = parse_poetry(combined, is_arabic)
   if #verses == 0 then return nil end
+
+  -- LaTeX has no "custom paragraph style" concept (that's a DOCX/ODT idea) —
+  -- use LaTeX's own native `verse` environment instead, wrapping the SAME
+  -- per-verse inline content (built exactly like the DOCX/ODT path,
+  -- preserving any inline formatting inside a hemistich). Arabic poetry
+  -- additionally switches to \arabicfont, a plain font-switch group with no
+  -- extra markup needed here — see the templates' own "Arabic poetry font"
+  -- note for why it's declared with fontspec's [Script=Arabic,RTL] feature
+  -- pair (which is what actually makes both letter-joining AND right-to-left
+  -- word order come out correct; two lighter-looking approaches were tried
+  -- and rejected first) rather than polyglossia+bidi (which conflicts badly
+  -- with a document that has many footnotes — confirmed "TeX capacity
+  -- exceeded" on a real multi-footnote document).
+  --
+  -- The whole poem must be ONE pandoc Para, not one Para per verse: pandoc
+  -- always separates consecutive Blocks with a blank line, which LaTeX reads
+  -- as \par — and a stanza-break \\ (or the hemistich-break LineBreak that
+  -- starts the next verse) immediately after a \par has no open line left to
+  -- end ("! LaTeX Error: There's no line here to end", confirmed via a real
+  -- multi-stanza poem). Two consecutive LineBreaks between verses render as
+  -- \\\\ with no intervening \par, giving a visible stanza gap safely.
+  --
+  -- English poetry uses LaTeX's native `verse` environment, whose built-in
+  -- hanging indent (1.5em on the LEFT, flush on the right) is the correct,
+  -- conventional look for an LTR blockquote. Arabic poetry ALSO uses plain,
+  -- unmodified `verse` — even though its indent (still on the left) is the
+  -- wrong side for RTL material, matching how an Arabic blockquote is
+  -- conventionally indented from the right. Two different attempts to move
+  -- the indent to the right (a plain \leftskip=0pt/\rightskip=1.5em
+  -- paragraph, and a hand-rolled \list mirroring verse's own internals with
+  -- the margin advance moved to \rightmargin) both did put the indent on
+  -- the correct side, but BOTH also broke word order back to left-to-right
+  -- on real PDF viewers (Preview.app, Adobe Reader — confirmed on real
+  -- exports; poppler rendered all versions "correctly" regardless, which is
+  -- why this needed the user's own viewer to catch — poppler is not a
+  -- reliable check for this). Exactly what about plain `verse`'s internals
+  -- the [Script=Arabic,RTL] font feature depends on for correct ordering
+  -- isn't isolated yet, so until it is, `verse` is left completely alone for
+  -- Arabic too and the indent stays on the left as a known cosmetic gap —
+  -- preferring correct text over correct margins. (Polyglossia/bidi would
+  -- fix the margin semantically, but both `polyglossia`'s bidi mode AND the
+  -- standalone `bidi` package crash this real multi-footnote document with
+  -- "TeX capacity exceeded" — confirmed for both, independently — inside
+  -- hyperref's own bidi-compatibility code at a footnote mark; not usable
+  -- here regardless of the margin question.)
+  if FORMAT == 'latex' then
+    local combined = pandoc.List()
+    local first = true
+    for _, v in ipairs(verses) do
+      if #v > 0 then
+        if not first then
+          combined:insert(pandoc.LineBreak())
+          combined:insert(pandoc.LineBreak())
+        end
+        for _, inl in ipairs(verse_from_hemistichs(v, is_arabic).content) do
+          combined:insert(inl)
+        end
+        first = false
+      end
+    end
+    if #combined == 0 then return nil end
+    return {
+      pandoc.RawBlock('latex', is_arabic and '{\\arabicfont\n\\begin{verse}' or '\\begin{verse}'),
+      pandoc.Para(combined),
+      pandoc.RawBlock('latex', is_arabic and '\\end{verse}\n}' or '\\end{verse}'),
+    }
+  end
 
   local out = pandoc.List()
   for _, v in ipairs(verses) do

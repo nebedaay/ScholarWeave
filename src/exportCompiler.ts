@@ -144,7 +144,7 @@ export interface CompileResult {
 }
 
 export interface CompilerOptions {
-  /** Output format: 'md' = compile only (no pandoc), 'docx', 'odt', or 'pdf' = export. */
+  /** Output format: 'md' = compile only (no pandoc); 'docx', 'odt', 'latex', or 'pdf' = export. */
   format: ExportFormat;
   /** Template name chosen in the modal (no extension). Overrides frontmatter. */
   template?: string;
@@ -167,7 +167,7 @@ export interface CompilerOptions {
   /** Desired output filename (basename.ext). When set and different from the
    *  compiler's default name, the output file is renamed after compilation. */
   outputFilename?: string;
-  /** PDF only: keep the intermediate docx/odt after PDF conversion. The
+  /** PDF only: keep the intermediate docx/odt/tex after PDF conversion. The
    *  intermediate format itself is NOT user-selectable — it's always the
    *  format of the chosen template (auto-detected by DocumentCompiler.py). */
   keepIntermediate?: boolean;
@@ -200,7 +200,7 @@ function resolveFolder(
 
 /**
  * Run the bundled DocumentCompiler.py (compile outline → markdown, and with
- * `export: true` → docx / odt / pdf) on the given note. Desktop only.
+ * `export: true` → docx / odt / latex / pdf) on the given note. Desktop only.
  *
  * The interpreter is resolved here (with lxml/docx verification) and the
  * resolved python/node/pandoc paths are handed to the script via SW_* env
@@ -245,7 +245,7 @@ export async function runDocumentCompiler(
     const rawTpl = (cache?.frontmatter as Record<string, unknown> | undefined)
       ?.template;
     templateName =
-      typeof rawTpl === 'string' ? rawTpl.replace(/\.(docx|odt)$/i, '') : '';
+      typeof rawTpl === 'string' ? rawTpl.replace(/\.(docx|odt|tex)$/i, '') : '';
   }
 
   const args = [absMaster];

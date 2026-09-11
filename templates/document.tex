@@ -1,0 +1,181 @@
+% ScholarWeave LaTeX export — "document" doc type.
+%
+% This is NOT a full pandoc --template (see book.tex's own note for why) — it
+% is included into the document PREAMBLE via pandoc's --include-in-header,
+% alongside pandoc's own default LaTeX template (which already renders the
+% TOC, citeproc bibliography, and font-package setup — no need to reproduce
+% any of that here).
+%
+% Every line below is ordinary, editable LaTeX preamble content — copy this
+% file (e.g. into your own Export Templates folder) and change, add, or
+% remove anything: a journal logo (see \swTitleLogo below), 2-column layout
+% (see SWEXTRACLASSOPTIONS below), different heading styles, extra packages,
+% etc. Python only ever supplies the note's CONTENT (title/subtitle/author/
+% date/abstract/body/citations) — never how it looks.
+%
+% Available substitutions, filled in by DocumentCompiler.py before this file
+% reaches pandoc (NOT pandoc $variable$ syntax — see the note below):
+%   SWTOKAUTHOR       — the note's author
+%   SWTOKSHORTTITLE   — the note's short title (falls back to the full title)
+%   SWTOKTITLE        — the note's title (unused by default; available if
+%                        you want it somewhere other than the title block,
+%                        e.g. in a running header instead of the short title)
+% Available hooks (LaTeX commands DocumentCompiler.py invokes when building
+% the title block/page — redefine them below to customize; left empty they
+% do nothing):
+%   \swTitleLogo      — invoked once, centered, just above the title
+% Available marker (a plain LaTeX comment DocumentCompiler.py itself reads —
+% inert to LaTeX, meaningful only to the Python side):
+%   % SWEXTRACLASSOPTIONS: <comma-separated \documentclass options>
+%                        — e.g. "twocolumn" or "12pt". "twoside" is always
+%                        added too (required by the running-header
+%                        convention below) — you don't need to repeat it.
+% Available substitution tokens driven by export checkboxes, not user-edited
+% (listed for completeness — moving/removing them changes what those
+% checkboxes do):
+%   SWTOKFIGURECOUNTER   — "Restart footnote and figure numbering per
+%                        chapter": \counterwithin{figure}{section} (document/
+%                        article's top-level heading is \section, not
+%                        \chapter) when on, empty when off. Footnotes are
+%                        deliberately NOT part of this: article-class
+%                        footnotes are naturally continuous with no native
+%                        per-section reset to hook into (unlike book, where
+%                        \chapter resets footnotes to plain "1, 2, 3..."
+%                        automatically — see book.tex), and continuous is
+%                        the desired behaviour here regardless of the
+%                        checkbox, so there's nothing to substitute.
+%   SWTOKNEWPAGEHEADING  — "Top-level headings start on a new page": \newpage
+%                        when on, empty when off. Sits in \titleformat's
+%                        before-code slot for \section only (Heading 2 never
+%                        forces a page break, matching DOCX/ODT).
+%
+% SWTOKAUTHOR / SWTOKSHORTTITLE / SWTOKTITLE are replaced with the document's
+% real (LaTeX-escaped) values before this file is handed to pandoc — NOT
+% pandoc $variable$ syntax, which LaTeX would read as inline math ($..$)
+% since --include-in-header content is raw LaTeX, not run through pandoc's
+% templating engine.
+%
+% Title BLOCK, not title page: matches document.docx/document.odt, whose
+% title/subtitle/author/date sit as ordinary paragraphs at the top of page 1
+% with no page break before the body — DocumentCompiler.py builds this as
+% body content (see export_latex's use of is_book to choose title-block vs.
+% title-page). "article" gets the same treatment; only "book" gets a
+% dedicated title page, matching book.docx's own section-break-separated
+% cover page.
+%
+% Running header: Author (even pages) / Short Title (odd pages), matching
+% the DOCX/ODT "document"/"article" templates' own even/odd header
+% convention — requires a two-sided layout (set from Python via
+% --metadata classoption=twoside). No header on page 1: LaTeX's kernel
+% already puts a document's first page on the `plain` page style regardless
+% of \pagestyle, so this falls out for free.
+
+% SWEXTRACLASSOPTIONS:
+
+% ── Customize this template ────────────────────────────────────────────
+% Copy this file (e.g. into your own Export Templates folder) and edit any
+% of the four lines below to get your own fonts/margins/link color/spacing.
+\setmainfont{Noto Sans}[BoldFont={Noto Sans},BoldFeatures={FakeBold=3.5}]  % body text font (must be installed; matches document.docx/.odt) — FakeBold: Noto Sans ships as ONE variable-weight file with no separately-loadable true bold instance XeTeX can select (confirmed: even explicitly requesting its Bold named instance silently produces the same regular-weight glyphs, with no warning), so \textbf/\bfseries need a synthetic (stroke-emboldened) bold instead of a real one
+\usepackage[letterpaper,margin=1.25in]{geometry}  % page size + margins (try a4paper, or a per-side margin like "top=1in,bottom=1in,left=1.25in,right=1in")
+\definecolor{swlinkcolor}{HTML}{156082}        % link/citation color, as a hex RRGGBB (no '#') — matches document.docx/.odt's Hyperlink style
+\usepackage{setspace}\setstretch{1.15}         % paragraph line spacing (1 = single; matches document.docx/.odt's 1.15)
+\raggedbottom                                  % let pages end wherever content naturally does, instead of
+                                                % stretching heading/list/paragraph spacing to reach an even
+                                                % bottom margin on every page (that stretch is what makes the
+                                                % same heading's gap look bigger on one page than another with
+                                                % no visible cause). Switch to \flushbottom for even bottom
+                                                % margins instead, at the cost of that inconsistent stretch.
+% ────────────────────────────────────────────────────────────────────────
+
+% Title-block logo hook — empty by default. Redefine to add a journal/
+% institution logo above the title, e.g.:
+%   \renewcommand{\swTitleLogo}{\includegraphics[width=3cm]{/path/to/logo.png}\\[1em]}
+\newcommand{\swTitleLogo}{}
+
+% Arabic poetry font — "Noto Serif" above only covers Latin/Cyrillic/Greek
+% (confirmed by inspecting its own cmap: zero Arabic codepoints), so Arabic
+% text needs a font that actually has Arabic glyphs. The [Script=Arabic,RTL]
+% fontspec feature key pair is what actually makes this correct — tried
+% three approaches, in order:
+%   1. A plain \newfontfamily with no direction info: letters shape/join
+%      correctly (XeTeX's HarfBuzz-based shaper recognises the Arabic script
+%      run on its own), but the run still lays out left-to-right — shaping
+%      alone doesn't reorder. Looked right in an isolated render, but real
+%      documents showed the wrong order in both Preview.app and Adobe Reader.
+%   2. \TeXXeTstate=1 (XeTeX's native bidi engine) + wrapping each verse line
+%      in \beginR...\endR (sw-poetry.lua): fixed the ORDER, but broke the
+%      JOINING — letters came out disjointed/isolated-form (confirmed on a
+%      real export). TeX--XeT reorders character nodes below the level where
+%      Arabic contextual shaping happens, so the two don't compose.
+%   3. [Script=Arabic,RTL] below: fontspec's own documented mechanism for a
+%      short RTL insertion in an LTR document — applies shaping and ordering
+%      together, correctly, needs no \beginR/\endR or \TeXXeTstate at all,
+%      and (stress-tested against 60 footnotes) doesn't have polyglossia's
+%      \begin{Arabic}...\end{Arabic} problem ("TeX capacity exceeded" on a
+%      real multi-footnote document, confirmed earlier) since it never
+%      engages polyglossia's document-wide language-switching machinery.
+% Change the font name here to use a different Arabic typeface (e.g. "Noto
+% Sans Arabic").
+\newfontfamily\arabicfont[Script=Arabic,RTL]{Noto Naskh Arabic}
+
+% Bullet-list levels alternate bullet/dash instead of LaTeX's own default
+% bullet/dash/asterisk/centered-dot cascade.
+\usepackage{enumitem}
+\setlist[itemize,1]{label=\textbullet}
+\setlist[itemize,2]{label=\textendash}
+\setlist[itemize,3]{label=\textbullet}
+\setlist[itemize,4]{label=\textendash}
+
+% Heading 1 (\section) / Heading 2 (\subsection) styles — edit these to
+% change appearance (bold/size/spacing/etc.); deeper heading levels use
+% LaTeX's own defaults. No number prefix by default (\thesection etc. exist
+% if you want to add one back — see titlesec's own documentation).
+%
+% \titlespacing's before/after values are FIXED lengths (no "plus/minus"
+% stretch component) deliberately: the class's own default heading spacing
+% is stretchy glue, which LaTeX's page-breaking algorithm will expand to
+% help a page reach the bottom margin evenly — so the gap above a heading
+% can end up looking much larger on one page than another with no visible
+% cause. Fixed lengths make heading spacing the same everywhere, at the
+% cost of pages no longer stretching to a perfectly even bottom margin.
+\usepackage{titlesec}
+\titleformat{\section}{\normalfont\Large\bfseries}{}{0pt}{SWTOKNEWPAGEHEADING}
+\titlespacing*{\section}{0pt}{3.5ex}{2.3ex}
+\titleformat{\subsection}{\normalfont\large\bfseries}{}{0pt}{}
+\titlespacing*{\subsection}{0pt}{3.25ex}{1.5ex}
+% Headings show no number (above), and the TOC entries below match — but
+% \thesection still increments normally (--metadata numbersections=true,
+% set in DocumentCompiler.py): SWTOKFIGURECOUNTER below needs a real,
+% incrementing section counter to scope figures by, which secnumdepth's
+% usual "no visible number" approach silently prevents (it stops the
+% counter, not just the display).
+\usepackage{titletoc}
+\titlecontents{section}[0pt]{}{}{}{\hfill\thecontentspage}
+\titlecontents{subsection}[1.5em]{}{}{}{\hfill\thecontentspage}
+SWTOKFIGURECOUNTER
+
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[LE]{SWTOKAUTHOR}
+\fancyhead[RO]{SWTOKSHORTTITLE}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+% Page 1 (the title block) uses LaTeX's "plain" pagestyle — redefine it to
+% keep the centered page-number footer but drop the running header, since
+% \_latex_title_block sets \thispagestyle{plain} explicitly (article class
+% has no automatic page-1 pagestyle override the way \maketitle would give
+% it, since we never call \maketitle — see the title-block note above).
+\fancypagestyle{plain}{%
+  \fancyhf{}
+  \fancyfoot[C]{\thepage}
+  \renewcommand{\headrulewidth}{0pt}
+}
+% Not setting \hypersetup{pdftitle=...} here deliberately: --include-in-header
+% content lands BEFORE pandoc's own hyperref setup in its default template, so
+% \hypersetup isn't defined yet at this point — the PDF's internal
+% pdftitle/pdfauthor metadata is the one thing not replicated for LaTeX
+% output (a cosmetic gap, not a content one). colorlinks/linkcolor above
+% DOES reach pandoc's own hypersetup call, since that reads --metadata
+% variables Python passes separately, resolved against swlinkcolor once
+% xcolor's \definecolor above has already run.
