@@ -1,4 +1,4 @@
-import { getCitationSegments, getCitations } from '../../parser/parser';
+import { getCitationSegments, getCitations } from '../parser/parser';
 
 describe('render parity with pandoc', () => {
   const cases = [

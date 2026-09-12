@@ -5,10 +5,12 @@
  */
 export class SimpleLRU<K, V> {
   private readonly max: number;
+  private readonly dispose?: (value: V, key: K) => void;
   private readonly cache: Map<K, V> = new Map();
 
-  constructor({ max }: { max: number }) {
+  constructor({ max, dispose }: { max: number; dispose?: (value: V, key: K) => void }) {
     this.max = max;
+    this.dispose = dispose;
   }
 
   has(key: K): boolean {
@@ -29,7 +31,11 @@ export class SimpleLRU<K, V> {
     else if (this.cache.size >= this.max) {
       // Evict the oldest entry (first key in the Map).
       const oldest = this.cache.keys().next().value;
-      if (oldest !== undefined) this.cache.delete(oldest);
+      if (oldest !== undefined) {
+        const evicted = this.cache.get(oldest)!;
+        this.cache.delete(oldest);
+        this.dispose?.(evicted, oldest);
+      }
     }
     this.cache.set(key, value);
     return this;

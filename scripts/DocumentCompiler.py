@@ -877,7 +877,7 @@ def find_user_lua_filters(template_dir):
     """Return sorted list of *.lua files in template_dir, skipping built-in names."""
     if not template_dir or not os.path.isdir(template_dir):
         return []
-    builtin = {'sw-doc-title.lua', 'sw-export.lua', 'sw-poetry.lua', 'sw-zotero.lua'}
+    builtin = {'sw-doc-title.lua', 'sw-export.lua', 'sw-poetry.lua', 'sw-bidi.lua', 'sw-zotero.lua'}
     result = []
     for f in sorted(os.listdir(template_dir)):
         if f.lower().endswith('.lua') and f not in builtin:
@@ -1723,18 +1723,24 @@ def find_soffice():
 
 
 def find_latex_engine():
-    """Find the xelatex binary (pandoc's --pdf-engine for LaTeX export —
-    chosen over lualatex for its more mature polyglossia/bidi support, needed
-    for Arabic-script content)."""
+    """Find the lualatex binary (pandoc's --pdf-engine for LaTeX export).
+
+    LuaLaTeX is required for Arabic/RTL content: the templates use babel's
+    `bidi=basic` (LuaTeX's node-based UAX#9 implementation — no macro
+    expansion). XeLaTeX's macro-based bidi/polyglossia alternatives crash a
+    real multi-footnote document with "TeX capacity exceeded [main memory
+    size=5000000]" inside hyperref's bidi-compatibility code at the first
+    \\footnote (confirmed empirically); babel bidi=basic has no such limit and
+    also auto-detects inline Arabic runs (see the templates' Arabic note)."""
     import shutil as _sh
     candidates = [
-        os.environ.get('SW_XELATEX', ''),
-        'xelatex',
-        '/Library/TeX/texbin/xelatex',            # MacTeX / BasicTeX
-        '/usr/bin/xelatex',                        # Linux (distro TeX Live)
-        '/usr/local/bin/xelatex',
-        r'C:\Program Files\MiKTeX\miktex\bin\x64\xelatex.exe',
-        r'C:\texlive\2026\bin\windows\xelatex.exe',
+        os.environ.get('SW_LUALATEX', ''),
+        'lualatex',
+        '/Library/TeX/texbin/lualatex',            # MacTeX / BasicTeX
+        '/usr/bin/lualatex',                        # Linux (distro TeX Live)
+        '/usr/local/bin/lualatex',
+        r'C:\Program Files\MiKTeX\miktex\bin\x64\lualatex.exe',
+        r'C:\texlive\2026\bin\windows\lualatex.exe',
     ]
     for c in candidates:
         if c and _sh.which(c):
@@ -2369,6 +2375,7 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
         plugin_script_path('sw-doc-title.lua'),
         plugin_script_path('sw-export.lua'),
         plugin_script_path('sw-poetry.lua'),
+        plugin_script_path('sw-bidi.lua'),
     ]
     if not static_citations:
         filters.append(plugin_script_path('sw-zotero.lua'))
@@ -2806,7 +2813,7 @@ def export_latex(compiled_md, vault_root=None, template=None, toc=False,
                  csl_style_override=None, csl_from_template=False,
                  output_name=None, as_pdf=False):
     """Export compiled markdown to LaTeX (.tex), or — when as_pdf — straight
-    to PDF via pandoc's own --pdf-engine=xelatex. No LibreOffice, no
+    to PDF via pandoc's own --pdf-engine=lualatex. No LibreOffice, no
     intermediate file: pandoc goes from markdown to PDF in one call.
 
     Unlike export_document (DOCX/ODT), there is no merge step: LaTeX's own
@@ -2981,6 +2988,7 @@ def export_latex(compiled_md, vault_root=None, template=None, toc=False,
     filters = [
         plugin_script_path('sw-export.lua'),
         plugin_script_path('sw-poetry.lua'),
+        plugin_script_path('sw-bidi.lua'),
     ]
     filters += find_user_lua_filters(template_dir)
     filter_args = []
@@ -3059,7 +3067,7 @@ def export_latex(compiled_md, vault_root=None, template=None, toc=False,
         engine = find_latex_engine()
         if as_pdf and not engine:
             raise RuntimeError(
-                'PDF export via LaTeX needs xelatex installed (part of any '
+                'PDF export via LaTeX needs lualatex installed (part of any '
                 'TeX distribution: MacTeX/BasicTeX on macOS, MiKTeX on '
                 'Windows, TeX Live on Linux). Install one, or export to '
                 'DOCX/ODT and convert to PDF via LibreOffice instead.')
@@ -3169,7 +3177,7 @@ def export_pdf(compiled_md, vault_root=None, template=None, toc=False, tof=False
     fallback: needs a large separate PDF engine, has unicode/font issues,
     and produces output unlike the word-processor rendering — see
     export_document's docstring). LaTeX instead uses pandoc's own
-    --pdf-engine=xelatex, straight from markdown to PDF — no LibreOffice,
+    --pdf-engine=lualatex, straight from markdown to PDF — no LibreOffice,
     no intermediate file needed at all (see export_latex).
     """
     import tempfile, shutil as _sh
@@ -3214,7 +3222,7 @@ def export_pdf(compiled_md, vault_root=None, template=None, toc=False, tof=False
         # pandoc goes straight from markdown to PDF — no intermediate file,
         # no LibreOffice. keep_intermediate additionally asks for the .tex
         # pandoc would have produced along the way, via one extra (cheap,
-        # no xelatex) pandoc call.
+        # no lualatex) pandoc call.
         latex_kwargs = dict(
             vault_root=vault_root, template=template, toc=toc,
             template_dir=template_dir, output_dir=str(out_dir),

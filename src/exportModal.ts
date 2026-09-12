@@ -217,7 +217,7 @@ export class ExportModal extends Modal {
 
     this.pdfNote = fmtWrap.createEl('p', {
       text: 'PDF export requires either LibreOffice (for an ODT/DOCX template) '
-        + 'or a LaTeX distribution with xelatex (for a .tex template) to be '
+        + 'or a LaTeX distribution with LuaLaTeX (for a .tex template) to be '
         + 'installed. An ODT template generally produces better results than '
         + 'DOCX for PDF (footnote numbering, figure references).',
       cls: 'lc-mapping-modal-note',

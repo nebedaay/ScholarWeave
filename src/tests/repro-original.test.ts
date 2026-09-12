@@ -1,4 +1,4 @@
-import { getCitationSegments, getCitations } from '../../parser/parser';
+import { getCitationSegments, getCitations } from '../parser/parser';
 
 describe('legacy container + derived-filename regression (2026-08)', () => {
   it('parses the plain pandoc container with suppress-author and § locators', () => {

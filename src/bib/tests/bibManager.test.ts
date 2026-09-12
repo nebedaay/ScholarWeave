@@ -4,6 +4,7 @@ jest.mock(
   'obsidian',
   () => ({
     FileSystemAdapter: { readLocalFile: jest.fn() },
+    FuzzySuggestModal: class FuzzySuggestModal {},
     Keymap: { isModEvent: jest.fn(() => false) },
     MarkdownView: class MarkdownView {},
     Menu: class Menu {

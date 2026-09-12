@@ -37,11 +37,25 @@
 
 % ── Customize this template ────────────────────────────────────────────
 % Copy this file (e.g. into your own Export Templates folder) and edit any
-% of the four lines below to get your own fonts/margins/link color/spacing.
-\setmainfont{Noto Serif}[BoldFont={Noto Serif},BoldFeatures={FakeBold=3.5}]  % body text font (must be installed; matches book.docx/.odt) — FakeBold: Noto Serif ships as ONE variable-weight file with no separately-loadable true bold instance XeTeX can select (confirmed: even explicitly requesting its Bold named instance silently produces the same regular-weight glyphs, with no warning), so \textbf/\bfseries need a synthetic (stroke-emboldened) bold instead of a real one
+% of the lines below to get your own fonts/margins/link color/spacing.
+%
+% Noto Serif here is a VARIABLE font: one file with a continuous `wght` axis
+% (100–900) and no separate Bold file. LuaLaTeX exposes that axis through
+% fontspec's Weight= key, so BoldFeatures={Weight=700} below is the font's
+% REAL 700 instance — not a synthetic fake-bold. Weight=400, the axis
+% default, is normal text. (fontspec under XeLaTeX can't address variable
+% axes, so the \else branch keeps the old synthetic FakeBold, used only when
+% a .tex is compiled by hand with xelatex.) Width=/Slant=/RawAxis= work the
+% same way if you ever need them.
+\ifluatex
+  \setmainfont{Noto Serif}[BoldFont={Noto Serif},BoldFeatures={Weight=700}]
+\else
+  \setmainfont{Noto Serif}[BoldFont={Noto Serif},BoldFeatures={FakeBold=3.5}]
+\fi
 \usepackage[letterpaper,margin=1.3in]{geometry}  % page size + margins (try a4paper, or a per-side margin like "top=1in,bottom=1in,left=1.25in,right=1in")
 \definecolor{swlinkcolor}{HTML}{467886}        % link/citation color, as a hex RRGGBB (no '#') — matches book.docx/.odt's Hyperlink style
-\usepackage{setspace}\setstretch{1.15}         % paragraph line spacing (1 = single; matches book.docx/.odt's 1.15)
+\usepackage{setspace}\setstretch{1.35}         % paragraph line spacing — a setspace MULTIPLE (1 = single); this is NOT the same number as the DOCX/ODT 1.15 line-spacing multiple (they measure from a different baseline reference), so tune it by eye.
+\SetSinglespace{1.35}                          % FOOTNOTE/FLOAT line spacing — setspace forces footnotes and floats to SINGLE spacing regardless of \setstretch, so they look cramped next to the body; set this to match \setstretch (or lower). Affects footnotes & floats only, not body text.
 \raggedbottom                                  % let pages end wherever content naturally does — see document.tex
                                                 % for why (stretchy spacing otherwise fills to an even bottom
                                                 % margin, at the cost of inconsistent-looking gaps). Switch to
@@ -54,14 +68,43 @@
 %   \renewcommand{\swTitleLogo}{\includegraphics[width=3cm]{/path/to/logo.png}\\[1em]}
 \newcommand{\swTitleLogo}{}
 
-% Arabic poetry font — see document.tex for why this is needed (Noto Serif
-% has no Arabic glyphs at all) and why it's declared with the
-% [Script=Arabic,RTL] fontspec feature pair rather than a plain
-% \newfontfamily, or \TeXXeTstate+\beginR/\endR, or polyglossia+bidi (all
-% tried first, all had a real problem on the actual document). Change the
-% font name here to use a different Arabic typeface (e.g. "Noto Sans
-% Arabic").
-\newfontfamily\arabicfont[Script=Arabic,RTL]{Noto Naskh Arabic}
+% ── Arabic / non-Latin RTL scripts (wrapper-free) ───────────────────────
+% See document.tex for the full rationale. In short: LuaLaTeX + babel
+% `bidi=basic` gives correct Arabic letter-joining AND right-to-left
+% ordering (XeLaTeX cannot — its macro-based alternatives crash with "TeX
+% capacity exceeded" at the first footnote), and `onchar=ids fonts`
+% auto-detects any Arabic-script run (including Arabic-derived "Ajami") with
+% NO wrapper, so inline Arabic just works. The Arabic font is Scheherazade
+% New at 120% (Arabic looks smaller than Latin at the same nominal size),
+% with Noto Naskh Arabic as the fallback; Chinese is provided too (font
+% selection only — CJK needs no bidi). The nested \IfFontExistsTF guards
+% let a missing font degrade instead of breaking the export.
+%
+% Right indent for Arabic verse lines (babel maps LaTeX's "left" indents to
+% the RTL right side) — the verse default is nearly flush. Raise it for a
+% deeper indent.
+\newlength{\swArabicVerseIndent}\setlength{\swArabicVerseIndent}{5em}
+\newcommand{\swArabicVerseSetup}{\setlength{\leftmargini}{\swArabicVerseIndent}}
+
+\ifluatex
+  \makeatletter
+  \@ifpackageloaded{babel}{}{\usepackage[bidi=basic,shorthands=off]{babel}}
+  \makeatother
+  \babelprovide[import,onchar=ids fonts]{arabic}
+  \IfFontExistsTF{Scheherazade New}{%
+    \babelfont[arabic]{rm}[Scale=1.2]{Scheherazade New}%
+  }{\IfFontExistsTF{Noto Naskh Arabic}{\babelfont[arabic]{rm}[Scale=1.2]{Noto Naskh Arabic}}{}}%
+  \babelprovide[import,onchar=ids fonts]{chinese}
+  \IfFontExistsTF{Noto Serif CJK SC}{%
+    \babelfont[chinese]{rm}{Noto Serif CJK SC}%
+  }{\IfFontExistsTF{Songti SC}{\babelfont[chinese]{rm}{Songti SC}}{}}%
+  \newcommand{\arabicfont}{\selectlanguage{arabic}\swArabicVerseSetup}
+\else
+  % XeLaTeX fallback (manual .tex compile only): no paragraph-level bidi, so
+  % mixed inline runs come out reversed. LuaLaTeX is strongly preferred.
+  \newfontfamily\swArabicFont[Script=Arabic]{Scheherazade New}
+  \newcommand{\arabicfont}{\swArabicFont\swArabicVerseSetup}
+\fi
 
 % Bullet-list levels alternate bullet/dash instead of LaTeX's own default
 % bullet/dash/asterisk/centered-dot cascade.
