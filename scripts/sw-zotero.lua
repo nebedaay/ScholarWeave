@@ -2195,11 +2195,17 @@ function Div(div)
 end
 
 function Pandoc(doc)
+  -- Only auto-insert a bibliography when the document actually cites
+  -- something. Cite_collect (earlier filter pass) fills zotero.citekeys from
+  -- every Cite it sees; when the note has no citations that table is empty and
+  -- an empty "Bibliography" section would otherwise be added to every export.
+  local has_citations = next(zotero.citekeys) ~= nil
+
   if config.format == 'docx' then
     -- See zotero_bibl_docx_heading(): DOCX gets a plain "Bibliography"
     -- heading here, not a real field — sw_export_merge.py replaces it with
     -- one, the same way it replaces a heading the note wrote itself.
-    if config.csl_style then
+    if config.csl_style and has_citations then
       table.insert(doc.blocks, pandoc.RawBlock('openxml', zotero_bibl_docx_heading()))
     end
     return pandoc.Pandoc(doc.blocks, doc.meta)
@@ -2212,7 +2218,7 @@ function Pandoc(doc)
     table.insert(doc.blocks, 1, pandoc.RawBlock('opendocument', zotero_bibl_odt_banner()))
   end
 
-  if config.csl_style and not refsDivSeen then
+  if config.csl_style and has_citations and not refsDivSeen then
     -- Heading (see zotero_bibl_odt_heading()) PLUS the field section: the
     -- shared find_bibliography_range (sw_merge_helpers.py) only recognizes a
     -- heading as a bibliography section if at least one non-heading element

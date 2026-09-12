@@ -1,6 +1,6 @@
 {
   "name": "scholar-weave",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "ScholarWeave for Obsidian — weaves Zotero references into Obsidian's linked-note universe with linked citations, a live reference sidebar, and a book compiler that exports to Word.",
   "main": "main.js",
   "scripts": {

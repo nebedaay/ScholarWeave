@@ -797,20 +797,56 @@ def compile_book(master_file_path, global_footnotes=False, output_dir=None):
     print(f"\nCompiled book written to {output_path}")
     return output_path
 
+_OUTLINE_LIST_ITEM_RE = re.compile(r'^([-*+]|\d+[.)])\s')
+_OUTLINE_INCLUDE_RE = re.compile(r'^\[\[([^\[\]]+)\]\]$')
+
+
+def outline_bullet_is_include(item: str) -> bool:
+    """True when a bullet's text is a single non-citekey wikilink — the same
+    rule parse_outline uses to decide a bullet is a note include. `item` must
+    already have its list marker stripped."""
+    rest = re.sub(r'^x\s*', '', item)
+    if rest.startswith('@@'):
+        rest = rest[2:].strip()
+    m = _OUTLINE_INCLUDE_RE.match(rest.strip())
+    return bool(m and not m.group(1).strip().startswith('@'))
+
+
 def detect_outline(text: str) -> bool:
-    """Structural check: a top-level bullet list with no # headings is an
-    outline (needs compiling). A compiled note has # headings, not bullets."""
+    """Structural check for an OUTLINE (needs compiling) vs a compiled note or
+    a plain note that should just be rendered.
+
+    An outline is a document whose body is made up ENTIRELY of list items —
+    no ordinary prose paragraphs — and that contains at least one note
+    INCLUDE: a bullet that is a single `[[wikilink]]` (the includes may sit
+    beneath plain-text heading bullets). A bullet list inside an ordinary note
+    is NOT an outline: a prose paragraph anywhere disqualifies the document,
+    and a list of only plain-text/topic bullets has no includes, hence no note
+    content to compile. Explicit `template: compile-<name>` still overrides
+    this (see main())."""
     _, body = extract_yaml(text)
-    has_bullets = False
-    has_headings = False
+    has_include = False
     for raw in body.splitlines():
         if not raw.strip():
             continue
-        if raw.lstrip().startswith("#"):
-            has_headings = True
-        if get_indent_level(raw) == 0 and raw.lstrip().startswith("-"):
-            has_bullets = True
-    return has_bullets and not has_headings
+        stripped = raw.lstrip()
+        # Any ATX heading means the document is already compiled.
+        if stripped.startswith('#'):
+            return False
+        # Indented continuation of a list item (or a block scalar) — not prose.
+        if raw[:1] in (' ', '\t') and not _OUTLINE_LIST_ITEM_RE.match(stripped):
+            continue
+        if _OUTLINE_LIST_ITEM_RE.match(stripped):
+            item = _OUTLINE_LIST_ITEM_RE.sub('', stripped, count=1).strip()
+            if outline_bullet_is_include(item):
+                has_include = True
+            continue
+        # Footnote definitions and horizontal rules don't disqualify.
+        if stripped.startswith('[^') or re.fullmatch(r'([-*_])\1{2,}', stripped):
+            continue
+        # Any other non-indented line is an ordinary prose paragraph.
+        return False
+    return has_include
 
 def read_yaml_prop(yaml_block, prop: str):
     m = re.search(rf'^{prop}:[^\S\n]*["\']?([^"\'\n]+)', yaml_block, re.M)
@@ -3429,7 +3465,8 @@ def main():
         if explicit_compile:
             write_compiled_template_prop(compiled, effective_tpl)
     else:
-        print("Detected compiled markdown (headings present). Skipping compilation.")
+        print("Not an outline (has headings, prose paragraphs, or no note "
+              "includes). Treating as a compiled note; skipping compilation.")
         print(f"Template: {effective_tpl} — TOC {'on' if use_toc else 'off'}, "
               f"footnotes {'global' if use_global else 'per-chapter'}")
         compiled = master_file
