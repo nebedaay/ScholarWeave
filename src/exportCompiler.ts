@@ -3,6 +3,8 @@ import type ReferenceList from './main';
 import type { ExportFormat } from './exportModal';
 import type { StyleMapping } from './settings';
 import { findPandoc } from './bib/pandoc';
+import { convertCitationsInText } from './convertCitations';
+import { findPython3, findNode } from './tools';
 
 // esbuild outputs this file in CJS format where `require` is available at
 // runtime, but TypeScript's project-level `module: ESNext` doesn't declare it.
@@ -43,97 +45,7 @@ function expandTilde(p: string): string {
   return p;
 }
 
-/**
- * Resolve the Python 3 interpreter, VERIFYING it can import the modules the
- * pipeline needs (lxml, python-docx). Electron's renderer doesn't inherit the
- * shell PATH — `python3` often resolves to macOS's CLT build (3.9, no lxml)
- * while a Homebrew/python.org build with the required packages sits at a
- * known location. Explicit setting wins; otherwise we test PATH candidates
- * and known locations in order, returning the first that imports cleanly.
- */
-async function findPython3(configured: string): Promise<string | null> {
-  if (configured.trim()) return configured.trim();
-  const { execFile } = require('child_process') as typeof import('child_process');
-  const { promisify } = require('util') as typeof import('util');
-  const execAsync = promisify(execFile);
-  const platform = globalThis.process?.platform;
-
-  const probe = async (p: string): Promise<boolean> => {
-    try {
-      await execAsync(p, [
-        '-c',
-        'import lxml, docx; import sys; sys.exit(0)',
-      ]);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
-  // PATH candidates first (respects a user-visible install on Windows too).
-  const candidates: string[] = [];
-  if (platform === 'win32') {
-    candidates.push('py', 'python', 'python3');
-  } else {
-    candidates.push('python3');
-  }
-  candidates.push(
-    ...(platform === 'win32'
-      ? [
-          'C:\\Python313\\python.exe',
-          'C:\\Python312\\python.exe',
-          'C:\\Python311\\python.exe',
-        ]
-      : [
-          '/opt/homebrew/bin/python3', // Apple Silicon Homebrew
-          '/usr/local/bin/python3',    // Intel Homebrew / python.org
-          '/usr/bin/python3',          // macOS CLT build (often no lxml)
-        ])
-  );
-
-  for (const p of candidates) {
-    if (await probe(p)) return p;
-  }
-  return null;
-}
-
-/** Resolve the node binary (used by convert-citations.mjs). Same PATH
- *  problem as python/pandoc: Electron doesn't inherit the shell PATH, so we
- *  try `which node` then common install locations. */
-async function findNode(): Promise<string | null> {
-  const { execFile } = require('child_process') as typeof import('child_process');
-  const { promisify } = require('util') as typeof import('util');
-  const execAsync = promisify(execFile);
-  const platform = globalThis.process?.platform;
-
-  const probe = async (p: string): Promise<boolean> => {
-    try {
-      await execAsync(p, ['--version']);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
-  const candidates =
-    platform === 'win32'
-      ? [
-          'node',
-          'C:\\Program Files\\nodejs\\node.exe',
-          `${process.env.APPDATA ?? ''}\\nvm\\node.exe`,
-        ]
-      : [
-          'node',
-          '/opt/homebrew/bin/node', // Apple Silicon Homebrew
-          '/usr/local/bin/node',    // Intel Homebrew / nodejs.org
-          '/usr/bin/node',
-        ];
-
-  for (const p of candidates) {
-    if (await probe(p)) return p;
-  }
-  return null;
-}
+// findPython3 / findNode now live in src/tools.ts (shared with probeTools()).
 
 export interface CompileResult {
   ok: boolean;
@@ -183,6 +95,14 @@ export interface CompilerOptions {
   /** The style to apply when overrideCslStyle is true: a Zotero style name,
    *  a .csl path, or a URL. */
   cslStyle?: string;
+  /** When true, leave citations as literal text (no Zotero fields, no
+   *  --citeproc). Set by the export modal when the user chooses to proceed
+   *  without Zotero. Applies to DOCX/ODT only. */
+  rawCitations?: boolean;
+  /** Path to a CSL-JSON bibliography to render citations statically from
+   *  (instead of live Zotero fields / fetching Zotero). Set by the export
+   *  modal when Zotero is unavailable. DOCX/ODT only. */
+  staticBibliography?: string;
 }
 
 /** Convert a user-supplied folder (vault-relative, absolute, or ~) to an
@@ -248,7 +168,9 @@ export async function runDocumentCompiler(
       typeof rawTpl === 'string' ? rawTpl.replace(/\.(docx|odt|tex)$/i, '') : '';
   }
 
-  const args = [absMaster];
+  const outputDir = resolveFolder(opts.outputDir, vaultBase);
+  const buildArgs = (input: string, citationsInput?: string): string[] => {
+  const args = [input];
   if (isExport) {
     args.push('--export');
     args.push('--format', opts.format); // 'docx', 'odt', or 'pdf'
@@ -271,6 +193,16 @@ export async function runDocumentCompiler(
   } else if (isExport && opts.overrideCslStyle === false) {
     args.push('--csl-style-from-template');
   }
+  // Chosen when the user proceeds without Zotero: leave citations literal
+  // rather than emitting (and failing to populate) live Zotero fields.
+  if (isExport && opts.rawCitations &&
+      (opts.format === 'docx' || opts.format === 'odt')) {
+    args.push('--raw-citations');
+  }
+  if (isExport && opts.staticBibliography &&
+      (opts.format === 'docx' || opts.format === 'odt')) {
+    args.push('--static-bibliography', opts.staticBibliography);
+  }
 
   // Pass the Obsidian account display name as a fallback author so the
   // merge script can set dc:creator even when `author:` is absent from YAML.
@@ -286,7 +218,6 @@ export async function runDocumentCompiler(
   );
   args.push('--templates-dir', templateDir);
   if (templateName) args.push('--template', templateName);
-  const outputDir = resolveFolder(opts.outputDir, vaultBase);
   if (outputDir) args.push('--output-dir', outputDir);
   // Let the script write the final filename directly — generating the
   // default-named file first and renaming it clobbers an existing export the
@@ -306,6 +237,10 @@ export async function runDocumentCompiler(
       args.push('--mappings', JSON.stringify(activeMappings));
     }
   }
+
+  if (citationsInput) args.push('--citations-input', citationsInput);
+  return args;
+  };
 
   const script = `${scriptsDir}/DocumentCompiler.py`;
   // Pass resolved tool paths through so the script doesn't depend on PATH,
@@ -327,45 +262,82 @@ export async function runDocumentCompiler(
       plugin.settings.cslStylePath || plugin.settings.cslStyleURL || '';
     if (configured) env.SW_DEFAULT_CSL = configured;
   }
-  if (isExport) {
-    const node = await findNode();
-    if (!node) {
-      return {
-        ok: false,
-        stdout: '',
-        stderr: 'Node.js not found. Install it (nodejs.org or Homebrew).',
-      };
-    }
-    env.SW_NODE = node;
-    const pandoc = plugin.settings.pathToPandoc?.trim() || (await findPandoc());
-    if (!pandoc) {
-      return {
-        ok: false,
-        stdout: '',
-        stderr: 'Pandoc not found. Set its path in the plugin settings.',
-      };
-    }
-    env.SW_PANDOC = pandoc;
-  }
+  const execCompiler = (args: string[]) =>
+    execFileAsync(py, [script, ...args], { env });
 
-  try {
-    const res = await execFileAsync(py, [script, ...args], { env });
-    // The script writes the final filename itself (see --output-name) and
-    // prints its path as the last stdout line.
+  const toResult = (res: { stdout: string; stderr: string }): CompileResult => {
     const rawOutputPath = res.stdout.trim().split('\n').pop() ?? '';
-
     return {
       ok: true,
       stdout: res.stdout,
       stderr: res.stderr,
       outputPath: rawOutputPath || undefined,
     };
-  } catch (e) {
-    const err = e as any;
+  };
+  const toError = (e: any): CompileResult => ({
+    ok: false,
+    stdout: e?.stdout || '',
+    stderr: (e?.stderr || String(e?.message ?? e)).trim(),
+  });
+
+  if (!isExport) {
+    try {
+      return toResult(await execCompiler(buildArgs(absMaster)));
+    } catch (e) {
+      return toError(e);
+    }
+  }
+
+  const pandoc = plugin.settings.pathToPandoc?.trim() || (await findPandoc());
+  if (!pandoc) {
     return {
       ok: false,
-      stdout: err?.stdout || '',
-      stderr: (err?.stderr || String(err?.message ?? err)).trim(),
+      stdout: '',
+      stderr: 'Pandoc not found. Set its path in the plugin settings.',
     };
+  }
+  env.SW_PANDOC = pandoc;
+
+  // Preferred path: convert citations IN-PROCESS, so no external Node.js
+  // runtime is needed:
+  //   1. Python compiles (if the input is an outline) and prints the markdown
+  //      path (--prepare-convert).
+  //   2. We convert the citation wikilinks here with the plugin's own parser.
+  //   3. Python exports from that converted markdown (--citations-input).
+  // If any step fails, fall back to the external Node.js converter.
+  try {
+    const fs = require('fs') as typeof import('fs');
+    const prepArgs = [
+      '--prepare-convert',
+      opts.restartFootnotes ? '--no-global-footnotes' : '--global-footnotes',
+    ];
+    if (outputDir) prepArgs.push('--output-dir', outputDir);
+    if (templateName) prepArgs.push('--template', templateName);
+    const prep = await execCompiler([absMaster, ...prepArgs]);
+    const mdPath = (prep.stdout.trim().split('\n').pop() || '').trim();
+    if (!mdPath || !fs.existsSync(mdPath)) {
+      throw new Error('prepare-convert did not return a usable markdown path');
+    }
+    const converted = convertCitationsInText(fs.readFileSync(mdPath, 'utf-8'));
+    const convPath = `${mdPath}.swcitations.md`;
+    fs.writeFileSync(convPath, converted, 'utf-8');
+    try {
+      return toResult(await execCompiler(buildArgs(mdPath, convPath)));
+    } finally {
+      try { fs.unlinkSync(convPath); } catch { /* ignore */ }
+      if (mdPath !== absMaster && !opts.keepIntermediateMd) {
+        try { fs.unlinkSync(mdPath); } catch { /* ignore */ }
+      }
+    }
+  } catch (e) {
+    // Fallback: the external Node.js converter (historical path).
+    const node = await findNode();
+    if (!node) return toError(e);
+    env.SW_NODE = node;
+    try {
+      return toResult(await execCompiler(buildArgs(absMaster)));
+    } catch (e2) {
+      return toError(e2);
+    }
   }
 }

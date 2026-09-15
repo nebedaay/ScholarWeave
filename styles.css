@@ -1316,3 +1316,147 @@ Annotation callouts
     padding: 5px 0px;
 }
 
+
+/* ── Settings: home menu + sub-page navigation ─────────────────────────── */
+
+.lc-settings-tab .sw-settings-nav {
+    margin-bottom: 4px;
+}
+
+.lc-settings-tab .sw-settings-back {
+    cursor: pointer;
+    font-size: var(--font-ui-small);
+    color: var(--text-muted);
+}
+
+.lc-settings-tab .sw-settings-back:hover {
+    color: var(--text-normal);
+    text-decoration: underline;
+}
+
+.lc-settings-tab .sw-settings-card {
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-m);
+    padding: 12px 14px;
+    margin: 8px 0;
+    cursor: pointer;
+    transition: background-color 0.1s ease;
+}
+
+.lc-settings-tab .sw-settings-card:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+.lc-settings-tab .sw-settings-card-title {
+    font-weight: 600;
+    font-size: var(--font-ui-medium);
+}
+
+.lc-settings-tab .sw-settings-card-desc {
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+    margin-top: 2px;
+}
+
+/* Requirement / dependency note shown on a settings sub-page. */
+
+.sw-dependency-note {
+    border: 1px solid var(--background-modifier-border);
+    border-left: 3px solid var(--interactive-accent);
+    border-radius: var(--radius-s);
+    background-color: var(--background-secondary);
+    padding: 8px 12px;
+    margin: 6px 0 16px;
+    font-size: var(--font-ui-small);
+    color: var(--text-muted);
+}
+
+.sw-dependency-note-intro {
+    margin-bottom: 4px;
+}
+
+.sw-dependency-note-list {
+    margin: 4px 0 4px 1.2em;
+    padding: 0;
+}
+
+.sw-dependency-note-list li {
+    margin: 2px 0;
+}
+
+.sw-dependency-note a {
+    color: var(--text-accent);
+}
+
+.sw-dependency-note-more {
+    display: inline-block;
+    margin-top: 4px;
+}
+
+.sw-tool-status:empty {
+    display: none;
+}
+
+
+/* ── In-app documentation modal ────────────────────────────────────────── */
+
+.sw-docs-modal {
+    max-width: min(1200px, 94vw);
+}
+
+/* The width is set on the modal element itself (contentEl is inside it). */
+.modal.sw-docs-modal {
+    width: min(1200px, 94vw);
+    max-width: min(1200px, 94vw);
+}
+
+.sw-docs-wrap {
+    display: flex;
+    gap: 16px;
+    height: 70vh;
+    margin-top: 6px;
+}
+
+.sw-docs-nav {
+    flex: 0 0 210px;
+    overflow-y: auto;
+    border-right: 1px solid var(--background-modifier-border);
+    padding-right: 10px;
+}
+
+.sw-docs-nav-item {
+    display: block;
+    padding: 4px 8px;
+    margin: 1px 0;
+    border-radius: var(--radius-s);
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+}
+
+.sw-docs-nav-item:hover {
+    background-color: var(--background-modifier-hover);
+    color: var(--text-normal);
+}
+
+.sw-docs-nav-item.is-active {
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+}
+
+.sw-docs-body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding-right: 8px;
+}
+
+.sw-docs-gh {
+    font-size: var(--font-ui-smaller);
+    margin-bottom: 6px;
+}
+
+.sw-docs-content img {
+    max-width: 100%;
+}
+
+

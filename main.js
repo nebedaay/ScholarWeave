@@ -20742,7 +20742,7 @@ __export(exports, {
   default: () => ReferenceList
 });
 var import_state2 = __toModule(require("@codemirror/state"));
-var import_obsidian21 = __toModule(require("obsidian"));
+var import_obsidian22 = __toModule(require("obsidian"));
 
 // src/editorExtension.ts
 var import_language = __toModule(require("@codemirror/language"));
@@ -26357,9 +26357,9 @@ function getLitNoteForCitekey(citekey, sourcePath, app2) {
   var _a, _b, _c;
   if (isZotLitLoaded(app2)) {
     const zotlit = (_b = (_a = app2.plugins) == null ? void 0 : _a.plugins) == null ? void 0 : _b["zotlit"];
-    const cache = (_c = zotlit == null ? void 0 : zotlit.noteIndex) == null ? void 0 : _c.citekeyCache;
-    if (cache instanceof Map) {
-      const paths = cache.get(citekey);
+    const cache2 = (_c = zotlit == null ? void 0 : zotlit.noteIndex) == null ? void 0 : _c.citekeyCache;
+    if (cache2 instanceof Map) {
+      const paths = cache2.get(citekey);
       if (paths == null ? void 0 : paths.size) {
         const notePath = paths.values().next().value;
         const file = app2.vault.getAbstractFileByPath(notePath);
@@ -27161,16 +27161,16 @@ function processCiteKeys(plugin) {
     const isCallout = isCalloutSection(el);
     if (!sectionInfo && !isCallout && !el.hasClass("markdown-preview-view") && !isFootnote)
       return;
-    const cache = plugin.bibManager.getCacheForPath(ctx.sourcePath);
-    const sectionCites0 = sectionInfo && !isFootnote ? plugin.bibManager.getCitationsForSection(ctx.sourcePath, sectionInfo.lineStart, sectionInfo.lineEnd) : cache == null ? void 0 : cache.citations;
-    const sectionCites = !(sectionCites0 == null ? void 0 : sectionCites0.length) && ((_a = cache == null ? void 0 : cache.citations) == null ? void 0 : _a.length) ? cache.citations : sectionCites0;
+    const cache2 = plugin.bibManager.getCacheForPath(ctx.sourcePath);
+    const sectionCites0 = sectionInfo && !isFootnote ? plugin.bibManager.getCitationsForSection(ctx.sourcePath, sectionInfo.lineStart, sectionInfo.lineEnd) : cache2 == null ? void 0 : cache2.citations;
+    const sectionCites = !(sectionCites0 == null ? void 0 : sectionCites0.length) && ((_a = cache2 == null ? void 0 : cache2.citations) == null ? void 0 : _a.length) ? cache2.citations : sectionCites0;
     if (!(sectionCites == null ? void 0 : sectionCites.length)) {
       return;
     }
     const findRendered = (segs) => {
       var _a2, _b2;
       const want = onlyValType2(segs);
-      return (_b2 = sectionCites.find((c3) => (0, import_fast_deep_equal2.default)(onlyValType2(c3.data), want))) != null ? _b2 : (_a2 = cache == null ? void 0 : cache.citations) == null ? void 0 : _a2.find((c3) => (0, import_fast_deep_equal2.default)(onlyValType2(c3.data), want));
+      return (_b2 = sectionCites.find((c3) => (0, import_fast_deep_equal2.default)(onlyValType2(c3.data), want))) != null ? _b2 : (_a2 = cache2 == null ? void 0 : cache2.citations) == null ? void 0 : _a2.find((c3) => (0, import_fast_deep_equal2.default)(onlyValType2(c3.data), want));
     };
     if (plugin.settings.renderLinkCitations && plugin.settings.formatLinkAliases) {
       const containerOpen2 = "\u27E6";
@@ -27558,7 +27558,7 @@ function processCiteKeys(plugin) {
 }
 
 // src/settings.tsx
-var import_obsidian10 = __toModule(require("obsidian"));
+var import_obsidian11 = __toModule(require("obsidian"));
 
 // src/bib/pandoc.ts
 var import_obsidian3 = __toModule(require("obsidian"));
@@ -70486,8 +70486,10 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
                     default_author=None, new_page_headings=True,
                     restart_footnotes=True, mappings_data=None, generate_date=True,
                     roman_frontmatter=False, page1_starts_with='',
-                    static_citations=False, csl_style_override=None,
-                    csl_from_template=False, output_name=None):
+                    static_citations=False, raw_citations=False,
+                    static_bibliography=None, csl_style_override=None,
+                    csl_from_template=False, output_name=None,
+                    citations_input=None):
     """Unified export pipeline for DOCX and ODT.
 
     static_citations: when True, skip sw-zotero.lua's live-Zotero-field
@@ -70552,13 +70554,19 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
 
     # \u2500\u2500 Citation conversion (identical for both formats) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     citations_md = compiled_md.with_suffix('.citations.md')
-    conv_script  = plugin_script_path('convert-citations.mjs')
-    node_bin     = os.environ.get('SW_NODE', 'node')
-    subprocess.run([node_bin, conv_script, str(compiled_md), str(citations_md)],
-                   check=True)
+    if citations_input:
+        # The caller already converted citations (the plugin does this
+        # in-process, so no external Node.js is required); use its output.
+        cit_text = Path(citations_input).read_text(encoding='utf-8')
+        citations_md.write_text(cit_text, encoding='utf-8')
+    else:
+        conv_script = plugin_script_path('convert-citations.mjs')
+        node_bin    = os.environ.get('SW_NODE', 'node')
+        subprocess.run([node_bin, conv_script, str(compiled_md), str(citations_md)],
+                       check=True)
+        cit_text = citations_md.read_text(encoding='utf-8')
 
     # \u2500\u2500 Markdown pre-processing (identical for both formats) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-    cit_text = citations_md.read_text(encoding='utf-8')
     cit_text = ensure_blank_before_headings(cit_text)
     cit_text = rewrite_poetry_callouts(cit_text)
     cit_text = preprocess_md_syntax(cit_text)
@@ -70567,6 +70575,11 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
     cit_text = linkify_bare_urls(cit_text)     # converts bare URLs to markdown links
     citations_md.write_text(cit_text, encoding='utf-8')
 
+    # A caller-provided CSL-JSON bibliography (the plugin's loaded library) means
+    # a STATIC export: --citeproc renders citations from it instead of live
+    # Zotero fields, and no Zotero fetch is needed.
+    use_static = static_citations or bool(static_bibliography)
+
     # \u2500\u2500 Lua filter construction (identical for both formats) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
     filters = [
         plugin_script_path('sw-doc-title.lua'),
@@ -70574,7 +70587,7 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
         plugin_script_path('sw-poetry.lua'),
         plugin_script_path('sw-bidi.lua'),
     ]
-    if not static_citations:
+    if not use_static and not raw_citations:
         filters.append(plugin_script_path('sw-zotero.lua'))
     filters += find_user_lua_filters(template_dir)
     active_mappings = mappings_data or load_mappings(template_dir)
@@ -70615,7 +70628,7 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
     # citation into a real footnote before pandoc runs (see
     # citations_to_footnotes). The static path skips this \u2014 pandoc's own
     # --citeproc already produces footnotes for a note style.
-    if not static_citations:
+    if not use_static and not raw_citations:
         try:
             _csl_path_for_notes = _fetch_csl_style_file(csl_style, zmeta['client'])
         except (RuntimeError, OSError):
@@ -70630,15 +70643,25 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
     # own --citeproc instead of sw-zotero.lua's live-field generation.
     citeproc_args = []
     _tmp_biblio_dir = None
-    if static_citations:
-        citekeys = _extract_citekeys(cit_text)
-        csl_items = _fetch_zotero_csl_items(
-            citekeys, csl_style, zmeta['client'], zmeta['library'])
-        csl_path = _fetch_csl_style_file(csl_style, zmeta['client'])
-        import tempfile as _tempfile
-        _tmp_biblio_dir = Path(_tempfile.mkdtemp())
-        biblio_path = _tmp_biblio_dir / 'bibliography.json'
-        biblio_path.write_text(json.dumps(csl_items, ensure_ascii=False), encoding='utf-8')
+    if use_static:
+        csl_path = None
+        if static_bibliography:
+            # Caller supplied the bibliography (the plugin's loaded library, so
+            # .bib-sourced citations render without Zotero); do NOT fetch Zotero.
+            biblio_path = Path(static_bibliography)
+            try:
+                csl_path = _fetch_csl_style_file(csl_style, zmeta['client'])
+            except Exception:
+                csl_path = None
+        else:
+            citekeys = _extract_citekeys(cit_text)
+            csl_items = _fetch_zotero_csl_items(
+                citekeys, csl_style, zmeta['client'], zmeta['library'])
+            csl_path = _fetch_csl_style_file(csl_style, zmeta['client'])
+            import tempfile as _tempfile
+            _tmp_biblio_dir = Path(_tempfile.mkdtemp())
+            biblio_path = _tmp_biblio_dir / 'bibliography.json'
+            biblio_path.write_text(json.dumps(csl_items, ensure_ascii=False), encoding='utf-8')
         citeproc_args = [
             '--citeproc',
             '--bibliography', str(biblio_path),
@@ -70724,7 +70747,7 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
         merge_cmd.append('--roman-frontmatter')
         if page1_starts_with:
             merge_cmd += ['--page1-starts-with', page1_starts_with]
-    if static_citations:
+    if use_static or raw_citations:
         merge_cmd.append('--static-citations')
     if _csl_is_override and csl_style:
         # Write the chosen style into the output's Zotero document
@@ -70762,8 +70785,10 @@ def export_docx(compiled_md, vault_root=None, template=None, toc=False,
                 new_page_headings=True, restart_footnotes=True,
                 mappings_data=None, generate_date=True,
                 roman_frontmatter=False, page1_starts_with='',
-                static_citations=False, csl_style_override=None,
-                csl_from_template=False, output_name=None):
+                static_citations=False, raw_citations=False,
+                static_bibliography=None, csl_style_override=None,
+                csl_from_template=False, output_name=None,
+                citations_input=None):
     """Export compiled markdown to DOCX. Thin wrapper around export_document."""
     return export_document('docx', compiled_md,
                            vault_root=vault_root, template=template, toc=toc,
@@ -70776,9 +70801,12 @@ def export_docx(compiled_md, vault_root=None, template=None, toc=False,
                            roman_frontmatter=roman_frontmatter,
                            page1_starts_with=page1_starts_with,
                            static_citations=static_citations,
+                           raw_citations=raw_citations,
+                           static_bibliography=static_bibliography,
                            csl_style_override=csl_style_override,
                            csl_from_template=csl_from_template,
-                           output_name=output_name)
+                           output_name=output_name,
+                           citations_input=citations_input)
 
 
 def _prep_reference_odt(ref_doc_path, style_names):
@@ -70884,8 +70912,10 @@ def export_odt(compiled_md, vault_root=None, template=None, toc=False,
                new_page_headings=True, restart_footnotes=True,
                mappings_data=None, generate_date=True,
                roman_frontmatter=False, page1_starts_with='',
-               static_citations=False, csl_style_override=None,
-               csl_from_template=False, output_name=None):
+               static_citations=False, raw_citations=False,
+               static_bibliography=None, csl_style_override=None,
+               csl_from_template=False, output_name=None,
+               citations_input=None):
     """Export compiled markdown to ODT. Thin wrapper around export_document."""
     return export_document('odt', compiled_md,
                            vault_root=vault_root, template=template, toc=toc,
@@ -70898,9 +70928,12 @@ def export_odt(compiled_md, vault_root=None, template=None, toc=False,
                            roman_frontmatter=roman_frontmatter,
                            page1_starts_with=page1_starts_with,
                            static_citations=static_citations,
+                           raw_citations=raw_citations,
+                           static_bibliography=static_bibliography,
                            csl_style_override=csl_style_override,
                            csl_from_template=csl_from_template,
-                           output_name=output_name)
+                           output_name=output_name,
+                           citations_input=citations_input)
 
 
 def _latex_notes_parts(abstract, extra_sections):
@@ -71008,7 +71041,7 @@ def export_latex(compiled_md, vault_root=None, template=None, toc=False,
                  restart_footnotes=True, mappings_data=None, generate_date=True,
                  roman_frontmatter=False, page1_starts_with='',
                  csl_style_override=None, csl_from_template=False,
-                 output_name=None, as_pdf=False):
+                 output_name=None, citations_input=None, as_pdf=False):
     """Export compiled markdown to LaTeX (.tex), or \u2014 when as_pdf \u2014 straight
     to PDF via pandoc's own --pdf-engine=lualatex. No LibreOffice, no
     intermediate file: pandoc goes from markdown to PDF in one call.
@@ -71070,12 +71103,17 @@ def export_latex(compiled_md, vault_root=None, template=None, toc=False,
 
     # \u2500\u2500 Citation conversion + markdown pre-processing (shared with DOCX/ODT) \u2500\u2500
     citations_md = compiled_md.with_suffix('.citations.md')
-    conv_script  = plugin_script_path('convert-citations.mjs')
-    node_bin     = os.environ.get('SW_NODE', 'node')
-    subprocess.run([node_bin, conv_script, str(compiled_md), str(citations_md)],
-                   check=True)
+    if citations_input:
+        # The caller already converted citations (plugin path; no external Node).
+        cit_text = Path(citations_input).read_text(encoding='utf-8')
+        citations_md.write_text(cit_text, encoding='utf-8')
+    else:
+        conv_script = plugin_script_path('convert-citations.mjs')
+        node_bin    = os.environ.get('SW_NODE', 'node')
+        subprocess.run([node_bin, conv_script, str(compiled_md), str(citations_md)],
+                       check=True)
+        cit_text = citations_md.read_text(encoding='utf-8')
 
-    cit_text = citations_md.read_text(encoding='utf-8')
     cit_text = ensure_blank_before_headings(cit_text)
     cit_text = rewrite_poetry_callouts(cit_text)
     cit_text = preprocess_md_syntax(cit_text)
@@ -71361,7 +71399,8 @@ def export_pdf(compiled_md, vault_root=None, template=None, toc=False, tof=False
                new_page_headings=True, restart_footnotes=True,
                intermediate_format=None, keep_intermediate=False,
                mappings_data=None, csl_style_override=None,
-               csl_from_template=False, output_name=None):
+               csl_from_template=False, output_name=None,
+               citations_input=None):
     """Export to PDF via an intermediate ODT, DOCX, or LaTeX file.
 
     The intermediate format is auto-determined from the template: ODT is
@@ -71427,7 +71466,8 @@ def export_pdf(compiled_md, vault_root=None, template=None, toc=False, tof=False
             mappings_data=mappings_data, generate_date=generate_date,
             roman_frontmatter=roman_frontmatter, page1_starts_with=page1_starts_with,
             csl_style_override=csl_style_override,
-            csl_from_template=csl_from_template, output_name=output_name)
+            csl_from_template=csl_from_template, output_name=output_name,
+            citations_input=citations_input)
         if keep_intermediate:
             tex_path = export_latex(compiled_md, as_pdf=False, **latex_kwargs)
             print(f'Intermediate LaTeX kept at: {tex_path}')
@@ -71451,7 +71491,8 @@ def export_pdf(compiled_md, vault_root=None, template=None, toc=False, tof=False
             # PDF has no live document to refresh fields in later, so let
             # pandoc's own --citeproc render final citations + bibliography
             # instead of live Zotero fields (see export_document's docstring).
-            static_citations=True)
+            static_citations=True,
+            citations_input=citations_input)
         if intermediate_format == 'docx':
             inter_path = Path(export_docx(compiled_md, **common_kwargs))
         else:
@@ -71568,6 +71609,30 @@ def main():
                        help='Ignore the note\\'s csl: property; use the template\\'s '
                             'embedded style (or the global default) only.')
 
+    parser.add_argument('--citations-input', default=None, dest='citations_input',
+                       help='Path to a markdown file whose citation wikilinks have '
+                            'ALREADY been converted to pandoc syntax. When given, the '
+                            'external Node.js conversion step is skipped (the plugin '
+                            'converts in-process); when omitted, convert-citations.mjs '
+                            'is run via Node as usual.')
+
+    parser.add_argument('--prepare-convert', action='store_true', dest='prepare_convert',
+                       help='Compile (if the input is an outline) and print the '
+                            'resulting markdown path as the last stdout line, then '
+                            'exit WITHOUT exporting. Used by the plugin, which '
+                            'converts citations in-process and re-invokes with '
+                            '--export --citations-input.')
+
+    parser.add_argument('--static-bibliography', default=None, dest='static_bibliography',
+                       help='Path to a CSL-JSON bibliography to render citations '
+                            'statically from (--citeproc), instead of live Zotero '
+                            'fields and instead of fetching from Zotero. Used by the '
+                            'plugin when Zotero is unavailable. DOCX/ODT only.')
+    parser.add_argument('--raw-citations', action='store_true', dest='raw_citations',
+                       help='Do NOT use Zotero fields or --citeproc: leave citations as '
+                            'literal text (e.g. [@citekey]). Used when the user chooses to '
+                            'export without Zotero running. DOCX/ODT only.')
+
     args = parser.parse_args()
 
     master_file = Path(args.master_file).expanduser()
@@ -71632,6 +71697,13 @@ def main():
               f"footnotes {'global' if use_global else 'per-chapter'}")
         compiled = master_file
 
+    if args.prepare_convert:
+        # Plugin path: hand the (compiled) markdown path back so the plugin can
+        # convert citations in-process, then exit. The plugin re-invokes with
+        # --export --citations-input. Print the path as the LAST line.
+        print(str(compiled))
+        return
+
     if args.export:
         active_mappings = load_mappings(args.templates_dir, args.mappings)
         _common = dict(
@@ -71645,15 +71717,19 @@ def main():
             page1_starts_with=args.page1_starts_with,
             csl_style_override=args.csl_style,
             csl_from_template=args.csl_from_template,
-            output_name=args.output_name)
+            output_name=args.output_name,
+            citations_input=args.citations_input)
         if args.export_format == 'pdf':
             export_pdf(compiled, keep_intermediate=args.keep_intermediate, **_common)
         elif args.export_format == 'odt':
-            export_odt(compiled, **_common)
+            export_odt(compiled, raw_citations=args.raw_citations,
+                       static_bibliography=args.static_bibliography, **_common)
         elif args.export_format == 'latex':
             export_latex(compiled, default_author=args.default_author, **_common)
         else:
-            export_docx(compiled, default_author=args.default_author, **_common)
+            export_docx(compiled, raw_citations=args.raw_citations,
+                        static_bibliography=args.static_bibliography,
+                        default_author=args.default_author, **_common)
 
         # The compiled markdown is a throwaway intermediate once it's been
         # exported \u2014 delete it unless the user asked to keep it. Never touch
@@ -80674,6 +80750,7 @@ import tempfile
 import zipfile
 from collections import defaultdict
 from copy import deepcopy
+import datetime
 
 import requests
 from lxml import etree
@@ -80684,6 +80761,9 @@ XNML     = 'http://www.w3.org/XML/1998/namespace'
 TEXT_NS  = 'urn:oasis:names:tc:opendocument:xmlns:text:1.0'
 STYLE_NS = 'urn:oasis:names:tc:opendocument:xmlns:style:1.0'
 FO_NS    = 'urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0'
+META_NS  = 'urn:oasis:names:tc:opendocument:xmlns:meta:1.0'
+DC_NS    = 'http://purl.org/dc/elements/1.1/'
+DCTERMS_NS = 'http://purl.org/dc/terms/'
 
 def W(tag):  return f'{{{WNS}}}{tag}'
 def T(tag):  return f'{{{TEXT_NS}}}{tag}'
@@ -80692,6 +80772,8 @@ T_NAME     = f'{{{TEXT_NS}}}name'
 T_STYLNAME = f'{{{TEXT_NS}}}style-name'
 S_NAME     = f'{{{STYLE_NS}}}name'
 S_FAMILY   = f'{{{STYLE_NS}}}family'
+S_DISPLAY  = f'{{{STYLE_NS}}}display-name'
+T_OUTLINE  = f'{{{TEXT_NS}}}outline-level'
 FO_WEIGHT  = f'{{{FO_NS}}}font-weight'
 FO_FSTYLE  = f'{{{FO_NS}}}font-style'
 
@@ -80766,7 +80848,11 @@ def build_citation(zotero_json: dict, citekey_map: dict) -> str:
     """
     parts = []
     for item in zotero_json.get('citationItems', []):
-        uris = item.get('uris') or []
+        # Newer Zotero: citationItems[].uris (array). Older (pre-5): \`uri\`
+        # (string or array). Fall back to \`id\`.
+        uris = item.get('uris') or item.get('uri') or []
+        if isinstance(uris, str):
+            uris = [uris]
         uri  = uris[0] if uris else item.get('id', '')
         key  = citekey_map.get(uri)
         if not key:
@@ -80928,11 +81014,12 @@ def fix_escaped_citations(text: str) -> str:
 # is read, so lxml gives us the decoded string directly.
 
 _ZOTERO_NAME_RE = re.compile(
-    r'^ZOTERO_ITEM CSL_CITATION (\\{.+\\})\\s+RND\\w+$', re.DOTALL
+    r'^(?:ZOTERO_ITEM|ZOTERO_CITATION)(?:\\s+CSL_CITATION)?\\s+(\\{.+\\})(?:\\s+RND\\w+)?$',
+    re.DOTALL
 )
-# Fallback: name may not end with RNDxxx (older Zotero versions)
+# Fallback: name without the trailing RNDxxx id (older Zotero versions).
 _ZOTERO_NAME_BARE_RE = re.compile(
-    r'^ZOTERO_ITEM CSL_CITATION (\\{.+\\})$', re.DOTALL
+    r'^(?:ZOTERO_ITEM|ZOTERO_CITATION)(?:\\s+CSL_CITATION)?\\s+(\\{.+\\})$', re.DOTALL
 )
 
 
@@ -81044,6 +81131,436 @@ def process_odt_xml(content_xml_bytes: bytes, citekey_map: dict) -> tuple:
     return out_bytes, count
 
 
+def _heading_level(style_name):
+    """Outline level from a style name / display name, or None. Handles ODF's
+    \`_20_\` space encoding: 'Heading_20_1' / 'Heading 1' \u2192 1."""
+    if not style_name:
+        return None
+    s = style_name.replace('_20_', ' ').strip()
+    m = re.match(r'^Heading\\s+(\\d+)\\b', s)
+    return int(m.group(1)) if m else None
+
+
+def promote_heading_paragraphs(root, styles_xml=None) -> int:
+    """Some ODTs (e.g. older Zotero/LibreOffice exports) mark headings with a
+    paragraph STYLE \u2014 \`<text:p text:style-name="Heading_20_1">\` \u2014 instead of a
+    real heading element \`<text:h text:outline-level="1">\`. Pandoc's ODT reader
+    only maps \`<text:h>\`, so those paragraphs flatten to body text. Rewrite them
+    in place before pandoc runs. Returns the number converted."""
+    level_by_style = {}
+
+    def scan(rt):
+        for st in rt.iter(f'{{{STYLE_NS}}}style'):
+            if st.get(S_FAMILY) != 'paragraph':
+                continue
+            name = st.get(S_NAME)
+            if not name:
+                continue
+            lvl = _heading_level(name) or _heading_level(st.get(S_DISPLAY) or '')
+            if lvl:
+                level_by_style[name] = lvl
+
+    if styles_xml:
+        try:
+            scan(etree.fromstring(styles_xml))
+        except etree.XMLSyntaxError:
+            pass
+    scan(root)  # automatic styles live in content.xml
+
+    n = 0
+    for p in list(root.iter(T('p'))):
+        style = p.get(T_STYLNAME)
+        lvl = level_by_style.get(style) or _heading_level(style)
+        if not lvl:
+            continue
+        h = etree.Element(T('h'))
+        for k, v in p.attrib.items():
+            h.set(k, v)
+        h.set(T_OUTLINE, str(lvl))
+        h.text = p.text
+        for child in list(p):
+            h.append(child)
+        p.getparent().replace(p, h)
+        n += 1
+    return n
+
+
+def _style_chain(name, styles):
+    chain, seen = [], set()
+    while name and name not in seen:
+        seen.add(name)
+        chain.append(name)
+        name = styles.get(name)
+    return chain
+
+
+def _resolve_style_parents(root, styles_xml):
+    """Map style name \u2192 parent-style-name from styles.xml + content auto-styles."""
+    styles = {}
+    for src in (styles_xml, None):
+        rt = etree.fromstring(src) if src else root
+        for st in rt.iter(f'{{{STYLE_NS}}}style'):
+            name = st.get(S_NAME)
+            if name:
+                styles[name] = st.get(f'{{{STYLE_NS}}}parent-style-name')
+    return styles
+
+
+def _chain_has(chain, target):
+    return any(
+        (c or '').replace('_20_', ' ').strip().lower() == target for c in chain
+    )
+
+
+def _drop_element(el) -> None:
+    """Remove an element, keeping its tail text (so removing an inline field
+    doesn't swallow the text that followed it)."""
+    parent = el.getparent()
+    if parent is None:
+        return
+    tail = el.tail
+    if tail:
+        prev = el.getprevious()
+        if prev is not None:
+            prev.tail = (prev.tail or '') + tail
+        else:
+            parent.text = (parent.text or '') + tail
+    parent.remove(el)
+
+
+_ODT_DATE_FIELDS = {
+    'date', 'time', 'date-time', 'creation-date', 'creation-time',
+    'modification-date', 'modification-time', 'print-date', 'print-time',
+}
+
+
+def strip_date_fields_odt(root) -> int:
+    """Remove ODT date/time FIELDS (\`<text:date>\`, \`<text:modification-date>\`,
+    \u2026) from the body \u2014 they render 'today', which is redundant with \`created\`
+    (and a date is never part of an author's name)."""
+    n = 0
+    for el in list(root.iter()):
+        q = etree.QName(el)
+        if q.namespace == TEXT_NS and q.localname in _ODT_DATE_FIELDS:
+            _drop_element(el)
+            n += 1
+    return n
+
+
+def _strip_preceding_bibliography_heading(el) -> int:
+    """Remove an immediately-preceding (bar blank) paragraph whose text is
+    exactly 'Bibliography' \u2014 the label above the generated list."""
+    prev = el.getprevious()
+    while (prev is not None and etree.QName(prev).localname == 'p'
+           and not ''.join(prev.itertext()).strip()):
+        prev = prev.getprevious()
+    if prev is not None and ''.join(prev.itertext()).strip().lower() == 'bibliography':
+        prev.getparent().remove(prev)
+        return 1
+    return 0
+
+
+def strip_bibliography_odt(root) -> int:
+    """Remove the Zotero-generated bibliography: a <text:section> named
+    \`\u2026 CSL_BIBLIOGRAPHY \u2026\` (and its 'Bibliography' heading). Only the generated
+    field is touched \u2014 a hand-written bibliography has no such marker and is
+    left alone. Regenerable from the converted citations, so dropping it keeps
+    ODT and DOCX imports identical."""
+    n = 0
+    for sect in list(root.iter(T('section'))):
+        name = sect.get(T('name')) or ''
+        if 'CSL_BIBLIOGRAPHY' not in name and 'ZOTERO_BIBL' not in name:
+            continue
+        n += _strip_preceding_bibliography_heading(sect)
+        _drop_element(sect)
+        n += 1
+    return n
+
+
+def strip_bibliography_docx(root) -> int:
+    """Remove the Zotero-generated bibliography from a DOCX part (the
+    \`CSL_BIBLIOGRAPHY\` field spans paragraphs, from its fldChar begin to its
+    end) and its 'Bibliography' heading. The DOCX twin of
+    strip_bibliography_odt()."""
+    paras = list(root.iter(W('p')))
+    for idx, p in enumerate(paras):
+        instr = ''.join(t.text or '' for t in p.iter(W('instrText')))
+        if 'CSL_BIBLIOGRAPHY' not in instr and 'ZOTERO_BIBL' not in instr:
+            continue
+        n = _strip_preceding_bibliography_heading(p)
+        depth = 0
+        for q in paras[idx:]:
+            for fc in q.iter(W('fldChar')):
+                ft = fc.get(W('fldCharType'))
+                if ft == 'begin':
+                    depth += 1
+                elif ft == 'end':
+                    depth -= 1
+            parent = q.getparent()
+            if parent is not None:
+                parent.remove(q)
+                n += 1
+            if depth <= 0:
+                break
+        return n
+    return 0
+
+
+def _element_text(el) -> str:
+    """ODT paragraph text, turning <text:line-break> into newlines (so
+    line-break-separated author/affiliation lines don't run together)."""
+    parts = []
+    for node in el.iter():
+        if node.tag == T('line-break'):
+            parts.append('\\n')
+        if node.text:
+            parts.append(node.text)
+        if node is not el and node.tail:
+            parts.append(node.tail)
+    return ''.join(parts)
+
+
+def _docx_text(p) -> str:
+    """DOCX paragraph text, turning <w:br>/<w:cr> into newlines and <w:tab>
+    into spaces (so line-separated author/affiliation lines don't run together).
+    i.e. the DOCX twin of _element_text()."""
+    parts = []
+    for node in p.iter():
+        if node.tag in (W('t'), W('delText')):
+            if node.text:
+                parts.append(node.text)
+        elif node.tag in (W('br'), W('cr')):
+            parts.append('\\n')
+        elif node.tag == W('tab'):
+            parts.append(' ')
+        elif node.tag == W('noBreakHyphen'):
+            parts.append('-')
+    return ''.join(parts)
+
+
+def _chain_own_is_heading(chain):
+    """Whether a paragraph's OWN style is a heading (first chain entry), not an
+    ancestor \u2014 Word bases Title/Subtitle on Heading, so scanning the whole chain
+    would misclassify a Title paragraph as a heading."""
+    n = ((chain[0] if chain else '') or '').replace('_20_', ' ').strip().lower()
+    return n == 'heading' or bool(re.match(r'^heading\\s*\\d+$', n))
+
+
+def odt_paragraphs(root, styles_xml=None):
+    """Neutral paragraph items from a parsed ODT body, in document order:
+    {'el', 'kind', 'is_para', 'text', 'chain'}. The ODT walker for
+    collect_import_metadata; the DOCX walker yields the identical shape."""
+    styles = _resolve_style_parents(root, styles_xml)
+    for el in root.iter():
+        if el.tag == T('h'):
+            yield {'el': el, 'kind': 'heading', 'is_para': False,
+                   'text': _element_text(el), 'chain': []}
+        elif el.tag == T('p'):
+            chain = _style_chain(el.get(T_STYLNAME), styles)
+            yield {'el': el, 'is_para': True,
+                   'kind': 'heading' if _chain_own_is_heading(chain) else 'para',
+                   'text': _element_text(el), 'chain': chain}
+
+
+def _docx_styles(styles_xml):
+    """styleId \u2192 (name, basedOn) from word/styles.xml."""
+    out = {}
+    if not styles_xml:
+        return out
+    try:
+        root = etree.fromstring(styles_xml)
+    except etree.XMLSyntaxError:
+        return out
+    for st in root.iter(W('style')):
+        sid = st.get(W('styleId'))
+        if not sid:
+            continue
+        name_el, base_el = st.find(W('name')), st.find(W('basedOn'))
+        out[sid] = (
+            name_el.get(W('val')) if name_el is not None else None,
+            base_el.get(W('val')) if base_el is not None else None,
+        )
+    return out
+
+
+def _docx_style_chain(p, styles):
+    """The paragraph's style chain (styleId + w:name at each level), via
+    w:pStyle \u2192 w:basedOn; the DOCX twin of _style_chain()/_resolve_style_parents()."""
+    ppr = p.find(W('pPr'))
+    st = ppr.find(W('pStyle')) if ppr is not None else None
+    sid = st.get(W('val')) if st is not None else None
+    chain, seen = [], set()
+    while sid and sid not in seen:
+        seen.add(sid)
+        chain.append(sid)
+        name, base = styles.get(sid, (None, None))
+        if name:
+            chain.append(name)
+        sid = base
+    return chain
+
+
+def _docx_outline_level(p):
+    ppr = p.find(W('pPr'))
+    lvl = ppr.find(W('outlineLvl')) if ppr is not None else None
+    return lvl.get(W('val')) if lvl is not None else None
+
+
+def docx_paragraphs(root, styles_xml=None):
+    """Neutral paragraph items from a parsed DOCX body (same shape as
+    odt_paragraphs())."""
+    styles = _docx_styles(styles_xml)
+    for p in root.iter(W('p')):
+        chain = _docx_style_chain(p, styles)
+        kind = 'heading' if (_chain_own_is_heading(chain)
+                             or _docx_outline_level(p) is not None) else 'para'
+        yield {'el': p, 'is_para': True, 'kind': kind,
+               'text': _docx_text(p), 'chain': chain}
+
+
+def collect_import_metadata(paragraphs, original_filename):
+    """Import frontmatter fields from the neutral paragraph walk
+    (odt_paragraphs() / docx_paragraphs()), so ODT and DOCX share one flow.
+
+    - title:  STYLE-CHAIN Title/Subtitle paragraph(s), max 2 joined with ": ",
+              and removed from the body; when there is no Title/Subtitle style,
+              the first non-empty paragraph (kept in the body).
+    - author: every Author-styled paragraph's text, blank-line separated.
+    - abstract: up to 3 paragraphs following a paragraph reading "Abstract",
+              stopping at a heading.
+    - aliases: the title plus the part before its first ":".
+    Title/Subtitle, Author and Abstract paragraphs are all REMOVED from the body
+    (they now live in the frontmatter, so keeping them would duplicate them on
+    re-export); every other paragraph is preserved. Returns a dict; \`created\`/
+    \`original-filename\` are filled by the caller.
+    """
+    items = list(paragraphs)
+
+    title_parts, author_parts, abstract_parts, remove = [], [], [], []
+    in_abstract = False
+    for item in items:
+        raw = item['text'].strip()
+        flat = ' '.join(raw.split())
+        chain = item['chain']
+        is_heading = item['kind'] == 'heading'
+        if item.get('is_para') and (_chain_has(chain, 'title') or _chain_has(chain, 'subtitle')):
+            if flat:
+                title_parts.append(flat)
+            remove.append(item['el'])
+            continue
+        if item.get('is_para') and _chain_has(chain, 'author'):
+            if raw:
+                author_parts.append(raw)
+            remove.append(item['el'])
+            continue
+        if not in_abstract and flat.lower() == 'abstract':
+            in_abstract = True
+            remove.append(item['el'])
+            continue
+        if in_abstract:
+            if is_heading:
+                in_abstract = False
+            elif flat and len(abstract_parts) < 3:
+                abstract_parts.append(flat)
+                remove.append(item['el'])
+
+    for el in remove:
+        if el.getparent() is not None:
+            el.getparent().remove(el)
+
+    title = ': '.join(title_parts[:2]) if title_parts else ''
+    if not title:
+        for item in items:
+            if not item.get('is_para'):
+                continue
+            t = ' '.join(item['text'].split())
+            if t:
+                title = t
+                break
+    aliases = []
+    if title:
+        aliases.append(title)
+        short = title.split(':', 1)[0].strip()
+        if short and short != title:
+            aliases.append(short)
+
+    return {
+        'title': title,
+        'aliases': aliases,
+        'author': '\\n\\n'.join(author_parts),
+        'abstract': '\\n\\n'.join(abstract_parts),
+        'original_filename': original_filename,
+    }
+
+
+def _normalize_dt(s: str):
+    """'2011-01-19T10:33:44' \u2192 '2011-01-19 10:33'. Timezone-aware values (DOCX
+    writes UTC, e.g. \`\u2026T19:44:00Z\`) are converted to LOCAL time (Edmonton) so
+    \`original-created\` matches \`created\`'s clock; a bare date is kept as-is;
+    anything unrecognised is returned unchanged."""
+    s = s.strip()
+    try:
+        dt = datetime.datetime.fromisoformat(s.replace('Z', '+00:00'))
+    except ValueError:
+        dt = None
+    if dt is not None:
+        if dt.tzinfo is not None:
+            dt = dt.astimezone()
+        return dt.strftime('%Y-%m-%d %H:%M')
+    m = re.match(r'(\\d{4}-\\d{2}-\\d{2})', s)
+    return m.group(1) if m else s
+
+
+def extract_source_created(xml_bytes, date_tags):
+    """The source document's own creation date \u2014 the first non-empty among
+    \`date_tags\` (fully-qualified lxml tags) \u2014 normalised to 'YYYY-MM-DD HH:MM',
+    or None. ODT passes meta:creation-date/dc:date; DOCX passes
+    dcterms:created/dcterms:modified (so both go through this one function)."""
+    if not xml_bytes:
+        return None
+    try:
+        root = etree.fromstring(xml_bytes)
+    except etree.XMLSyntaxError:
+        return None
+    for tag in date_tags:
+        el = root.find('.//' + tag)
+        if el is not None and el.text and el.text.strip():
+            return _normalize_dt(el.text.strip())
+    return None
+
+
+def build_import_frontmatter(meta, created) -> str:
+    """Render the enriched import frontmatter (see docs/import-export.md)."""
+    out = ['---', f'created: {created}']
+    out += ['up:', '  - "[[sw imports]]"', 'related:', 'aliases:']
+    for a in meta.get('aliases') or []:
+        out.append(f'  - {_yaml_quote(a)}')
+    if meta.get('title'):
+        out.append(f'title: {_yaml_quote(meta["title"])}')
+    if meta.get('author'):
+        out.append('author: |-')
+        for i, para in enumerate(meta['author'].split('\\n\\n')):
+            if i:
+                out.append('')
+            for line in para.split('\\n'):
+                out.append(f'  {line}')
+    if meta.get('abstract'):
+        out.append('abstract:')
+        out.append('  - |-')
+        for i, para in enumerate(meta['abstract'].split('\\n\\n')):
+            if i:
+                out.append('')
+            for line in para.split('\\n'):
+                out.append(f'    {line}')
+    if meta.get('original_created'):
+        out.append(f"original-created: {meta['original_created']}")
+    out.append(f'original-filename: {_yaml_quote(meta["original_filename"])}')
+    out.append('---')
+    return '\\n'.join(out)
+def _yaml_quote(s: str) -> str:
+    return '"' + s.replace('\\\\', '\\\\\\\\').replace('"', '\\\\"') + '"'
+
+
 def convert_odt(input_path: str, output_md: str) -> None:
     print(f'Reading {os.path.basename(input_path)} \u2026')
     with zipfile.ZipFile(input_path) as z:
@@ -81079,6 +81596,28 @@ def convert_odt(input_path: str, output_md: str) -> None:
     n_footnote_styles = strip_footnote_para_styles(root)
     if n_footnote_styles:
         print(f'  {n_footnote_styles} footnote paragraph style(s) stripped.')
+    n_headings = promote_heading_paragraphs(root, files.get('styles.xml'))
+    if n_headings:
+        print(f'  {n_headings} style-based heading(s) promoted to real headings.')
+    n_dates = strip_date_fields_odt(root)
+    if n_dates:
+        print(f'  {n_dates} date field(s) removed.')
+    n_bib = strip_bibliography_odt(root)
+    if n_bib:
+        print('  Generated Zotero bibliography removed.')
+    meta = collect_import_metadata(
+        odt_paragraphs(root, files.get('styles.xml')), os.path.basename(input_path))
+    meta['original_created'] = extract_source_created(
+        files.get('meta.xml'),
+        [f'{{{META_NS}}}creation-date', f'{{{DC_NS}}}date'])
+    created = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+    if meta['title']:
+        print(f"  Title detected: {meta['title'][:70]}")
+    if meta['author']:
+        print(f"  Author block: {meta['author'].splitlines()[0][:50]}")
+    if meta['original_created']:
+        print(f"  Source-created date: {meta['original_created']}")
+    frontmatter = build_import_frontmatter(meta, created)
     files['content.xml'] = etree.tostring(root, xml_declaration=True, encoding='UTF-8')
 
     tmp_dir = tempfile.mkdtemp()
@@ -81099,6 +81638,7 @@ def convert_odt(input_path: str, output_md: str) -> None:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
     md_text = fix_escaped_citations(result.stdout)
+    md_text = frontmatter + '\\n\\n' + md_text
     with open(output_md, 'w', encoding='utf-8') as f:
         f.write(md_text)
 
@@ -81118,14 +81658,16 @@ def collect_uris_from_docx(doc_xml: bytes) -> list:
     return list(set(uris))
 
 
-def replace_fields_in_para(para: etree._Element, citekey_map: dict) -> int:
-    """Replace Zotero citation fields in a paragraph. Returns number replaced."""
-    children   = list(para)
-    regions    = []
-    depth      = 0
-    begin_i    = None
+def _docx_field_regions(para):
+    """Split a DOCX paragraph into (children, [(begin_i, end_i, instr), \u2026]) for
+    every complex field (fldChar begin\u2026end). Shared by the date-field stripper
+    and the Zotero-field replacer."""
+    children = list(para)
+    regions = []
+    depth = 0
+    begin_i = None
     collecting = False
-    instr_buf  = []
+    instr_buf = []
 
     for i, child in enumerate(children):
         for fc in child.iter(W('fldChar')):
@@ -81146,6 +81688,43 @@ def replace_fields_in_para(para: etree._Element, citekey_map: dict) -> int:
         if collecting:
             for it in child.iter(W('instrText')):
                 instr_buf.append(it.text or '')
+
+    return children, regions
+
+
+_DOCX_DATE_INSTRS = {
+    'DATE', 'TIME', 'CREATEDATE', 'CREATETIME', 'SAVEDATE', 'SAVETIME',
+    'PRINTDATE', 'PRINTTIME', 'EDITTIME',
+}
+
+
+def _is_date_instr(instr: str) -> bool:
+    m = re.match(r'\\s*([A-Za-z]+)', instr or '')
+    return bool(m) and m.group(1).upper() in _DOCX_DATE_INSTRS
+
+
+def strip_date_fields_docx(root) -> int:
+    """Remove Word date/time FIELDs (DATE, CREATEDATE, SAVEDATE, \u2026) from a DOCX
+    part \u2014 they render 'today', redundant with \`created\` (and a date is never
+    part of an author's name). The DOCX twin of strip_date_fields_odt()."""
+    n = 0
+    for para in list(root.iter(W('p'))):
+        children, regions = _docx_field_regions(para)
+        for begin_i, end_i, instr in reversed(regions):
+            if _is_date_instr(instr):
+                for el in children[begin_i:end_i + 1]:
+                    para.remove(el)
+                n += 1
+        for fs in list(para.iter(W('fldSimple'))):
+            if _is_date_instr(fs.get(W('instr')) or ''):
+                fs.getparent().remove(fs)
+                n += 1
+    return n
+
+
+def replace_fields_in_para(para: etree._Element, citekey_map: dict) -> int:
+    """Replace Zotero citation fields in a paragraph. Returns number replaced."""
+    children, regions = _docx_field_regions(para)
 
     count = 0
     for begin_i, end_i, instr in reversed(regions):
@@ -81185,24 +81764,66 @@ def convert_docx(input_path: str, output_md: str) -> None:
     if doc_xml is None:
         sys.exit('word/document.xml not found \u2014 is this a valid DOCX?')
 
-    print('  Scanning for Zotero item URIs \u2026')
-    uris = collect_uris_from_docx(doc_xml)
-    if not uris:
-        print('  \u26A0  No Zotero URIs found \u2014 is Zotero running? Are these Zotero fields?')
-        return
+    # Zotero citation fields can live in document.xml AND in the separate
+    # footnotes/endnotes parts (pandoc reads each part independently). Scan and
+    # process all of them, or footnote citations arrive as the field's plain
+    # cached text ("footnotes are a separate part" \u2014 same trap as export).
+    citation_parts = [
+        p for p in ('word/document.xml', 'word/footnotes.xml', 'word/endnotes.xml')
+        if p in files
+    ]
 
-    print(f'  Looking up {len(uris)} unique item(s) via Zotero API \u2026')
-    citekey_map = fetch_citekeys(uris)
-    found = sum(1 for v in citekey_map.values() if v)
-    print(f'  Resolved {found}/{len(uris)} citekey(s).')
+    print('  Scanning for Zotero item URIs \u2026')
+    uris = sorted({u for part in citation_parts for u in collect_uris_from_docx(files[part])})
+    citekey_map = {}
+    if uris:
+        print(f'  Looking up {len(uris)} unique item(s) via Zotero API \u2026')
+        citekey_map = fetch_citekeys(uris)
+        found = sum(1 for v in citekey_map.values() if v)
+        print(f'  Resolved {found}/{len(uris)} citekey(s).')
+    else:
+        print('  \u26A0  No Zotero URIs found \u2014 importing without citation conversion.')
 
     print('Processing Zotero citation fields \u2026')
     root  = etree.fromstring(doc_xml)
+    n_dates = strip_date_fields_docx(root)
+    if n_dates:
+        print(f'  {n_dates} date field(s) removed.')
+    n_bib = strip_bibliography_docx(root)
+    if n_bib:
+        print('  Generated Zotero bibliography removed.')
     total = 0
     for para in root.iter(W('p')):
         total += replace_fields_in_para(para, citekey_map)
-    print(f'  {total} field(s) replaced.')
 
+    meta = collect_import_metadata(
+        docx_paragraphs(root, files.get('word/styles.xml')), os.path.basename(input_path))
+    meta['original_created'] = extract_source_created(
+        files.get('docProps/core.xml'),
+        [f'{{{DCTERMS_NS}}}created', f'{{{DCTERMS_NS}}}modified'])
+    created = datetime.datetime.now().strftime('%Y-%m-%d %H:%M')
+    if meta['title']:
+        print(f"  Title detected: {meta['title'][:70]}")
+    if meta['author']:
+        print(f"  Author block: {meta['author'].splitlines()[0][:50]}")
+    if meta['original_created']:
+        print(f"  Source-created date: {meta['original_created']}")
+    frontmatter = build_import_frontmatter(meta, created)
+
+    for part in citation_parts:
+        if part == 'word/document.xml':
+            continue
+        sub = etree.fromstring(files[part])
+        strip_date_fields_docx(sub)
+        strip_bibliography_docx(sub)
+        n = 0
+        for para in sub.iter(W('p')):
+            n += replace_fields_in_para(para, citekey_map)
+        files[part] = etree.tostring(
+            sub, xml_declaration=True, encoding='UTF-8', standalone=True)
+        total += n
+        print(f'  {n} field(s) replaced in {part.split("/")[-1]}.')
+    print(f'  {total} field(s) replaced total.')
     files['word/document.xml'] = etree.tostring(
         root, xml_declaration=True, encoding='UTF-8', standalone=True
     )
@@ -81225,6 +81846,7 @@ def convert_docx(input_path: str, output_md: str) -> None:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
     md_text = fix_escaped_citations(result.stdout)
+    md_text = frontmatter + '\\n\\n' + md_text
     with open(output_md, 'w', encoding='utf-8') as f:
         f.write(md_text)
 
@@ -81790,7 +82412,7 @@ SWTOKFIGURECOUNTER
 % DOES reach pandoc's own hypersetup call, since that reads --metadata
 % variables Python passes separately, resolved against swlinkcolor once
 % xcolor's \\definecolor above has already run.
-`, "binary": false }, "zotlit-templates/zotlit-annotation.eta.md": { "content": '<%/* zotlit-annotation.eta.md \u2014 renders ONE annotation as a callout block.\n     Merged annotations arrive pre-combined from zotlit-content.eta.md\n     (text / comment / pageLabel / tags already merged, "+" marker\n     stripped), so this template needs no merge logic of its own. */-%>\n<% const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : "";\nconst colorRaw = zt.colorName ?? "Yellow";\nconst colorCap = cap(colorRaw);\nconst typeCap = cap(zt.type);\nconst esc = s => (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");\nconst mdComment = s => (s ?? "").replace(/<i>/g, "*").replace(/<\\/i>/g, "*").replace(/<b>/g, "**").replace(/<\\/b>/g, "**").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");\nconst escText = s => esc(s).replace(/\\[/g, "\\\\[").replace(/\\]/g, "\\\\]");\n// Callout-safe multi-line content: EVERY line (including blank lines) gets a\n// "> " prefix so paragraphs stay inside the callout. Obsidian callouts break\n// on any line lacking the prefix; comments with several paragraphs or blank\n// lines otherwise leak their later lines outside the [!ann-\u2026] block.\nconst calloutLines = s => (s ?? "").split(/\\r?\\n/).map(l => l.trim() ? `> ${l}` : ">").join("\\n");\n-%>\n<% bq(() => { -%>\n[!<%= colorRaw %>-<%= zt.type %>-annotation] <%= colorCap %> <%= typeCap %>\n<% if (zt.comment || (zt.tags && zt.tags.length > 0)) { -%>\n> [!ann-comment]\n<% if (zt.comment) { -%>\n<%= calloutLines(mdComment(zt.comment)) %>\n<% } -%>\n<% for (const tag of (zt.tags ?? [])) { -%>\n> - [[<%= tag.name %>]]\n<% } -%>\n<% } -%>\n\n<% if (zt.type === "highlight" && zt.text) { -%>\n> [!ann-highlight-text-<%= colorRaw %>]\n> <%= escText(zt.text) %>\n<% } else if (zt.type === "underline" && zt.text) { -%>\n> [!ann-underline-text-<%= colorRaw %>]\n> <%= escText(zt.text) %>\n<% } else if (zt.type === "image") { -%>\n> [!ann-image-<%= colorRaw %>]\n> <%= embed(typeof zt.imgLink === "function" ? zt.imgLink : () => zt.imgLink) %>\n> - <%= typeof zt.imgLink === "function" ? zt.imgLink("view image") : zt.imgLink %>\n> - [[image annotations|images]]\n<% } else if (zt.type === "text" || zt.type === "note") { -%>\n> [!ann-text-<%= colorRaw %>]Text comment\u2014click to view in context:\n<% if (zt.comment) { -%>\n<%= calloutLines(mdComment(zt.comment)) %>\n<% } -%>\n<% } else if (zt.type === "ink") { -%>\n> [!ann-ink-<%= colorRaw %>]\n> <%= embed(typeof zt.imgLink === "function" ? zt.imgLink : () => zt.imgLink) %>\n> - <%= typeof zt.imgLink === "function" ? zt.imgLink("view ink image") : zt.imgLink %>\n<% } -%>\n- [[<%= colorCap %> annotations|<%= colorCap %>]]\n- (<% if (zt.pageLabel) { %>[<%= zt.pageLabel.includes("\u2013") ? "pp. " : "p. " %><%= zt.pageLabel %>](<%= zt.backlink %>)<% } else { %>[View](<%= zt.backlink %>)<% } %>, <%= zt.dateAdded %>)\n<% }) %>\n', "binary": false }, "zotlit-templates/zotlit-content.eta.md": { "content": '<%/* zotlit-content.eta.md \u2014 annotations region (Eta, JS templates).\n     Groups annotations by attachment and renders each through the\n     "annotation" template. Zotero-Integration-style "+" concatenation:\n     an annotation whose comment begins with "+" is appended to the\n     PREVIOUS annotation on the same attachment (joined with " ... "),\n     chaining across multiple "+" annotations. The merged group keeps\n     the first annotation\'s links and date; the page label becomes a\n     range ("pp. 4\u20136") when pages differ; comments and tags combine.\n     Display-only \u2014 Zotero data is never modified, and re-updates\n     reproduce the same merge. */-%>\n<% if (zt.annotations && zt.annotations.length > 0) { -%>\n## Annotations\n\n<% const merged = [];\nlet group = null;\nfor (let i = 0; i < zt.annotations.length; i++) {\n  const a = { ...zt.annotations[i] };\n  const plus = typeof a.comment === "string" && /^\\+\\s*/.test(a.comment);\n  if (plus && group && a.parentAttachment?.key === group.parentAttachment?.key && a.text) {\n    a.comment = a.comment.replace(/^\\+\\s*/, "");\n    group.text = [(group.text ?? "").trim(), a.text.trim()].filter(Boolean).join(" ... ");\n    group.comment = [group.comment, a.comment].filter(c => c && c.trim()).join(" ... ") || null;\n    if (a.pageLabel && group.pageLabel && group.pageLabel !== a.pageLabel) {\n      group.pageLabel = `${group.pageLabel.split("\u2013")[0]}\u2013${a.pageLabel}`;\n    }\n    if (a.tags?.length) {\n      const seen = new Set((group.tags ?? []).map(t => t.name));\n      group.tags = [...(group.tags ?? []), ...a.tags.filter(t => !seen.has(t.name))];\n    }\n    continue;\n  }\n  if (plus && a.comment) a.comment = a.comment.replace(/^\\+\\s*/, "");\n  merged.push(a);\n  group = a;\n} -%>\n<% for (const attachment of zt.attachments) { -%>\n<% const anns = merged.filter(a => a.parentAttachment?.key === attachment.key);\nif (anns.length === 0) continue; -%>\n### [<%= attachment.filename ?? attachment.key %>](<%= attachment.backlink %>)\n\n<% for (const annotation of anns) { -%>\n<%~ include("annotation", annotation) %>\n\n<% } -%>\n<% } -%>\n<% } -%>\n', "binary": false }, "zotlit-templates/zotlit-filename.liquid.md": { "content": "@{{ zt.citationKey | default: zt.DOI | default: zt.title | default: zt.key }}{% suffix %}\n", "binary": false }, "zotlit-templates/zotlit-note.eta.md": { "content": '## Notes\n\n<%~ include("content", zt) %>\n', "binary": false } };
+`, "binary": false }, "docs/bibliography.md": { "content": "# Bibliography\n\nScholarWeave can read references from one or more bibliography files, from Zotero, or both at once. This page covers the file-based sources and how sources are merged; the Zotero connection has its own page ([Zotero](./zotero.md)). No external tools are needed to read a bibliography file.\n\n## Bibliography files\n\nIn **Settings \u2192 Bibliography \u2192 Bibliography files**, add files with **Add file**; each row has a browse button and a delete button.\n\nSupported formats:\n\n- `.bib` \u2014 BibTeX / BibLaTeX\n- `.json` \u2014 CSL-JSON\n- `.yaml` / `.yml` \u2014 CSL-YAML\n\nPaths:\n\n- **Vault-relative** (recommended; works on mobile too): `references.bib`, `assets/refs.bib`\n- **Absolute** (desktop only): `/Users/you/references.bib`\n\nAn absolute path that lives inside the vault is shortened to vault-relative automatically. Parsed `.bib` files are cached in `.pandoc/bib-parsed.json` and re-parsed only when the file changes, so startup stays fast with large bibliographies.\n\n## Merging sources\n\nAll configured files plus Zotero are merged into one library. When the same citekey exists in more than one source, **Zotero wins**. A conflict indicator (\u26A0) appears in the sidebar for entries found in multiple sources.\n\nIf a bibliography file is your only source, everything still works: citations are rendered statically and need nothing running \u2014 no Zotero, no Pandoc.\n\n## Per-note bibliography\n\nOverride the global sources in a note's frontmatter:\n\n```yaml\n---\nbibliography: ./references.bib        # relative to this note, or vault-relative\n---\n```\n\nOr several files:\n\n```yaml\n---\nbibliography:\n  - ./primary.bib\n  - ./secondary.bib\n---\n```\n\nPaths resolve relative to the note first, then to the vault root. For the citation *style* overrides (`csl:` / `citation-style:` / `lang:`), see [Citations](./citations.md).\n", "binary": false }, "docs/citations.md": { "content": "# Citations and References in Obsidian\n\nHow ScholarWeave renders citations and the reference list inside Obsidian, and the settings that control it. For the citation *syntax*, see [Linked Citations](./linked-citations.md). For the style used in *exported* documents, see [Document Import and Export](./import-export.md).\n\nNo external tools are needed for anything on this page \u2014 Pandoc is not required to format citations.\n\n## Citation style vs. custom citation style\n\nTwo different settings, often confused:\n\n- **Citation style** \u2014 the CSL style used for inline citations and the reference list, chosen from your installed Zotero styles (set the *Zotero data folder* if it isn't `~/Zotero`) or selected from the built-in list. Defaults to Chicago author-date.\n- **Custom citation style** \u2014 a path or URL to a specific `.csl` file that overrides the selected style.\n\nA note can override both with frontmatter:\n\n```yaml\n---\ncsl: ./my-style.csl        # a Zotero style name, a .csl path, or a URL\ncitation-style: apa        # synonym for csl\nlang: fr-FR                # citation language\n---\n```\n\nThe export dialogue can additionally apply a style to a single export without changing these defaults.\n\n## Rendering\n\n- **Process linked citations** \u2014 format `[[@key|\u2026]]` wikilinks as citations. Turn off to leave them as ordinary links.\n- **Render live preview inline citations** \u2014 format citations in the editor's live preview.\n- **Render reading mode inline citations** \u2014 format citations in reading view.\n- **Link citations to literature notes** \u2014 make rendered citations link to the `@citekey` literature note.\n- **Hide links in references** \u2014 replace the link text in the reference list with a compact icon to save space.\n- **Show PDF links in references** \u2014 add an \"open PDF\" button per reference (off by default; opening the item in Zotero already reveals all attachments).\n\n## Decoration and tooltips\n\n- **Citation decoration** \u2014 colour-codes citations so you can tell at a glance whether a work has a literature note; sub-options choose the colours.\n- **Show citekey tooltips** \u2014 hover a citation for a formatted reference preview, a link to view or create the literature note, and a link to open the item in Zotero.\n- **Tooltip delay** \u2014 how long to hover before the tooltip appears.\n- **Mobile tap action** \u2014 what tapping a citation does on mobile. See [Mobile](./mobile.md).\n\n## Autocomplete and search\n\n- Typing `@` (or `[@`, `[[@\u2026`) opens citekey autocomplete: prefix matches first, then substring, then fuzzy title/author \u2014 including references with no literature note yet.\n- Typing `@@` switches to full-text title/author search (spaces allowed; a period closes it). With ZotLit installed this uses ZotLit's database; otherwise the plugin's own index.\n- Search is diacritic-insensitive (\"Muller\" finds \"M\xFCller\").\n- `\u2318\u21B5` / `Ctrl+\u21B5` wraps the selected key in `[@key]` unless you are already inside brackets.\n\n## Reference sidebar and bibliography commands\n\n- **Show reference list** opens the sidebar: every citation in the current note, searchable, with copy and jump buttons.\n- **Insert bibliography at cursor** inserts the formatted reference list into the note.\n- **Save bibliography snapshot for this note** writes the note's citations to a `.bib` file and records it in the note's `bibliography` frontmatter. The editor then colour-codes citekeys by sync status: blue = in your library and the snapshot, yellow = in your library but not the snapshot, red = not found.\n\nSee [Commands](./commands.md) for the full command list.\n", "binary": false }, "docs/commands.md": { "content": '# Commands\n\nOpen the command palette with `Cmd/Ctrl+P` and type "ScholarWeave". The names below are the command names; Obsidian shows them grouped under the plugin name.\n\n## Citations and references\n\n| Command | Scope | Notes |\n|---|---|---|\n| Show reference list | \u2014 | Open the reference sidebar |\n| Insert bibliography at cursor | Current note | Insert the formatted reference list |\n| Save bibliography snapshot for this note | Current note | Save the note\'s citations as a `.bib` file |\n| Convert pandoc citations to linked citations (current note) | Current note | `[@key]` \u2192 `[[@key]]` |\n| Convert pandoc citations to linked citations (vault) | Vault | For every note |\n| Revert linked citations to pandoc-style citations (current note) | Current note | `[[@key]]` \u2192 `[@key]` |\n| Revert linked citations to pandoc-style citations (vault) | Vault | For every note |\n| Purge citekey rename history | \u2014 | Clear the stored rename records |\n\nSee [Citations](./citations.md) and [Linked Citations](./linked-citations.md).\n\n## Literature notes\n\n| Command | Scope | Notes |\n|---|---|---|\n| Create literature notes for citations lacking notes (current note) | Current note | Uses ZotLit templates when available |\n| Create literature notes for citations lacking notes (vault) | Vault | For every note |\n| Update stale citekeys and literature note filenames (vault) | Vault | Apply accumulated citekey renames |\n\nSee [Literature Notes](./literature-notes.md).\n\n## Document import and export (desktop only)\n\n| Command | Notes |\n|---|---|\n| Import a Word or ODT document with Zotero citations | Opens the import dialogue \u2014 see [Document Import and Export](./import-export.md) |\n| Compile and export a book, article, or other document (outline or markdown) | Opens the export dialogue |\n\nThese call external tools; see [Dependencies](./dependencies.md) for what each requires.\n', "binary": false }, "docs/dependencies.md": { "content": "# Dependencies\n\nScholarWeave reads and formats citations, shows the reference sidebar, and manages literature notes **with no external tools at all**. Only *document import, compilation, and export* require external programs. This page lists every dependency, what needs it, and where to get it.\n\nInstall a dependency only when you need the feature it enables. The plugin detects what is installed and greys out options that need something missing, with an explanation and a link back here.\n\n## Summary\n\n| Dependency                             | Needed for                                                                                                                                                                                       |\n| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |\n| **Python 3** (+ `lxml`, `python-docx`) | Compiling/exporting documents (every format); importing DOCX/ODT                                                                                                                                 |\n| **Pandoc**                             | Exporting to DOCX / ODT / LaTeX / PDF; importing DOCX / ODT                                                                                                                                      |\n| **Zotero**                             | Live, refreshable citation fields; citekey lookup; importing citation fields \u2014 *unless* you use a bibliography file instead                                                                      |\n| **Better BibTeX** (Zotero add-on)      | Only needed for Zotero 6: The BBT endpoint needed for exporting live Zotero citations. Not required for export using Zotero 7/8, but still needed inside Zotero for automatic citekey generation |\n| **LibreOffice**                        | PDF export through an ODT/DOCX template                                                                                                                                                          |\n| **A LaTeX distribution with LuaLaTeX** | PDF export through a `.tex` template                                                                                                                                                             |\n| **ZotLit** (recommended)               | Richer literature-note creation and `@@` full-text search                                                                                                                                        |\n\n## Python 3\n\nThe compiler, exporter, and importer are Python scripts, used for **any** document compilation/export or import. They need `lxml` and `python-docx`:\n\n```bash\npip install lxml python-docx\n```\n\nIf Obsidian resolves the wrong Python (for example macOS's Command Line Tools build, which lacks those packages), set **Path to Python 3** in Settings.\n\nDownload: <https://www.python.org/downloads/>\n\n## Node.js (command line only)\n\nThe plugin converts citation wikilinks **in-process**, with its own parser, so a normal plugin install needs no Node.js. Only if you run the bundled `DocumentCompiler.py` yourself from a terminal does the standalone converter (`convert-citations.mjs`) need a `node` executable. (Obsidian bundles a Node runtime but does not expose it to plugins, which is why the scripts can't simply borrow it.)\n\nDownload (only if you use the scripts from the command line): <https://nodejs.org/en/download>\n\n## Pandoc\n\nPandoc converts the compiled markdown to DOCX, ODT, or LaTeX, and converts imported Word/ODT documents to markdown. Required for every export and for import. Set **Path to Pandoc** in Settings if auto-detection fails.\n\nDownload: <https://pandoc.org/installing.html>\n\n## Zotero\n\nZotero is a source of references: it is used to look up citation metadata, to insert live citation fields in exported DOCX/ODT, to generate citekeys, and to read citation fields on import.\n\n**Zotero is not strictly required if you keep your references in a bibliography file**: those citations are rendered statically (as plain text) and need nothing running. Live, refreshable fields in Word/LibreOffice do require Zotero. See [Bibliography](./bibliography.md) and [Zotero](./zotero.md).\n\nDownload: <https://www.zotero.org/download/>\n\n## Better BibTeX\n\nA Zotero add-on that generates automatic, stable citekeys (e.g. `smithTitleYear`) and provides the JSON-RPC endpoint the plugin uses on Zotero 6. With Zotero 7/8 the plugin can use Zotero's native API instead, so BBT is optional there \u2014 although it remains the easiest way to generate citekeys inside Zotero.\n\nDownload: <https://retorque.re/zotero-better-bibtex/installation/>\n\n## LibreOffice\n\nUsed headlessly to convert a generated ODT/DOCX into PDF. Required only for **PDF export through an ODT/DOCX template**.\n\nDownload: <https://www.libreoffice.org/download/>\n\n## LaTeX (LuaLaTeX)\n\nRequired only for **PDF export through a `.tex` template**. The engine used is **LuaLaTeX** (included in every TeX distribution); XeLaTeX is not supported for Arabic content.\n\n- macOS: [MacTeX](https://tug.org/mactex/) (or the smaller BasicTeX)\n- Windows: [MiKTeX](https://miktex.org/download)\n- Linux: [TeX Live](https://tug.org/texlive/)\n\n## ZotLit (optional)\n\nAn Obsidian plugin that creates literature notes from Zotero with rich annotation formatting and powers the `@@` full-text title/author search. ScholarWeave works without it.\n\nDownload: <https://github.com/PKM-er/obsidian-zotlit>\n\n## What the plugin does when something is missing\n\nScholarWeave probes for the tools above when you open the export or import dialogue. Options that need a missing tool are greyed out with an explanation, rather than failing part-way through. If Zotero is not running but the note cites works that can't be resolved from a bibliography file, you are warned and offered **Try connecting again**, **Proceed**, or **Cancel** before anything is exported.\n", "binary": false }, "docs/import-export.md": { "content": "# Document Import and Export\n\nTwo desktop-only commands move documents between the outside world and your vault:\n\n- **Import a Word or ODT document with Zotero citations** \u2014 turn a `.docx`/`.odt` into a markdown note.\n- **Compile and export a book, article, or other document (outline or markdown)** \u2014 compile a note or a bullet-list outline of notes into markdown, DOCX, ODT, or PDF.\n\nBoth call external tools. The plugin probes for them when the dialogue opens and greys out options that can't run, with an explanation and a link to [Dependencies](./dependencies.md). The short version:\n\n| | Python 3 | Pandoc | LibreOffice | LaTeX | Zotero |\n|---|---|---|---|---|---|\n| Compile to Markdown | \u2713 | | | | |\n| Export DOCX / ODT | \u2713 | \u2713 | | | optional |\n| PDF via ODT/DOCX template | \u2713 | \u2713 | \u2713 | | optional |\n| PDF via `.tex` template | \u2713 | \u2713 | | \u2713 | optional |\n| Import DOCX / ODT | \u2713 | \u2713 | | | \u2713 |\n\n\u201CZotero optional\u201D means static citations can be rendered from a bibliography file; live, refreshable fields still need Zotero. See [Dependencies](./dependencies.md) for download links.\n\n## Document importer\n\nCommand: **Import a Word or ODT document with Zotero citations**.\n\nConverts a Word/ODT document \u2014 including its Zotero citation fields \u2014 into a markdown note, turning the citations into linked (or plain pandoc) citations and optionally creating literature notes for cited works that lack them. Citations inside **footnotes and endnotes** are converted too (Word stores those in separate parts of the file, which ScholarWeave processes alongside the body).\n\nRequires **Python 3, Pandoc, and Zotero** (running).\n\nEvery imported note gets frontmatter drawn from the document (mirroring the *Basic note template*), which you can edit afterwards:\n\n| Key | Filled from |\n|---|---|\n| `created` | the note's creation date and time |\n| `up` | `[[sw imports]]` |\n| `related` | left empty |\n| `aliases` | the document title, plus the short title before its first `:` |\n| `title` | the document's Title/Subtitle paragraph(s) \u2014 max two, joined with `:`; else the first paragraph |\n| `author` | the document's Author-styled paragraph(s), blank-line separated |\n| `abstract` | up to three paragraphs after an `Abstract` line, stopping at a heading (omitted when the document has none) |\n| `original-created` | the document's own creation date from its metadata (`meta:creation-date`, else the last-modified `dc:date`), omitted when unavailable |\n| `original-filename` | the imported file's name |\n\n`title`, `author` and `abstract` are **moved out of the body** into the frontmatter (keeping them in both would duplicate them if the note is exported again); every other paragraph is preserved. Two other generated elements are dropped:\n\n- **Zotero's generated bibliography** (the `CSL_BIBLIOGRAPHY` field/section) and its `Bibliography` heading \u2014 the citations are already converted, so the list is regenerated on export. A hand-written bibliography has no such field and is left untouched.\n- **Date/time fields** (`DATE`, `CREATEDATE`, `<text:modification-date>`, \u2026) \u2014 they render today's date, which `created` already records, and a date is never part of an author's name.\n\nODT and DOCX share this one flow (a format-specific walker supplies each paragraph's text and style chain; everything else is common), so a Word document and its ODT twin import to the same note.\n\n## Document compiler and exporter\n\nCommand: **Compile and export a book, article, or other document (outline or markdown)**.\n\nAccepts a single markdown note or a bullet-list *outline* of notes, and outputs:\n\n- **Markdown** \u2014 the compiled document only (no Pandoc needed).\n- **DOCX / ODT** \u2014 a document built on a template, with live, refreshable Zotero citation fields.\n- **PDF** \u2014 via an intermediate ODT/DOCX (LibreOffice) or `.tex` (LuaLaTeX), with citations rendered statically.\n\n### Which input is an outline?\n\nA note is treated as an **outline** (and compiled) only when its body is made up **entirely of list items** \u2014 no ordinary prose paragraphs \u2014 and it contains **at least one note include**: a bullet that is a single `[[wikilink]]`, possibly nested beneath plain-text heading bullets. A plain topic/task bullet list inside an ordinary note is rendered as-is, not compiled.\n\nPut `compile-` before the template name (`template: compile-book`) to mark an outline explicitly, even when it doesn't match the structural rule.\n\n### Outline grammar\n\nOutline notes contain only frontmatter and bullets; nesting follows bullet depth:\n\n| Bullet form | Output |\n|---|---|\n| `- Heading text` | Heading at that level |\n| `- [[Note]]` | Heading (note title / filename) + note contents |\n| `- @@ Heading text` | Numbered heading (\"Chapter N: Heading\") |\n| `- @@[[Note]]` | Numbered heading + note contents |\n| `- x [[Note]]` | Note contents only, no heading |\n\nThe heading text for a linked note comes from the note's `title:` property, else the filename with leading ordering numbers stripped (`1 Introduction` \u2192 `Introduction`). A linked note's own headings are demoted so its shallowest heading sits one level below the note's position in the outline.\n\n### Export dialogue\n\n- **Output format** \u2014 Markdown, DOCX, ODT, PDF.\n- **Template** \u2014 auto-selected from the note's `template:` property; changeable per export.\n- **Document type** \u2014 Book, Article, or Markdown; sets the other checkboxes (TOC, per-chapter footnotes, new-page headings, roman frontmatter), which can then be customised.\n- **Output filename and folder.**\n- **Table of contents / table of figures**, **restart footnote and figure numbering per chapter**, **top-level headings start on a new page**.\n- **Apply a citation style, overriding the template's** \u2014 pick an installed Zotero style; used for PDF and written into the exported DOCX/ODT's Zotero document preferences so a later \"Refresh\" in Word/LibreOffice uses it.\n- **Keep intermediate files** \u2014 the compiled markdown and, for PDF, the intermediate ODT/DOCX/TeX.\n\n### Citation style resolution (export)\n\nHighest priority first: the dialogue's style override \u2192 the note's `csl:`/`citation-style:` frontmatter \u2192 the template's stored Zotero document preferences \u2192 the plugin's configured style (see [Citations](./citations.md)) \u2192 Chicago author-date.\n\n### Templates\n\n| Template | Description |\n|---|---|\n| `book` | Book: TOC, chapter headings, per-chapter footnotes |\n| `article` | Article: continuous footnotes, no TOC |\n| `document` | General-purpose document |\n\nLookup order: your configured templates directory \u2192 `<vault>/Export Templates/` \u2192 the templates bundled with the plugin (extracted automatically on load). Bundled templates are a starting point you can override by placing your own copy earlier in that order.\n\n### YAML frontmatter properties\n\n| Key | Purpose |\n|---|---|\n| `template` | Template name (`book`, `article`, `document`, or your own); `compile-<name>` marks an outline |\n| `title` | Cover title (markdown formatting supported) |\n| `subtitle` | Cover subtitle |\n| `shorttitle` | Even-page header (falls back to `title` before `:`, then the filename) |\n| `abstract` | Cover/near-cover abstract block |\n| `note` | Cover/near-cover note block |\n| `author` | Cover author (a string, or a `- Name` list) |\n| `csl` / `citation-style` | Citation style for this note (a Zotero style name, `.csl` path, or URL) |\n| `bibliography` | Override the bibliography source(s) for this note |\n\n### Images and figures\n\n- Transcluded images (`![[image|400]]`) are inserted, with the alias used as a width. A following `Figure. \u2026` paragraph becomes a numbered caption.\n- **Excalidraw** drawings (`![[Drawing.excalidraw]]`) use the drawing's auto-exported sidecar image (enable *Auto-export PNG* in Excalidraw) so they render consistently.\n\n### Automatic style conversion\n\nScholarWeave converts Obsidian-specific markdown into DOCX/ODT styles rather than dropping it.\n\n**Callouts** (`> [!note]`) can be mapped to named paragraph styles in Settings; poetry callouts (`[!poetry]`, `[!arabic-poetry]`) are handled automatically.\n\n**Markdown Attributes** and **Extended Markdown Syntax** are recognised without configuration:\n\n| Syntax | Plugin | Becomes |\n|---|---|---|\n| `*text{.cls}*`, `**text{.cls}**`, `***text{.cls}***` | Markdown Attributes | `cls` character style |\n| `` `text{.cls}` `` | Markdown Attributes | `cls` character style |\n| `==text{.cls}==` | Markdown Attributes | `cls` character style |\n| `!!{cls}text!!` | Extended Markdown Syntax | `cls` character style |\n| `++text++` | Extended Markdown Syntax | `Inserted` character style |\n| `=={color}text==` | Extended Markdown Syntax | `Highlight color` character style |\n\nStyle names come from the CSS class or callout type (first letter capitalised, hyphens \u2192 spaces, so `.arabic-poetry` \u2192 \"Arabic poetry\"); override with an explicit mapping in Settings.\n\n**Undefined styles:** when the output references a style the template doesn't define, ScholarWeave injects a sentinel copy with a distinctive highlighted background (cycling colours) so you can spot it and define the style in your template; defining it removes the highlight on future exports.\n\n### PDF export\n\nPDF goes through an intermediate chosen by the selected template:\n\n- **ODT/DOCX template \u2192 LibreOffice**, which must be installed. ODT usually handles footnote numbering and figure references more reliably than DOCX.\n- **`.tex` template \u2192 LuaLaTeX**, from a LaTeX distribution.\n\nBecause a PDF is final, citations, the bibliography, the TOC/ToF, figure numbers, and captions are all rendered to fixed values at export time \u2014 no \"update fields\" pass is needed. TOC/ToF entries are clickable links.\n\n### How paths and tools are resolved\n\nAll scripts and templates are bundled in the plugin and extracted automatically on load \u2014 nothing is downloaded from GitHub by hand. The plugin resolves each external tool's path itself and passes it to the script via environment variables, so it works even though Obsidian's Electron process doesn't inherit your shell `PATH`.\n\nSee [Dependencies](./dependencies.md) and [Commands](./commands.md).\n", "binary": false }, "docs/linked-citations.md": { "content": "# Linked Citations\n\nThe heart of this plugin is its linked citation syntax, which allows you to integrate all citations as nodes in your Obsidian thought universe while also formatting them for display and export in publication-ready documents. This syntax simply takes pandoc\u2019s citation syntax, places it in the link\u2019s alias, and optionally allows you to use @ as a proxy for the citation key, since you\u2019ve already mentioned it in the link. Although you can write something after the @, including the citekey itself, the parser only sees the @ and expands it back into `@citekey`, so anything beyond the @ is redundant.\n\nThis plugin can parse conventional pandoc `[@citekey]` citations, and it has commands to convert citations in a note or the whole vault between the two formats: `Convert pandoc citations to linked citations (current note)` / `\u2026 (vault)` and `Revert linked citations to pandoc-style citations (current note)` / `\u2026 (vault)`. See [Commands](./commands.md).\n\nNone of this needs external tools \u2014 linked citations work without Pandoc or Zotero. (Zotero or a bibliography file is only needed to *resolve* the references; see [Dependencies](./dependencies.md).)\n\n## Linked citation syntax\n\n| Wikilink form           | Rendered as                    | Pandoc equivalent           |\n| ----------------------- | ------------------------------ | --------------------------- |\n| `[[@key]]`              | (Author Year)                  | `[@key]`                    |\n| `[[@key\\|@]]`           | (Author Year)                  | `[@key]`                    |\n| `[[@key\\|@ -]]`         | Author (Year)                  | `@key` (narrative)          |\n| `[[@key\\|-@]]`          | (Year)                         | `[-@key]` (suppress author) |\n| `[[@key\\|see @, p. 6]]` | (see Author Year, p. 6)        | `[see @key, p. 6]`          |\n| `[[@key\\|-@, p. 6]]`    | (Year, p. 6)                   | `[-@key, p. 6]`             |\n| `[ [[@a]]; [[@b]] ]`    | (Author A Year; Author B Year) | `[@a; @b]` (multi-work)     |\n\nInside an alias, `@` is a proxy for the link\u2019s own citekey. The convert commands translate between linked and pandoc forms losslessly.\n\nSee the [pandoc citation syntax](https://pandoc.org/demo/example33/8.20-citation-syntax.html#citation-syntax) for the underlying format.\n", "binary": false }, "docs/literature-notes.md": { "content": "# Literature Notes\n\nScholarWeave treats each source's literature note (normally `@citekey.md`) as the graph node its citations link to. This page covers where those notes live and how they are created.\n\n## Folder\n\n**Settings \u2192 Literature note import \u2192 Literature notes folder** sets where notes are created and found (e.g. `Bibliographic notes`). ScholarWeave looks a note up by its citekey filename.\n\nUsing a dedicated folder keeps citations resolvable and tidy, but any folder works as long as the filename is `@citekey`.\n\n## Creating notes\n\n- **Create literature notes for citations lacking notes (current note)** and **\u2026(vault)** create a note for every cited work that doesn't already have one.\n- Individual notes can also be created from the reference sidebar, a citation tooltip, or an entry's \"Create literature note\" button.\n\nCreating notes needs **Zotero** for citekey and metadata lookup. No live Zotero field is placed in the note itself.\n\n## ZotLit\n\nIf [ZotLit](https://github.com/PKM-er/obsidian-zotlit) is installed, ScholarWeave uses it to create literature notes and to format imported PDF annotations. Enable **Create literature notes with ZotLit**.\n\nScholarWeave can also install a curated set of ZotLit templates: **Install and use ScholarWeave's ZotLit import templates** writes them to `sw-zotlit-templates/` and points ZotLit's template folder there, leaving your own templates untouched. See [ZotLit Import Templates](./zotlit-import-templates.md).\n\n## Updating citekeys\n\nWhen a Zotero citekey changes, **Update stale citekeys and literature note filenames (vault)** updates citations across the vault and renames the matching literature notes to the new citekey (after showing a preview of what will change). **Purge citekey rename history** clears the stored rename records once you no longer need them.\n\nSee [Commands](./commands.md) and [Dependencies](./dependencies.md).\n", "binary": false }, "docs/mobile.md": { "content": "# Mobile\n\nScholarWeave works on iOS and Android. The citation features need no external tools; document import/export is desktop-only.\n\n## Bibliography files\n\nUse a vault-relative path (e.g. `references.bib`) \u2014 absolute paths work on desktop only. The browse button opens a vault file search instead of the OS file picker.\n\n## Tapping citations\n\n**Reading mode:** tapping a rendered citation triggers your configured **Mobile tap action**:\n\n- **Show citation info** (default) \u2014 opens a bottom-sheet card with the formatted reference. Tap outside or press \xD7 to dismiss.\n- **Copy to clipboard** \u2014 copies the formatted citation as rich text and markdown.\n- **Open link** \u2014 follows the best available link in order (Zotero select \u2192 attached PDF \u2192 URL/DOI), falling back to the card when nothing is available.\n\n**Editor (live preview):** tapping places the cursor normally; **long-press** (~500 ms) triggers the action. Long-pressing when the cursor is already on the citekey performs native word selection. Moving your finger during the hold cancels it.\n\n## Reference sidebar\n\nThe sidebar opens on startup; if it doesn't appear, run **Show reference list** from the command palette.\n\n## Zotero\n\nThe native Zotero API works on mobile when Zotero is running and reachable on the local network. Better BibTeX is not supported on mobile.\n\n## Limitations\n\n- Autocomplete inside table cells is broken on all platforms (an Obsidian `EditorSuggest` limitation).\n- Pandoc is unavailable on mobile, so the built-in BibTeX parser is used.\n- Absolute bibliography paths don't work on mobile.\n- Document import/export is desktop-only (it needs Python, Pandoc, and so on).\n\nSee [Dependencies](./dependencies.md).\n", "binary": false }, "docs/setup.md": { "content": "# Setup\n\n## 1. Install the plugin\n\nInstall via [BRAT](https://github.com/TfTHacker/obsidian42-brat):\n\n1. Disable Restricted Mode, then install and enable **BRAT** from the Community Plugins list.\n2. In BRAT's settings, add `nebedaay/ScholarWeave` to the **Beta plugin list**.\n3. Enable **ScholarWeave** in Obsidian's Community Plugins. BRAT keeps it updated.\n\n## 2. Install what you need\n\nScholarWeave's citation features work with no external tools. Document import/export needs a few programs \u2014 the short version:\n\n- Compile/export/import documents \u2192 **Python 3** and **Pandoc**\n- PDF via an ODT/DOCX template \u2192 also **LibreOffice**\n- PDF via a `.tex` template \u2192 also a **LaTeX** distribution with LuaLaTeX\n- Live, refreshable Zotero citations \u2192 **Zotero** (plus **Better BibTeX** for automatic citekeys)\n\nSee **[Dependencies](./dependencies.md)** for exactly what needs what and where to download it. The plugin detects what is installed and greys out options that can't run, so you can explore safely.\n\n## 3. Connect your references\n\nUse Zotero, a bibliography file, or both:\n\n- **Zotero** \u2014 see [Zotero](./zotero.md).\n- **Bibliography files** (`.bib`, CSL-JSON, CSL-YAML) \u2014 add them in Settings \u2192 Bibliography. See [Bibliography](./bibliography.md).\n\n## 4. Start writing\n\nCitations are Obsidian wikilinks with the pandoc citation after a `|`: `[[@smith1992|see @, p. 6]]` renders as *(see Smith 1992, 6)* **and** links to the literature note. Plain pandoc citations (`[@key]`) work too, and commands convert between the two. See [Linked Citations](./linked-citations.md) and [Citations](./citations.md).\n\n## 5. Import and export\n\nCompile a single note or a bullet-list outline of notes into markdown, DOCX, ODT, or PDF, and import Word/ODT documents. See [Document Import and Export](./import-export.md).\n\n## Settings\n\nSettings are reached from **Settings \u2192 ScholarWeave** and organised into four pages:\n\n- **Bibliography** \u2014 where your sources come from. See [Bibliography](./bibliography.md) and [Zotero](./zotero.md).\n- **Citation and reference formatting** \u2014 how citations and the reference list look in Obsidian. See [Citations](./citations.md).\n- **Literature note import** \u2014 where literature notes live and how they are created. See [Literature Notes](./literature-notes.md).\n- **Document import/export and compilation** \u2014 the tools, templates, and defaults for compiling and exporting. See [Document Import and Export](./import-export.md).\n\nEach option notes anything it needs, with a link to [Dependencies](./dependencies.md).\n", "binary": false }, "docs/zotero.md": { "content": "# Zotero Integration\n\nScholarWeave can use Zotero as a reference source, resolve and refresh citations, and read citation fields on import. It can also blend Zotero with one or more bibliography files (see [Bibliography](./bibliography.md)).\n\nZotero is optional if you keep your references in a bibliography file: those citations are rendered statically and need nothing running. Live, refreshable citation fields in exported DOCX/ODT do require Zotero.\n\n## Connection modes\n\n**Native API (Zotero 7/8) \u2014 recommended.** Enable **Use native Zotero API** to query Zotero directly through its built-in local API, with no Better BibTeX required.\n\n**Better BibTeX (Zotero 6, or 7/8 with BBT).** With the native API off, the plugin talks to Better BibTeX's JSON-RPC endpoint; BBT must be installed in Zotero.\n\n## Pull from Zotero\n\n**Pull from Zotero** controls whether Zotero entries are loaded at all (leave it on to include them).\n\n## Port\n\nThe default port is **23119**. Change **Zotero port** if you use Juris-M (24119) or a custom port.\n\n## Libraries\n\nWhen connected, you can choose which Zotero libraries (personal and group) to include. If a citekey appears in several, the most recently modified version wins.\n\n## Merging with bibliography files\n\nZotero and `.bib` files load together. If a citekey exists in both, **Zotero wins**; entries found in multiple sources show a conflict indicator (\u26A0) in the sidebar. If Zotero is unavailable, the files cover what they can, so you can keep a `.bib` export as a fallback.\n\n## Mobile\n\nThe native API works on mobile when Zotero is running and reachable by IP on the local network. Better BibTeX is not supported on mobile. See [Mobile](./mobile.md).\n\n## Searching\n\n`@` gives citekey autocomplete; `@@` gives full-text title/author search (via ZotLit's database when ZotLit is installed, otherwise the plugin's own index). See [Citations](./citations.md).\n\n## Styles and refreshing\n\nThe reference list refreshes when you switch notes; you can also force a refresh from the sidebar menu. The **Zotero data folder** (used to resolve installed citation styles for a note's `csl:` frontmatter and for the export dialogue) defaults to `~/Zotero` when left blank.\n\nSee [Dependencies](./dependencies.md).\n", "binary": false }, "docs/zotlit-import-templates.md": { "content": "# ZotLit Import Templates\n\nIn ScholarWeave's settings you can click **Install and use ScholarWeave's ZotLit import templates**. The templates are packaged in the plugin, so nothing is downloaded; they are written to `sw-zotlit-templates/` in your vault, which is set as your ZotLit template folder so your existing templates are left untouched.\n\nThe templates follow ScholarWeave's \"link everything\" philosophy and assume you curate your Zotero items and annotations with Obsidian in mind:\n\n- All annotations appear in their original colour in callout boxes, so you can colour-code annotation types; each colour is linked to a colour note where you can explain its use and link onward.\n- Zotero `tags` and `related` fields become links in the literature note's `related` property.\n- `tags` in PDF-annotation comments also become links inside the comment callout.\n- Existing wikilinks in annotation comments are preserved, so imported notes slot straight into your note network.\n- Rectangular and ink annotations are imported as attachments and displayed as images.\n- A comment beginning with `+` marks the highlighted text as a continuation of the previous highlight, appended after \" \u2026 \", so you can combine quotes that span pages or parts of a longer passage.\n\nRequires ZotLit (and Zotero). See [Literature Notes](./literature-notes.md) and [Dependencies](./dependencies.md).\n", "binary": false }, "README.md": { "content": '# ScholarWeave\n\n<img src="./images/scholarweave-illustration.png" width="300" alt="ScholarWeave logo">\n\nAn Obsidian plugin that weaves together your universe of interlinked Obsidian notes, your Zotero library, and your publication workflow.\n\nScholarWeave\'s signature feature is **linked citations**: `[[@sanchez2009|see @, p. 25]]` is simultaneously a formatted inline citation \u2014 "(see Sanchez 2009, 25)" \u2014 *and* an Obsidian wikilink to the literature note for that source. Other citation plugins can either link to a literature note (`[[@sanchez2009]]`) or render pandoc-formatted citations (`[see @sanchez2009, p. 25]`), which makes it impossible to use citations reliably as nodes in Obsidian\'s note network, especially in notes intended to be incorporated into publications.\n\nBeyond linking your scholarly notes and references, ScholarWeave links your writing inside Obsidian to the world beyond Obsidian. Import DOCX and ODT documents as Obsidian notes, converting their Zotero citations to linked citations and importing a literature note for each cited work. Export an Obsidian note or compile a series of notes as a publication-ready DOCX, ODT, or PDF document with functioning citations \u2014 so you can do all your academic writing inside manageable, interlinked Obsidian notes, even long book projects.\n\nThis plugin started as a fork of [Bripey Citation Suite](https://github.com/112345brian/bripey-citation-suite), which itself descends from [Pandoc Reference List](https://github.com/community-archive/obsidian-pandoc-reference-list). It was renamed to reflect its distinctive and more comprehensive functionality.\n\n## Documentation\n\n- [Setup](./docs/setup.md) \u2014 install and first steps\n- [Dependencies](./docs/dependencies.md) \u2014 what each feature needs, and where to get it\n- [Linked Citations](./docs/linked-citations.md) \u2014 the citation syntax\n- [Citations and References](./docs/citations.md) \u2014 formatting, autocomplete, tooltips, the reference sidebar\n- [Bibliography](./docs/bibliography.md) \u2014 `.bib`/CSL sources, per-note overrides\n- [Zotero](./docs/zotero.md) \u2014 connection modes, port, libraries\n- [Literature Notes](./docs/literature-notes.md) \u2014 where notes live and how they are created\n- [Document Import and Export](./docs/import-export.md) \u2014 compile/export to markdown, DOCX, ODT, PDF\n- [Commands](./docs/commands.md) \u2014 the full command list\n- [ZotLit Import Templates](./docs/zotlit-import-templates.md) \u2014 rich annotation templates\n- [Mobile](./docs/mobile.md) \u2014 iOS/Android behaviour\n\n## Features\n\nMost features work with **no external tools** (no Pandoc, no Zotero) when you use a bibliography file. The ones that don\'t note it inline; see [Dependencies](./docs/dependencies.md) for details.\n\n### Citations\n\n- **Linked citations** \u2014 `[[@smith1992|see @, p. 6]]` \u2192 (see Smith 1992, 6): real Obsidian wikilinks *and* publication-ready formatted citations. See [Linked Citations](./docs/linked-citations.md).\n- **Conventional pandoc citations** \u2014 `[@key]`, `[see @key, p. 25]` render too, and commands convert between formats losslessly.\n- **Live reference sidebar** \u2014 a searchable list of every citation in the current note, with copy and jump buttons.\n- **Insert bibliography at cursor** and **bibliography snapshot** (save a note\'s citations as a `.bib`, colour-coded by sync status).\n- **Citekey autocomplete and full-text search** \u2014 `@` searches citekeys (prefix \u2192 substring \u2192 fuzzy), `@@` searches titles/authors across your library.\n- **Smart bracket insertion** \u2014 `\u2318\u21B5` wraps the selection in `[@key]` without double-wrapping.\n- **Diacritic-insensitive search** \u2014 "Muller" finds "M\xFCller".\n- **Citation decoration and tooltips** \u2014 colour-coded status; hover for a formatted preview, literature-note link, and Zotero link.\n- **Mobile support** \u2014 tap citations in reading mode, long-press in the editor. See [Mobile](./docs/mobile.md).\n\n### References and literature notes\n\n- **Multiple bibliography sources** \u2014 any number of `.bib`/CSL-JSON/CSL-YAML files plus Zotero, merged; Zotero wins on conflicts. See [Bibliography](./docs/bibliography.md).\n- **Native Zotero 7/8 API** \u2014 no Better BibTeX needed to resolve and format citations (BBT still required for Zotero 6, and still the easiest way to auto-generate citekeys). See [Zotero](./docs/zotero.md).\n- **Literature note creation** \u2014 create notes for cited works from the sidebar, tooltip, or command palette; uses ZotLit when available. See [Literature Notes](./docs/literature-notes.md).\n- **Citekey sync** \u2014 update citations across the vault and rename literature notes when a Zotero citekey changes.\n\n### Document import and export (desktop only)\n\n- **Compile and export** a note or a multi-note outline as markdown, DOCX, ODT, or PDF with one command, with fine-grained options (TOC, per-chapter footnotes, figure captions, custom styles). See [Document Import and Export](./docs/import-export.md).\n- **Import DOCX/ODT** documents as markdown notes, converting their Zotero citation fields to linked citations.\n- **Custom callouts and markdown \u2192 DOCX/ODT styles** \u2014 Markdown Attributes / Extended Markdown Syntax styles are converted automatically; undefined styles get a highlighted sentinel so you can define them.\n\n### Requirements at a glance\n\nBasic citation work needs nothing installed. Document import/export and live Zotero fields require installing some combination of Python 3, Pandoc, Zotero/Better BibTeX, LibreOffice, and/or a LaTeX distribution \u2014 see **[Dependencies](./docs/dependencies.md)** for the exact mapping and download links. The plugin detects what is installed and greys out options that can\'t run.\n\n## Install via BRAT\n\n1. Disable Restricted Mode, then install and enable [BRAT](https://github.com/TfTHacker/obsidian42-brat) from the Community Plugins list.\n2. In BRAT\'s settings, add `nebedaay/ScholarWeave` to the **Beta plugin list**.\n3. Enable **ScholarWeave** in Community Plugins. BRAT keeps it updated.\n\nSee [Setup](./docs/setup.md) for first steps.\n\n## Companion plugins\n\nScholarWeave works alongside [ZotLit](https://github.com/PKM-er/obsidian-zotlit): when ZotLit is present, literature note creation uses ZotLit\'s templates and `@@` autocomplete draws on ZotLit\'s full-text database. Neither plugin requires the other.\n\n**One-click ZotLit templates:** *Settings \u2192 ScholarWeave \u2192 "Install and use ScholarWeave\'s ZotLit import templates"* copies a curated set of templates into `sw-zotlit-templates/` and points ZotLit\'s *Template folder* setting there (ZotLit reloads automatically), leaving your own templates untouched. See [ZotLit Import Templates](./docs/zotlit-import-templates.md).\n\n## Plugin API\n\n```ts\nconst plugin = app.plugins.plugins["scholar-weave"] as { api?: ScholarWeaveApi } | undefined;\nif (plugin?.api?.version === 1) {\n  await plugin.api.focusReferenceListView();\n  const citekeys = await plugin.api.getCitekeysForFile(app.workspace.getActiveFile() ?? undefined);\n}\n```\n\n## Credits\n\n- **Bripey Citation Suite** by [112345brian](https://github.com/112345brian) \u2014 the direct upstream fork\n- Original plugin by [mgmeyers](https://github.com/mgmeyers/obsidian-pandoc-reference-list), maintained by [obsidian-community](https://github.com/obsidian-community/obsidian-pandoc-reference-list)\n\nThis fork incorporates changes from:\n\n- [astroHaoPeng/alp-obsidian-pandoc-reference-list](https://github.com/astroHaoPeng/alp-obsidian-pandoc-reference-list) \u2014 file-relative bib paths, multiple bibliography files, auto-update on rename\n- [wjvg-gif/obsidian-pandoc-reference-list-zotero8](https://github.com/wjvg-gif/obsidian-pandoc-reference-list-zotero8) \u2014 native Zotero 7/8 API mode\n- [sjelms/obsidian-pandoc-inline-citations](https://github.com/sjelms/obsidian-pandoc-inline-citations) \u2014 DOM fallback fixes, wikilink alias parsing\n\nDiacritic normalization approach credited to [akhmialeuski/obsidian-citation-extended](https://github.com/akhmialeuski/obsidian-citation-extended) (MIT).\n\nSee [NOTICE.md](NOTICE.md) for full license attributions.\n', "binary": false }, "NOTICE.md": { "content": '# Third-Party Notices\n\nLinked Citations incorporates code from the following open-source projects.\n\n---\n\n## Pandoc Reference List\n\n- **Author:** mgmeyers (Matthew Meyers)\n- **Repository:** https://github.com/mgmeyers/obsidian-pandoc-reference-list\n- **License:** MIT\n\n```\nMIT License\n\nCopyright (c) 2022 mgmeyers\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the "Software"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n```\n\n---\n\n## citeproc-js\n\n- **Author:** Frank Bennett\n- **Repository:** https://github.com/Juris-M/citeproc-js\n- **License:** AGPL-3.0 (used under the AGPL-3.0 option of the dual CPAL-1.0 / AGPL-3.0 license)\n\nThe full text of the GNU Affero General Public License v3.0 is available at:\nhttps://www.gnu.org/licenses/agpl-3.0.html\n\n---\n\n## zotero-live-citations (lc-zotero.lua)\n\n- **Author:** Emiliano Heyns \\<emiliano.heyns@iris-advies.com\\>\n- **Source:** Better BibTeX for Zotero \u2014 https://retorque.re/zotero-better-bibtex/exporting/\n- **Repository:** https://github.com/retorquere/zotero-better-bibtex\n- **License:** AGPL-3.0\n\n`scripts/lc-zotero.lua` is derived from the `zotero-live-citations` Pandoc filter\ndistributed with Better BibTeX. It has been integrated into this plugin for use\nas a local Pandoc Lua filter. The full AGPL-3.0 license text is available at:\nhttps://www.gnu.org/licenses/agpl-3.0.html\n\n---\n\n## fuse.js\n\n- **Author:** Kiro Risk\n- **Repository:** https://github.com/krisk/Fuse\n- **License:** Apache-2.0\n\n```\nCopyright 2017 Kiro Risk\n\nLicensed under the Apache License, Version 2.0 (the "License");\nyou may not use this file except in compliance with the License.\nYou may obtain a copy of the License at\n\n    http://www.apache.org/licenses/LICENSE-2.0\n\nUnless required by applicable law or agreed to in writing, software\ndistributed under the License is distributed on an "AS IS" BASIS,\nWITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\nSee the License for the specific language governing permissions and\nlimitations under the License.\n```\n\n---\n\n## @retorquere/bibtex-parser\n\n- **Author:** Emiliano Heyns\n- **Repository:** https://github.com/retorquere/bibtex-parser\n- **License:** ISC\n\n```\nISC License\n\nCopyright (c) Emiliano Heyns\n\nPermission to use, copy, modify, and/or distribute this software for any\npurpose with or without fee is hereby granted, provided that the above\ncopyright notice and this permission notice appear in all copies.\n\nTHE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES\nWITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF\nMERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR\nANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES\nWHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN\nACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF\nOR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.\n```\n', "binary": false }, "images/scholarweave-illustration.png": { "content": "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yyUBEiABEiABEiABEiAB8wSYgwRIgARIwCUCFERcAs1qSIAESIAESIAESIAEghHgPhIgARIgARKIDAEKIpHhzlpJgARIgARIgARilQDbTQIkQAIkQAIk4AkCFEQ80Q00ggRIgARIgASilwBbRgIkQAIkQAIkQAJeJEBBxIu9QptIgARIgAT8TIC2kwAJkAAJkAAJkAAJ+IAABREfdBJNJAESIAFvE6B1JEACJEACJEACJEACJOA/AhRE/NdntJgESCDSBFg/CZAACZAACZAACZAACZCA7wlQEPF9F7IBJOA8AdZAAiRAAiRAAiRAAiRAAiRAAtFGgIJItPUo22MHAZZBAiRAAiRAAiRAAiRAAiRAAiQQ5QQoiER5BxtrHlORAAmQAAmQAAmQAAmQAAmQAAmQQGwRiE1BJLb6mK0lARIgARIgARIgARIgARIgARIggdgk0ECrKYg0AIeHSIAESIAESIAESIAESIAESIAESMBPBGircQIURIyzYkoSIAESIAESIAESIAESIAESIAFvEaA1JKBMgIKIMjpmJAESIAESIAESIAESIAESIAG3CbA+EiABuwhQELGLJMshARIgARIgARIgARIgARKwnwBLJAESIAGHCFAQcQgsiyUBEiABEiABEiABEiABFQLMQwIkQAIk4A4BCiLucGYtJEACJEACJEACJEACwQlwLwmQAAmQAAlEhAAFkYhgZ6UkQAIkQAIkQAKxS4AtJwESIAESIAES8AIBCiJe6AXaQAIkQAIkQALRTIBtIwESIAESIAESIAEPEqAg4sFOoUkkQAIkQAL+JkDrSYAESIAESIAESIAEvE+Agoj3+4gWkgAJkIDXCdA+EiABEiABEiABEiABEvAdAQoivusyGkwCJBB5ArSABEiABEiABEiABEiABEjA7wQoiPi9B2k/CbhBgHWQAAmQAAmQAAmQAAmQAAmQQJQRoCASZR3K5thDgKWQAAmQAAmQAAmQAAmQAAmQAAlENwEKItHdv0Zbx3QkQAIkQAIkQAIkQAIkQAIkQAIkEFMEYlQQiak+ZmNJgARIgARIgARIgARIgARIgARIIEYJhG42BZHQbHiEBEiABEiABEiABEiABEiABEiABPxFgNYaJkBBxDAqJiQBEiABEiABEiABEiABEiABEvAaAdpDAqoEKIiokmM+EiABEiABEiABEiABEiABEnCfAGskARKwiQAFEZtAshgSIAESIAESIAESIAESIAEnCLBMEiABEnCGAAURZ7iyVBIgARIgARIgARIgARJQI8BcJEACJEACrhCgIOIKZlZCAiRAAiRAAiRAAiQQigD3kwAJkAAJkEAkCFAQiQR11kkCJEACJEACJBDLBNh2EiABEiABEiABDxCgIOKBTqAJJEACJEACJBDdBNg6EiABEiABEiABEvAeAQoi3usTWkQCJEACJOB3ArSfBEiABEiABEiABEjA8wQoiHi+i2ggCZAACXifAC0kARIgARIgARIgARIgAb8RoCDitx6jvSRAAl4gQBtIgARIgARIgARIgARIgAR8ToCCiM87kOaTgDsEWAsJkAAJkAAJkAAJkAAJkAAJRBcBCiLR1Z9sjV0EWA4JkAAJkAAJkAAJkAAJkAAJkEBUE6AgEtXda7xxTEkCJEACJEACJEACJEACJEACJEACsUQgVgWRWOpjtpUESIAESIAESIAESIAESIAESIAEYpVAyHZTEAmJhgdIgARIgARIgARIgARIgARIgARIwG8EaK9RAhREjJJiOhIgARIgARIgARIgARIgARIgAe8RoEUkoEiAgogiOGYjARIgARIgARIgARIgARIggUgQYJ0kQAL2EKAgYg9HlkICJEACJEACJEACJEACJOAMAZZKAiRAAo4QoCDiCFYWSgIkQAIkQAIkQAIkQAKqBJiPBEiABEjADQIURNygzDpIgARIgARIgARIgARCE+AREiABEiABEogAAQoiEYDOKkmABEiABEg7vcNqAAADTUlEQVSABGKbAFtPAiRAAiRAAiQQeQIURCLfB7SABEiABEiABKKdANtHAiRAAiRAAiRAAp4jQEHEc11Cg0iABEiABPxPgC0gARIgARIgARIgARLwOgEKIl7vIdpHAiRAAn4gQBtJgARIgARIgARIgARIwGcEKIj4rMNoLgmQgDcI0AoSIAESIAESIAESIAESIAF/E6Ag4u/+o/Uk4BYB1kMCJEACJEACJEACJEACJEACUUWAgkhUdScbYx8BlkQCJEACJEACJEACJEACJEACJBDNBCiIRHPvmmkb05IACZAACZAACZAACZAACZAACZBADBGIWUEkhvqYTSUBEiABEiABEiABEiABEiABEiCBmCUQquEUREKR4X4SIAESIAESIAESIAESIAESIAES8B8BWmyQAAURg6CYjARIgARIgARIgARIgARIgARIwIsEaBMJqBGgIKLGjblIgARIgARIgARIgARIgARIIDIEWCsJkIAtBCiI2IKRhZAACZAACZAACZAACZAACThFgOWSAAmQgBMEKIg4QZVlkgAJkAAJkAAJkAAJkIA6AeYkARIgARJwgQAFERcgswoSIAESIAESIAESIIGGCPAYCZAACZAACbhPgIKI+8xZIwmQAAmQAAmQQKwTYPtJgARIgARIgAQiToCCSMS7gAaQAAmQAAmQQPQTYAtJgARIgARIgARIwGsEKIh4rUdoDwmQAAmQQDQQYBtIgARIgARIgARIgAQ8ToCCiMc7iOaRAAmQgD8I0EoSIAESIAESIAESIAES8BcBCiL+6i9aSwIk4BUCtIMESIAESIAESIAESIAESMDXBCiI+Lr7aDwJuEeANZEACZAACZAACZAACZAACZBANBGgIBJNvcm22EmAZZEACZAACZAACZAACZAACZAACUQxAQoiUdy55prG1CRAAiRAAiRAAiRAAiRAAiRAAiQQOwRiVxCJnT5mS0mABEiABEiABEiABEiABEiABEggdgmEaDkFkRBguJsESIAESIAESIAESIAESIAESIAE/EiANhsjQEHEGCemIgESIAESIAESIAESIAESIAES8CYBWkUCSgQoiChhYyYSIAESIAESIAESIAESIAESiBQB1ksCJGAHgf8HAAD//2awptQAAAAGSURBVAMAE4oI089vBC8AAAAASUVORK5CYII=", "binary": true }, "zotlit-templates/zotlit-annotation.eta.md": { "content": '<%/* zotlit-annotation.eta.md \u2014 renders ONE annotation as a callout block.\n     Merged annotations arrive pre-combined from zotlit-content.eta.md\n     (text / comment / pageLabel / tags already merged, "+" marker\n     stripped), so this template needs no merge logic of its own. */-%>\n<% const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : "";\nconst colorRaw = zt.colorName ?? "Yellow";\nconst colorCap = cap(colorRaw);\nconst typeCap = cap(zt.type);\nconst esc = s => (s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");\nconst mdComment = s => (s ?? "").replace(/<i>/g, "*").replace(/<\\/i>/g, "*").replace(/<b>/g, "**").replace(/<\\/b>/g, "**").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");\nconst escText = s => esc(s).replace(/\\[/g, "\\\\[").replace(/\\]/g, "\\\\]");\n// Callout-safe multi-line content: EVERY line (including blank lines) gets a\n// "> " prefix so paragraphs stay inside the callout. Obsidian callouts break\n// on any line lacking the prefix; comments with several paragraphs or blank\n// lines otherwise leak their later lines outside the [!ann-\u2026] block.\nconst calloutLines = s => (s ?? "").split(/\\r?\\n/).map(l => l.trim() ? `> ${l}` : ">").join("\\n");\n-%>\n<% bq(() => { -%>\n[!<%= colorRaw %>-<%= zt.type %>-annotation] <%= colorCap %> <%= typeCap %>\n<% if (zt.comment || (zt.tags && zt.tags.length > 0)) { -%>\n> [!ann-comment]\n<% if (zt.comment) { -%>\n<%= calloutLines(mdComment(zt.comment)) %>\n<% } -%>\n<% for (const tag of (zt.tags ?? [])) { -%>\n> - [[<%= tag.name %>]]\n<% } -%>\n<% } -%>\n\n<% if (zt.type === "highlight" && zt.text) { -%>\n> [!ann-highlight-text-<%= colorRaw %>]\n> <%= escText(zt.text) %>\n<% } else if (zt.type === "underline" && zt.text) { -%>\n> [!ann-underline-text-<%= colorRaw %>]\n> <%= escText(zt.text) %>\n<% } else if (zt.type === "image") { -%>\n> [!ann-image-<%= colorRaw %>]\n> <%= embed(typeof zt.imgLink === "function" ? zt.imgLink : () => zt.imgLink) %>\n> - <%= typeof zt.imgLink === "function" ? zt.imgLink("view image") : zt.imgLink %>\n> - [[image annotations|images]]\n<% } else if (zt.type === "text" || zt.type === "note") { -%>\n> [!ann-text-<%= colorRaw %>]Text comment\u2014click to view in context:\n<% if (zt.comment) { -%>\n<%= calloutLines(mdComment(zt.comment)) %>\n<% } -%>\n<% } else if (zt.type === "ink") { -%>\n> [!ann-ink-<%= colorRaw %>]\n> <%= embed(typeof zt.imgLink === "function" ? zt.imgLink : () => zt.imgLink) %>\n> - <%= typeof zt.imgLink === "function" ? zt.imgLink("view ink image") : zt.imgLink %>\n<% } -%>\n- [[<%= colorCap %> annotations|<%= colorCap %>]]\n- (<% if (zt.pageLabel) { %>[<%= zt.pageLabel.includes("\u2013") ? "pp. " : "p. " %><%= zt.pageLabel %>](<%= zt.backlink %>)<% } else { %>[View](<%= zt.backlink %>)<% } %>, <%= zt.dateAdded %>)\n<% }) %>\n', "binary": false }, "zotlit-templates/zotlit-content.eta.md": { "content": '<%/* zotlit-content.eta.md \u2014 annotations region (Eta, JS templates).\n     Groups annotations by attachment and renders each through the\n     "annotation" template. Zotero-Integration-style "+" concatenation:\n     an annotation whose comment begins with "+" is appended to the\n     PREVIOUS annotation on the same attachment (joined with " ... "),\n     chaining across multiple "+" annotations. The merged group keeps\n     the first annotation\'s links and date; the page label becomes a\n     range ("pp. 4\u20136") when pages differ; comments and tags combine.\n     Display-only \u2014 Zotero data is never modified, and re-updates\n     reproduce the same merge. */-%>\n<% if (zt.annotations && zt.annotations.length > 0) { -%>\n## Annotations\n\n<% const merged = [];\nlet group = null;\nfor (let i = 0; i < zt.annotations.length; i++) {\n  const a = { ...zt.annotations[i] };\n  const plus = typeof a.comment === "string" && /^\\+\\s*/.test(a.comment);\n  if (plus && group && a.parentAttachment?.key === group.parentAttachment?.key && a.text) {\n    a.comment = a.comment.replace(/^\\+\\s*/, "");\n    group.text = [(group.text ?? "").trim(), a.text.trim()].filter(Boolean).join(" ... ");\n    group.comment = [group.comment, a.comment].filter(c => c && c.trim()).join(" ... ") || null;\n    if (a.pageLabel && group.pageLabel && group.pageLabel !== a.pageLabel) {\n      group.pageLabel = `${group.pageLabel.split("\u2013")[0]}\u2013${a.pageLabel}`;\n    }\n    if (a.tags?.length) {\n      const seen = new Set((group.tags ?? []).map(t => t.name));\n      group.tags = [...(group.tags ?? []), ...a.tags.filter(t => !seen.has(t.name))];\n    }\n    continue;\n  }\n  if (plus && a.comment) a.comment = a.comment.replace(/^\\+\\s*/, "");\n  merged.push(a);\n  group = a;\n} -%>\n<% for (const attachment of zt.attachments) { -%>\n<% const anns = merged.filter(a => a.parentAttachment?.key === attachment.key);\nif (anns.length === 0) continue; -%>\n### [<%= attachment.filename ?? attachment.key %>](<%= attachment.backlink %>)\n\n<% for (const annotation of anns) { -%>\n<%~ include("annotation", annotation) %>\n\n<% } -%>\n<% } -%>\n<% } -%>\n', "binary": false }, "zotlit-templates/zotlit-filename.liquid.md": { "content": "@{{ zt.citationKey | default: zt.DOI | default: zt.title | default: zt.key }}{% suffix %}\n", "binary": false }, "zotlit-templates/zotlit-note.eta.md": { "content": '## Notes\n\n<%~ include("content", zt) %>\n', "binary": false } };
 
 // src/zotlitTemplates.ts
 var SW_ZOTLIT_FOLDER = "sw-zotlit-templates";
@@ -83246,6 +83868,312 @@ var ZoteroStylePicker = class extends import_obsidian9.FuzzySuggestModal {
   }
 };
 
+// src/docs.ts
+var import_obsidian10 = __toModule(require("obsidian"));
+var GITHUB_DOCS_BASE = "https://github.com/nebedaay/ScholarWeave/blob/main/docs/";
+var DOC_ORDER = [
+  ["setup.md", "Setup"],
+  ["dependencies.md", "Dependencies"],
+  ["bibliography.md", "Bibliography"],
+  ["citations.md", "Citations and references"],
+  ["linked-citations.md", "Linked citations"],
+  ["zotero.md", "Zotero"],
+  ["literature-notes.md", "Literature notes"],
+  ["zotlit-import-templates.md", "ZotLit import templates"],
+  ["import-export.md", "Document import and export"],
+  ["commands.md", "Commands"],
+  ["mobile.md", "Mobile"]
+];
+function inlineBundledImages(markdown) {
+  return markdown.replace(/(<img\b[^>]*\bsrc=")(?:\.?\/?)(images\/[^"]+\.(?:png|jpe?g|gif|svg|webp))(")/gi, (m3, pre, rel, post) => {
+    const asset = BUNDLED_ASSETS[rel];
+    if (!(asset == null ? void 0 : asset.content))
+      return m3;
+    const lower = rel.toLowerCase();
+    const mime = lower.endsWith(".svg") ? "image/svg+xml" : lower.endsWith(".jpg") || lower.endsWith(".jpeg") ? "image/jpeg" : lower.endsWith(".gif") ? "image/gif" : lower.endsWith(".webp") ? "image/webp" : "image/png";
+    const base64 = asset.binary ? asset.content : btoa(unescape(encodeURIComponent(asset.content)));
+    return `${pre}data:${mime};base64,${base64}${post}`;
+  });
+}
+function getDocs() {
+  var _a, _b;
+  const out = [];
+  const seen = new Set();
+  const readme = (_a = BUNDLED_ASSETS["README.md"]) == null ? void 0 : _a.content;
+  if (readme) {
+    out.push({ name: "README.md", title: "Overview", markdown: inlineBundledImages(readme) });
+    seen.add("README.md");
+  }
+  const take = (name, title) => {
+    const asset = BUNDLED_ASSETS[`docs/${name}`];
+    if (!(asset == null ? void 0 : asset.content))
+      return;
+    out.push({ name, title, markdown: asset.content });
+    seen.add(name);
+  };
+  for (const [name, title] of DOC_ORDER)
+    take(name, title);
+  for (const key of Object.keys(BUNDLED_ASSETS)) {
+    if (!key.startsWith("docs/"))
+      continue;
+    const name = key.slice("docs/".length);
+    if (seen.has(name))
+      continue;
+    take(name, name.replace(/\.md$/, ""));
+  }
+  const notice = (_b = BUNDLED_ASSETS["NOTICE.md"]) == null ? void 0 : _b.content;
+  if (notice)
+    out.push({ name: "NOTICE.md", title: "Notice", markdown: notice });
+  return out;
+}
+function githubDocUrl(name) {
+  return GITHUB_DOCS_BASE + name;
+}
+var DocsModal = class extends import_obsidian10.Modal {
+  constructor(app2, initial = "README.md") {
+    super(app2);
+    this.initial = initial;
+    this.navItems = new Map();
+    this.component = new import_obsidian10.Component();
+  }
+  onOpen() {
+    this.component.load();
+    this.modalEl.addClass("sw-docs-modal");
+    const { contentEl } = this;
+    contentEl.addClass("sw-docs-modal");
+    contentEl.createEl("h3", { text: "ScholarWeave documentation" });
+    const wrap = contentEl.createDiv({ cls: "sw-docs-wrap" });
+    const nav = wrap.createDiv({ cls: "sw-docs-nav" });
+    this.body = wrap.createDiv({ cls: "sw-docs-body" });
+    for (const doc of getDocs()) {
+      const item = nav.createEl("a", { text: doc.title, cls: "sw-docs-nav-item" });
+      item.addEventListener("click", (e3) => {
+        e3.preventDefault();
+        this.show(doc.name);
+      });
+      this.navItems.set(doc.name, item);
+    }
+    this.show(this.initial);
+  }
+  show(name) {
+    var _a;
+    const docs = getDocs();
+    const doc = (_a = docs.find((d3) => d3.name === name)) != null ? _a : docs[0];
+    if (!doc)
+      return;
+    for (const [n2, el] of this.navItems) {
+      el.toggleClass("is-active", n2 === doc.name);
+    }
+    this.body.empty();
+    const gh = this.body.createDiv({ cls: "sw-docs-gh" });
+    gh.createEl("a", {
+      text: "Open on GitHub",
+      href: githubDocUrl(doc.name)
+    }).setAttr("target", "_blank");
+    const content = this.body.createDiv({ cls: "sw-docs-content" });
+    content.addEventListener("click", (e3) => {
+      var _a2;
+      const a3 = e3.target.closest("a");
+      if (!a3)
+        return;
+      const href = (_a2 = a3.getAttribute("href")) != null ? _a2 : "";
+      if (/^https?:/i.test(href))
+        return;
+      const m3 = href.match(/([\w-]+\.md)(?:#.*)?$/);
+      if (m3 && docs.some((d3) => d3.name === m3[1])) {
+        e3.preventDefault();
+        this.show(m3[1]);
+      }
+    });
+    void import_obsidian10.MarkdownRenderer.render(this.app, doc.markdown, content, "", this.component);
+    this.body.scrollTop = 0;
+  }
+  onClose() {
+    this.component.unload();
+    this.contentEl.empty();
+  }
+};
+function openDocs(name = "README.md") {
+  new DocsModal(app, name).open();
+}
+
+// src/dependencies.ts
+var DEPENDENCIES = {
+  python: {
+    label: "Python 3",
+    enables: "compiling and exporting documents, and importing",
+    url: "https://www.python.org/downloads/"
+  },
+  pandoc: {
+    label: "Pandoc",
+    enables: "exporting to DOCX / ODT / LaTeX / PDF, and importing",
+    url: "https://pandoc.org/installing.html"
+  },
+  zotero: {
+    label: "Zotero",
+    enables: "live citation fields, citekey lookup, and importing",
+    url: "https://www.zotero.org/download/"
+  },
+  bbt: {
+    label: "Better BibTeX",
+    enables: "automatic citekeys (and Zotero 6 support)",
+    url: "https://retorque.re/zotero-better-bibtex/installation/"
+  },
+  libreoffice: {
+    label: "LibreOffice",
+    enables: "PDF export through an ODT / DOCX template",
+    url: "https://www.libreoffice.org/download/"
+  },
+  latex: {
+    label: "LaTeX (LuaLaTeX)",
+    enables: "PDF export through a .tex template",
+    url: "https://tug.org/texlive/"
+  },
+  zotlit: {
+    label: "ZotLit",
+    enables: "richer literature notes and @@ full-text search",
+    url: "https://github.com/PKM-er/obsidian-zotlit"
+  }
+};
+var DEPENDENCIES_DOC_URL = "https://github.com/nebedaay/ScholarWeave/blob/main/docs/dependencies.md";
+function renderDependencyNote(containerEl, deps, intro) {
+  const note = containerEl.createDiv({ cls: "sw-dependency-note" });
+  note.createDiv({ cls: "sw-dependency-note-intro", text: intro });
+  if (deps.length) {
+    const ul = note.createEl("ul", { cls: "sw-dependency-note-list" });
+    for (const key of deps) {
+      const d3 = DEPENDENCIES[key];
+      const li = ul.createEl("li");
+      li.createEl("a", { text: d3.label, href: d3.url }).setAttr("target", "_blank");
+      li.createSpan({ text: ` \u2014 ${d3.enables}` });
+    }
+  }
+  const links = note.createDiv({ cls: "sw-dependency-note-links" });
+  const read = links.createEl("a", {
+    cls: "sw-dependency-note-more",
+    text: "Read the docs in the app"
+  });
+  read.addEventListener("click", (e3) => {
+    e3.preventDefault();
+    openDocs("dependencies.md");
+  });
+  links.createSpan({ text: " \xB7 " });
+  links.createEl("a", {
+    cls: "sw-dependency-note-more",
+    text: "Open on GitHub",
+    href: DEPENDENCIES_DOC_URL
+  }).setAttr("target", "_blank");
+}
+
+// src/tools.ts
+async function execProbe(file, args) {
+  const { execFile } = require("child_process");
+  const { promisify } = require("util");
+  try {
+    await promisify(execFile)(file, args);
+    return true;
+  } catch (e3) {
+    return false;
+  }
+}
+async function findPython3(configured, modules = ["lxml", "docx"]) {
+  var _a;
+  if (configured.trim())
+    return configured.trim();
+  const platform = (_a = globalThis.process) == null ? void 0 : _a.platform;
+  const probe = (p4) => execProbe(p4, ["-c", `import ${modules.join(", ")}; import sys; sys.exit(0)`]);
+  const candidates = platform === "win32" ? ["py", "python", "python3"] : ["python3"];
+  candidates.push(...platform === "win32" ? ["C:\\Python313\\python.exe", "C:\\Python312\\python.exe", "C:\\Python311\\python.exe"] : ["/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"]);
+  for (const p4 of candidates) {
+    if (await probe(p4))
+      return p4;
+  }
+  return null;
+}
+async function findNode() {
+  var _a, _b;
+  const platform = (_a = globalThis.process) == null ? void 0 : _a.platform;
+  const candidates = platform === "win32" ? ["node", "C:\\Program Files\\nodejs\\node.exe", `${(_b = process.env.APPDATA) != null ? _b : ""}\\nvm\\node.exe`] : ["node", "/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"];
+  for (const p4 of candidates) {
+    if (await execProbe(p4, ["--version"]))
+      return p4;
+  }
+  return null;
+}
+async function findSoffice() {
+  var _a;
+  const candidates = [
+    (_a = process.env.SW_SOFFICE) != null ? _a : "",
+    "soffice",
+    "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+    "/usr/bin/soffice",
+    "/usr/local/bin/soffice",
+    "C:\\Program Files\\LibreOffice\\program\\soffice.exe"
+  ];
+  for (const c3 of candidates) {
+    if (c3 && await execProbe(c3, ["--version"]))
+      return c3;
+  }
+  return null;
+}
+async function findLatexEngine() {
+  var _a;
+  const candidates = [
+    (_a = process.env.SW_LUALATEX) != null ? _a : "",
+    "lualatex",
+    "/Library/TeX/texbin/lualatex",
+    "/usr/bin/lualatex",
+    "/usr/local/bin/lualatex",
+    "C:\\Program Files\\MiKTeX\\miktex\\bin\\x64\\lualatex.exe",
+    "C:\\texlive\\2026\\bin\\windows\\lualatex.exe"
+  ];
+  for (const c3 of candidates) {
+    if (c3 && await execProbe(c3, ["--version"]))
+      return c3;
+  }
+  return null;
+}
+var cache = null;
+var TTL_MS = 3e4;
+function invalidateToolProbe() {
+  cache = null;
+}
+function probeTools(plugin, force = false) {
+  var _a;
+  const now = Date.now();
+  if (!force && cache && now - cache.at < TTL_MS)
+    return cache.value;
+  const configuredPy = (_a = plugin.settings.pathToPython) != null ? _a : "";
+  const port = plugin.settings.zoteroPort;
+  const value = (async () => {
+    var _a2;
+    let pandoc = ((_a2 = plugin.settings.pathToPandoc) == null ? void 0 : _a2.trim()) || null;
+    if (!pandoc) {
+      try {
+        pandoc = await findPandoc();
+      } catch (e3) {
+        pandoc = null;
+      }
+    }
+    let zotero = false;
+    try {
+      zotero = await isZoteroRunning(port) || await isZoteroRunningNative(port);
+    } catch (e3) {
+      zotero = false;
+    }
+    const [python, pythonImport, node, soffice, latex] = await Promise.all([
+      findPython3(configuredPy),
+      findPython3(configuredPy, ["lxml", "requests"]),
+      findNode(),
+      findSoffice(),
+      findLatexEngine()
+    ]);
+    return { pandoc, python, pythonImport, node, soffice, latex, zotero };
+  })();
+  cache = { at: now, value };
+  return value;
+}
+
 // src/settings.tsx
 var DEFAULT_SETTINGS = {
   pathToPandoc: "",
@@ -83273,7 +84201,13 @@ var DEFAULT_SETTINGS = {
   zoteroDataDir: ""
 };
 var BIB_EXTENSIONS2 = new Set(["bib", "json", "yaml", "yml"]);
-var BibFilePickerModal = class extends import_obsidian10.FuzzySuggestModal {
+var PAGE_TITLES = {
+  bibliography: "Bibliography",
+  citations: "Citation and reference formatting",
+  "literature-notes": "Literature note import",
+  documents: "Document import/export and compilation"
+};
+var BibFilePickerModal = class extends import_obsidian11.FuzzySuggestModal {
   constructor(onChoose) {
     super(app);
     this.onChoose = onChoose;
@@ -83289,162 +84223,115 @@ var BibFilePickerModal = class extends import_obsidian10.FuzzySuggestModal {
     this.onChoose(file.path);
   }
 };
-var ReferenceListSettingsTab = class extends import_obsidian10.PluginSettingTab {
+var ReferenceListSettingsTab = class extends import_obsidian11.PluginSettingTab {
   constructor(plugin) {
     super(app, plugin);
+    this.page = "home";
     this.plugin = plugin;
   }
   display() {
-    var _a;
     const { containerEl } = this;
     containerEl.empty();
-    if (import_obsidian10.Platform.isDesktop) {
-      new import_obsidian10.Setting(containerEl).setName(t("Path to Pandoc (optional)")).setDesc(t("Absolute path to the Pandoc executable. When set, Pandoc is used to convert .bib/.yaml files instead of the built-in parser. Leave blank to use the built-in parser (works on all platforms).")).then((setting) => {
-        let inputEl;
-        setting.addText((text) => {
-          var _a2;
-          inputEl = text.inputEl;
-          text.setPlaceholder("/usr/local/bin/pandoc").setValue((_a2 = this.plugin.settings.pathToPandoc) != null ? _a2 : "").onChange((value) => {
-            this.plugin.settings.pathToPandoc = value;
-            this.plugin.saveSettings();
-          });
-        });
-        setting.addExtraButton((b3) => {
-          b3.setIcon("magnifying-glass");
-          b3.setTooltip(t("Auto-detect Pandoc"));
-          b3.onClick(async () => {
-            const found = await findPandoc();
-            if (found) {
-              inputEl.value = found;
-              this.plugin.settings.pathToPandoc = found;
-              this.plugin.saveSettings();
-            }
-          });
-        });
-      });
+    containerEl.addClass("lc-settings-tab");
+    if (this.page === "home") {
+      this.renderHome(containerEl);
+      return;
     }
-    if (import_obsidian10.Platform.isDesktop) {
-      new import_obsidian10.Setting(containerEl).setName(t("Path to Python 3 (for Document Compiler)")).setDesc(t('Absolute path to the python3 interpreter used by the "Compile outline\u2026" and "Compile + export to docx" commands. Leave blank to auto-detect (python3 on PATH, then common install locations).')).then((setting) => {
-        let inputEl;
-        setting.addText((text) => {
-          var _a2;
-          inputEl = text.inputEl;
-          text.setPlaceholder("/usr/local/bin/python3").setValue((_a2 = this.plugin.settings.pathToPython) != null ? _a2 : "").onChange((value) => {
-            this.plugin.settings.pathToPython = value;
-            this.plugin.saveSettings();
-          });
-        });
-      });
-      new import_obsidian10.Setting(containerEl).setName(t("Docx export templates directory (optional)")).setDesc(t("Directory of your .docx export templates. Vault-relative (e.g. Export Templates) or absolute. Leave blank to use <vault>/Export Templates/, then the templates bundled with the plugin.")).then((setting) => {
-        setting.addText((text) => {
-          var _a2;
-          return text.setPlaceholder("Export Templates").setValue((_a2 = this.plugin.settings.exportTemplatesDir) != null ? _a2 : "").onChange((value) => {
-            this.plugin.settings.exportTemplatesDir = value;
-            this.plugin.saveSettings();
-          });
-        });
-      });
-      new import_obsidian10.Setting(containerEl).setName(t("Default output folder for compiled/exported documents (optional)")).setDesc(t(`Vault-relative folder where "Compile and export a book" puts the compiled markdown and docx. Leave blank to use the source file's own folder. Can be changed per-export in the modal.`)).then((setting) => {
-        setting.addText((text) => {
-          var _a2;
-          return text.setPlaceholder("Export Compiled").setValue((_a2 = this.plugin.settings.defaultOutputDir) != null ? _a2 : "").onChange((value) => {
-            this.plugin.settings.defaultOutputDir = value;
-            this.plugin.saveSettings();
-          });
-        });
-      });
+    this.renderPageHeader(containerEl);
+    switch (this.page) {
+      case "bibliography":
+        this.renderBibliography(containerEl);
+        break;
+      case "citations":
+        this.renderCitations(containerEl);
+        break;
+      case "literature-notes":
+        this.renderLiteratureNotes(containerEl);
+        break;
+      case "documents":
+        this.renderDocuments(containerEl);
+        break;
     }
-    new import_obsidian10.Setting(containerEl).setName(t("Default author name (optional)")).setDesc(t("Used as the document author when the note has no `author:` frontmatter property. Leave blank to omit the author field in exported documents.")).addText((text) => {
-      var _a2;
-      return text.setPlaceholder("First Last").setValue((_a2 = this.plugin.settings.defaultAuthor) != null ? _a2 : "").onChange((value) => {
-        this.plugin.settings.defaultAuthor = value;
-        this.plugin.saveSettings();
-      });
+  }
+  goto(page) {
+    this.page = page;
+    this.display();
+  }
+  renderHome(containerEl) {
+    containerEl.createEl("h2", { text: t("ScholarWeave") });
+    const items = [
+      {
+        page: "bibliography",
+        name: t("Bibliography"),
+        desc: t("Identify where your bibliographic sources come from (Zotero, BibTeX / CSL files).")
+      },
+      {
+        page: "citations",
+        name: t("Citation and reference formatting"),
+        desc: t("How Obsidian formats your citations and reference list.")
+      },
+      {
+        page: "literature-notes",
+        name: t("Literature note import"),
+        desc: t("How literature notes are imported from Zotero and where to keep them.")
+      },
+      {
+        page: "documents",
+        name: t("Document import/export and compilation"),
+        desc: t("How to compile and export your documents as DOCX / ODT / PDF.")
+      }
+    ];
+    for (const item of items) {
+      const card = containerEl.createDiv({ cls: "sw-settings-card" });
+      card.createDiv({ cls: "sw-settings-card-title", text: item.name });
+      card.createDiv({ cls: "sw-settings-card-desc", text: item.desc });
+      card.addEventListener("click", () => this.goto(item.page));
+    }
+    const docsCard = containerEl.createDiv({ cls: "sw-settings-card" });
+    docsCard.createDiv({ cls: "sw-settings-card-title", text: t("Documentation") });
+    docsCard.createDiv({
+      cls: "sw-settings-card-desc",
+      text: t("Read the guides (setup, dependencies, citations, export, \u2026) in the app.")
     });
-    new import_obsidian10.Setting(containerEl).setName(t("Use Obsidian account name as author fallback")).setDesc(t("If enabled and no `author:` property or default author name is set, the display name from your Obsidian account (if signed in) is used instead.")).addToggle((toggle) => {
-      var _a2;
-      return toggle.setValue((_a2 = this.plugin.settings.useAccountNameAsAuthor) != null ? _a2 : false).onChange((value) => {
-        this.plugin.settings.useAccountNameAsAuthor = value;
-        this.plugin.saveSettings();
-      });
+    docsCard.addEventListener("click", () => openDocs("README.md"));
+  }
+  renderPageHeader(containerEl) {
+    const nav = containerEl.createDiv({ cls: "sw-settings-nav" });
+    const back = nav.createEl("a", { text: `\u2190 ${t("Settings")}`, cls: "sw-settings-back" });
+    back.addEventListener("click", (e3) => {
+      e3.preventDefault();
+      this.goto("home");
     });
-    {
-      const renderMappingList = (listEl2) => {
-        var _a2;
-        listEl2.empty();
-        const mappings = (_a2 = this.plugin.settings.styleMappings) != null ? _a2 : [];
-        if (mappings.length === 0) {
-          listEl2.createEl("p", {
-            text: t('No mappings yet. Click "+ Add" to create one.'),
-            cls: "lc-mapping-empty"
-          });
-          return;
-        }
-        for (let i3 = 0; i3 < mappings.length; i3++) {
-          const m3 = mappings[i3];
-          const row = listEl2.createDiv({ cls: "lc-mapping-row" });
-          const cb = row.createEl("input", { type: "checkbox" });
-          cb.title = t("Enable this mapping by default on export");
-          cb.checked = m3.enabled;
-          cb.addEventListener("change", () => {
-            mappings[i3].enabled = cb.checked;
-            this.plugin.saveSettings();
-          });
-          const srcInput = row.createEl("input", { type: "text" });
-          srcInput.placeholder = "callout-type";
-          srcInput.value = m3.source;
-          srcInput.title = t("Callout type or CSS class name (e.g. arabic-poetry)");
-          srcInput.classList.add("lc-mapping-input");
-          srcInput.addEventListener("change", () => {
-            mappings[i3].source = srcInput.value.trim();
-            this.plugin.saveSettings();
-          });
-          row.createSpan({ text: "\u2192", cls: "lc-mapping-arrow" });
-          const nameInput = row.createEl("input", { type: "text" });
-          nameInput.placeholder = "Style name";
-          nameInput.value = m3.styleName;
-          nameInput.title = t("Style name as defined in the template (e.g. Arabic poetry)");
-          nameInput.classList.add("lc-mapping-input", "lc-mapping-style");
-          nameInput.addEventListener("change", () => {
-            mappings[i3].styleName = nameInput.value.trim();
-            this.plugin.saveSettings();
-          });
-          const del = row.createEl("button", { text: "\u{1F5D1}", cls: "lc-mapping-del" });
-          del.title = t("Remove this mapping");
-          del.addEventListener("click", () => {
-            mappings.splice(i3, 1);
-            this.plugin.saveSettings();
-            renderMappingList(listEl2);
-          });
-        }
-      };
-      new import_obsidian10.Setting(containerEl).setName(t("Custom style mappings")).setDesc(t("Map callout types (e.g. arabic-poetry) to word-processor style names. Applied during DOCX and ODT export. For multi-style or per-line formatting, add a .lua filter to your Export Templates folder instead.")).addToggle((toggle) => {
-        var _a2;
-        return toggle.setValue((_a2 = this.plugin.settings.styleMappingsEnabled) != null ? _a2 : true).onChange((value) => {
-          this.plugin.settings.styleMappingsEnabled = value;
-          this.plugin.saveSettings();
-        });
-      });
-      const listEl = containerEl.createDiv({ cls: "lc-mapping-list" });
-      renderMappingList(listEl);
-      const addBtn = containerEl.createEl("button", {
-        text: t("+ Add mapping"),
-        cls: "lc-mapping-add"
-      });
-      addBtn.addEventListener("click", () => {
-        if (!this.plugin.settings.styleMappings)
-          this.plugin.settings.styleMappings = [];
-        this.plugin.settings.styleMappings.push({
-          id: crypto.randomUUID(),
-          enabled: true,
-          source: "",
-          styleName: ""
-        });
-        this.plugin.saveSettings();
-        renderMappingList(listEl);
-      });
-    }
-    new import_obsidian10.Setting(containerEl).setName(t("Bibliography files")).setDesc(t('One or more bibliography files (.bib, .json, or .yaml). Vault-relative paths work on all platforms; absolute paths work on desktop only. All files are merged \u2014 Zotero wins on conflict. Can be overridden per-note via the "bibliography" frontmatter key.')).addButton((btn) => {
+    containerEl.createEl("h2", { text: t(PAGE_TITLES[this.page]) });
+  }
+  async renderToolStatus(el) {
+    const probe = await probeTools(this.plugin);
+    el.empty();
+    const missing = [];
+    if (!probe.python)
+      missing.push("python");
+    if (!probe.pandoc)
+      missing.push("pandoc");
+    if (!probe.soffice)
+      missing.push("libreoffice");
+    if (!probe.latex)
+      missing.push("latex");
+    if (missing.length === 0)
+      return;
+    renderDependencyNote(el, missing, t("Not found on this computer \u2014 document export/import options that need these are disabled until they are installed:"));
+  }
+  async renderZoteroStatus(el) {
+    const probe = await probeTools(this.plugin);
+    el.empty();
+    if (probe.zotero)
+      return;
+    renderDependencyNote(el, ["zotero"], t("Zotero is not running (or not installed). Bibliography files still work; live citations and citekey lookup need Zotero."));
+  }
+  renderBibliography(containerEl) {
+    renderDependencyNote(containerEl, ["zotero"], t("Reading a bibliography file needs nothing installed. Connect Zotero to resolve and insert live citations."));
+    const zoteroStatusEl = containerEl.createDiv({ cls: "sw-tool-status" });
+    void this.renderZoteroStatus(zoteroStatusEl);
+    new import_obsidian11.Setting(containerEl).setName(t("Bibliography files")).setDesc(t('One or more bibliography files (.bib, .json, or .yaml). Vault-relative paths work on all platforms; absolute paths work on desktop only. All files are merged \u2014 Zotero wins on conflict. Can be overridden per-note via the "bibliography" frontmatter key.')).addButton((btn) => {
       btn.setButtonText(t("Add file")).onClick(() => {
         this.plugin.settings.bibliographyPaths.push("");
         this.plugin.saveSettings();
@@ -83452,7 +84339,7 @@ var ReferenceListSettingsTab = class extends import_obsidian10.PluginSettingTab 
       });
     });
     this.plugin.settings.bibliographyPaths.forEach((bibPath, index) => {
-      const setting = new import_obsidian10.Setting(containerEl);
+      const setting = new import_obsidian11.Setting(containerEl);
       setting.setClass("lc-bib-path-entry");
       let inputEl;
       setting.addText((text) => {
@@ -83480,13 +84367,13 @@ var ReferenceListSettingsTab = class extends import_obsidian10.PluginSettingTab 
       setting.addExtraButton((btn) => {
         btn.setIcon("folder-open").setTooltip(t("Browse\u2026"));
         btn.onClick(() => {
-          if (import_obsidian10.Platform.isDesktop) {
+          if (import_obsidian11.Platform.isDesktop) {
             const fileInput = document.createElement("input");
             fileInput.type = "file";
             fileInput.accept = ".bib,.json,.yaml,.yml";
             fileInput.onchange = async () => {
-              var _a2;
-              const file = (_a2 = fileInput.files) == null ? void 0 : _a2[0];
+              var _a;
+              const file = (_a = fileInput.files) == null ? void 0 : _a[0];
               const fsPath = file == null ? void 0 : file.path;
               if (!fsPath)
                 return;
@@ -83523,6 +84410,19 @@ var ReferenceListSettingsTab = class extends import_obsidian10.PluginSettingTab 
     Cn.render(/* @__PURE__ */ Cn.createElement(ZoteroPullSetting, {
       plugin: this.plugin
     }), containerEl.createDiv("setting-item lc-setting-item-wrapper"));
+    if (import_obsidian11.Platform.isDesktop) {
+      new import_obsidian11.Setting(containerEl).setName(t("Zotero data folder")).setDesc(t(`Folder where Zotero keeps installed styles (its data directory, or the "styles" folder itself). Leave blank to auto-detect (~/Zotero). Used to resolve a bare style name in a note's "csl" frontmatter and to list styles for export.`)).addText((text) => {
+        var _a;
+        return text.setPlaceholder("~/Zotero").setValue((_a = this.plugin.settings.zoteroDataDir) != null ? _a : "").onChange((value) => {
+          this.plugin.settings.zoteroDataDir = value.trim();
+          this.plugin.saveSettings(() => this.plugin.bibManager.reinit(false));
+        });
+      });
+    }
+  }
+  renderCitations(containerEl) {
+    var _a;
+    renderDependencyNote(containerEl, [], t("These settings control how citations render inside Obsidian. They need no external tools."));
     const configuredStyle = this.plugin.settings.cslStyleURL;
     const defaultStyle = cslListRaw.find((item) => item.value === configuredStyle) || (configuredStyle ? { value: configuredStyle, label: configuredStyle } : void 0);
     Cn.render(/* @__PURE__ */ Cn.createElement(SettingItem, {
@@ -83537,7 +84437,7 @@ var ReferenceListSettingsTab = class extends import_obsidian10.PluginSettingTab 
         this.plugin.saveSettings(() => this.plugin.bibManager.reinit(false));
       }
     })), containerEl.createDiv("lc-setting-item setting-item"));
-    new import_obsidian10.Setting(containerEl).setName(t("Custom citation style")).setDesc(t('Path to a CSL file (vault-relative or absolute). Overrides the style selected above. Can be overridden per-note via the "csl" or "citation-style" frontmatter key \u2014 a bare Zotero style name, a path, or a URL.')).then((setting) => {
+    new import_obsidian11.Setting(containerEl).setName(t("Custom citation style")).setDesc(t('Path to a CSL file (vault-relative or absolute). Overrides the style selected above. Can be overridden per-note via the "csl" or "citation-style" frontmatter key \u2014 a bare Zotero style name, a path, or a URL.')).then((setting) => {
       let pathText;
       setting.addText((text) => {
         var _a2;
@@ -83547,7 +84447,7 @@ var ReferenceListSettingsTab = class extends import_obsidian10.PluginSettingTab 
           this.plugin.saveSettings(() => this.plugin.bibManager.reinit(false));
         });
       });
-      if (import_obsidian10.Platform.isDesktop) {
+      if (import_obsidian11.Platform.isDesktop) {
         setting.addButton((btn) => {
           btn.setButtonText(t("Browse Zotero styles\u2026")).onClick(() => {
             new ZoteroStylePicker(this.app, this.plugin, (style) => {
@@ -83562,15 +84462,6 @@ var ReferenceListSettingsTab = class extends import_obsidian10.PluginSettingTab 
         });
       }
     });
-    if (import_obsidian10.Platform.isDesktop) {
-      new import_obsidian10.Setting(containerEl).setName(t("Zotero data folder")).setDesc(t(`Folder where Zotero keeps installed styles (its data directory, or the "styles" folder itself). Leave blank to auto-detect (~/Zotero). Used to resolve a bare style name in a note's "csl" frontmatter and to list styles for export.`)).addText((text) => {
-        var _a2;
-        return text.setPlaceholder("~/Zotero").setValue((_a2 = this.plugin.settings.zoteroDataDir) != null ? _a2 : "").onChange((value) => {
-          this.plugin.settings.zoteroDataDir = value.trim();
-          this.plugin.saveSettings(() => this.plugin.bibManager.reinit(false));
-        });
-      });
-    }
     const defaultLanguage = langListRaw.find((item) => item.value === this.plugin.settings.cslLang);
     Cn.render(/* @__PURE__ */ Cn.createElement(SettingItem, {
       name: t("Citation style language"),
@@ -83590,60 +84481,38 @@ var ReferenceListSettingsTab = class extends import_obsidian10.PluginSettingTab 
         }
       }
     })), containerEl.createDiv("lc-setting-item setting-item"));
-    new import_obsidian10.Setting(containerEl).setName(t("Literature notes folder")).setDesc(t(`Folder where the plugin's own literature notes are created (vault-relative). Leave blank to create at the vault root. Used for the "Create literature note" button when ZotLit is not handling creation. ZotLit uses its own configured folder.`)).addText((text) => {
-      var _a2;
-      text.setPlaceholder("_2 Bibliographic notes").setValue((_a2 = this.plugin.settings.literatureNoteFolder) != null ? _a2 : "").onChange((value) => {
-        this.plugin.settings.literatureNoteFolder = value;
-        this.plugin.saveSettings();
-      });
-      new FolderSuggest(this.app, text.inputEl);
-    });
-    new import_obsidian10.Setting(containerEl).setName(t("Create literature notes with ZotLit")).setDesc(t(`When ZotLit is available, the tooltip's "Create literature note" button creates the note with ZotLit's templates instead of the plugin's basic template. Falls back to the plugin template when ZotLit is absent or this is off.`)).addToggle((toggle) => toggle.setValue(this.plugin.settings.createNotesWithZotLit !== false).onChange((value) => {
-      this.plugin.settings.createNotesWithZotLit = value;
-      this.plugin.saveSettings();
-    }));
-    if (import_obsidian10.Platform.isDesktop) {
-      new import_obsidian10.Setting(containerEl).setName(t("Install and use ScholarWeave's ZotLit import templates")).setDesc(t(`Copies ScholarWeave's ZotLit templates into "sw-zotlit-templates/" and points ZotLit's "Template folder" setting there. Your own ZotLit templates (in "Templates/") are left untouched.`)).addButton((btn) => btn.setButtonText(t("Install templates")).onClick(async () => {
-        btn.setDisabled(true);
-        try {
-          await installZotlitTemplatesWithNotice(this.plugin);
-        } finally {
-          btn.setDisabled(false);
-        }
-      }));
-    }
-    new import_obsidian10.Setting(containerEl).setName(t("Hide links in references")).setDesc(t("Replace links with link icons to save space.")).addToggle((text) => text.setValue(!!this.plugin.settings.hideLinks).onChange((value) => {
-      this.plugin.settings.hideLinks = value;
-      this.plugin.saveSettings();
-    }));
-    new import_obsidian10.Setting(containerEl).setName(t("Show PDF links in references")).setDesc(t('Add per-entry PDF-open icons to the bibliography and use PDFs as the tooltip link fallback. Off by default: "Open in Zotero" already reveals every attachment, and fetching the PDF list costs a per-citekey Zotero request.')).addToggle((text) => text.setValue(this.plugin.settings.showPdfLinks !== false).onChange((value) => {
-      this.plugin.settings.showPdfLinks = value;
-      this.plugin.saveSettings();
-      this.plugin.processReferences();
-    }));
-    new import_obsidian10.Setting(containerEl).setName(t("Render live preview inline citations")).setDesc(t("Convert [@pandoc] citations to formatted inline citations in live preview mode.")).addToggle((text) => text.setValue(!!this.plugin.settings.renderCitations).onChange((value) => {
-      this.plugin.settings.renderCitations = value;
-      this.plugin.saveSettings();
-    }));
-    new import_obsidian10.Setting(containerEl).setName(t("Render reading mode inline citations")).setDesc(t("Convert [@pandoc] citations to formatted inline citations in reading mode.")).addToggle((text) => text.setValue(!!this.plugin.settings.renderCitationsReadingMode).onChange((value) => {
-      this.plugin.settings.renderCitationsReadingMode = value;
-      this.plugin.saveSettings();
-    }));
-    new import_obsidian10.Setting(containerEl).setName(t("Process linked citations")).setDesc(t("Recognize [[@key]] and [[@key|see @, p. 6]] linked citations: include them in the reference list and render them as formatted inline citations in live preview. The @@ placeholder inside an alias expands to the link's own citekey. Aliases without a citekey (e.g. [[@key|Just a label]]) are left untouched. On by default \u2014 this is the plugin's core feature.")).addToggle((text) => text.setValue(this.plugin.settings.renderLinkCitations !== false).onChange((value) => {
+    new import_obsidian11.Setting(containerEl).setName(t("Process linked citations")).setDesc(t("Recognize [[@key]] and [[@key|see @, p. 6]] linked citations: include them in the reference list and render them as formatted inline citations in live preview. The @ placeholder inside an alias expands to the link's own citekey. Aliases without a citekey (e.g. [[@key|Just a label]]) are left untouched. On by default \u2014 this is the plugin's core feature.")).addToggle((text) => text.setValue(this.plugin.settings.renderLinkCitations !== false).onChange((value) => {
       this.plugin.settings.renderLinkCitations = value;
       this.plugin.settings.formatLinkAliases = value;
       this.plugin.saveSettings();
     }));
-    new import_obsidian10.Setting(containerEl).setName(t("Link citations to literature notes")).setDesc(t("Make rendered [@citekey] citations clickable links to their literature note. Only applies when a note with the matching citekey name exists \u2014 dead-link citations are not linked.")).addToggle((text) => text.setValue(!!this.plugin.settings.renderCitationsAsLinks).onChange((value) => {
+    new import_obsidian11.Setting(containerEl).setName(t("Render live preview inline citations")).setDesc(t("Convert [@pandoc] citations to formatted inline citations in live preview mode.")).addToggle((text) => text.setValue(!!this.plugin.settings.renderCitations).onChange((value) => {
+      this.plugin.settings.renderCitations = value;
+      this.plugin.saveSettings();
+    }));
+    new import_obsidian11.Setting(containerEl).setName(t("Render reading mode inline citations")).setDesc(t("Convert [@pandoc] citations to formatted inline citations in reading mode.")).addToggle((text) => text.setValue(!!this.plugin.settings.renderCitationsReadingMode).onChange((value) => {
+      this.plugin.settings.renderCitationsReadingMode = value;
+      this.plugin.saveSettings();
+    }));
+    new import_obsidian11.Setting(containerEl).setName(t("Link citations to literature notes")).setDesc(t("Make rendered [@citekey] citations clickable links to their literature note. Only applies when a note with the matching citekey name exists \u2014 dead-link citations are not linked.")).addToggle((text) => text.setValue(!!this.plugin.settings.renderCitationsAsLinks).onChange((value) => {
       this.plugin.settings.renderCitationsAsLinks = value;
       this.plugin.saveSettings();
     }));
+    new import_obsidian11.Setting(containerEl).setName(t("Hide links in references")).setDesc(t("Replace links with link icons to save space.")).addToggle((text) => text.setValue(!!this.plugin.settings.hideLinks).onChange((value) => {
+      this.plugin.settings.hideLinks = value;
+      this.plugin.saveSettings();
+    }));
+    new import_obsidian11.Setting(containerEl).setName(t("Show PDF links in references")).setDesc(t('Add per-entry PDF-open icons to the bibliography and use PDFs as the tooltip link fallback. Off by default: "Open in Zotero" already reveals every attachment, and fetching the PDF list costs a per-citekey Zotero request.')).addToggle((text) => text.setValue(!!this.plugin.settings.showPdfLinks).onChange((value) => {
+      this.plugin.settings.showPdfLinks = value;
+      this.plugin.saveSettings();
+      this.plugin.processReferences();
+    }));
     const zotlitActive = isZotLitSuggestActive(this.app);
-    new import_obsidian10.Setting(containerEl).setName(t("Show citekey suggestions")).setDesc(zotlitActive ? t("ZotLit detected \u2014 [@key completions are handled by ZotLit. This plugin still provides bare @key suggestions (outside brackets) and for .bib file entries.") : t("When enabled, an autocomplete dialog will display when typing citation keys.")).addToggle((text) => text.setValue(!!this.plugin.settings.enableCiteKeyCompletion).onChange((value) => {
+    new import_obsidian11.Setting(containerEl).setName(t("Show citekey suggestions")).setDesc(zotlitActive ? t("ZotLit detected \u2014 [@key completions are handled by ZotLit. This plugin still provides bare @key suggestions (outside brackets) and for .bib file entries.") : t("When enabled, an autocomplete dialog will display when typing citation keys.")).addToggle((text) => text.setValue(!!this.plugin.settings.enableCiteKeyCompletion).onChange((value) => {
       this.plugin.settings.enableCiteKeyCompletion = value;
       this.plugin.saveSettings();
     }));
-    new import_obsidian10.Setting(containerEl).setName(t("Prioritize citation completion")).setDesc(t(`Use this plugin's citation search for "@" completions. When ON, typing "[@key" (or "[[" followed by "@") searches the Zotero/bibliography index with citekey-first fuzzy matching. When OFF, plain "[@key" yields to another plugin's suggester (e.g. ZotLit); "[[@key" is still always handled by this plugin since Obsidian's link search can't see unimported references.`)).addToggle((toggle) => {
+    new import_obsidian11.Setting(containerEl).setName(t("Prioritize citation completion")).setDesc(t(`Use this plugin's citation search for "@" completions. When ON, typing "[@key" (or "[[" followed by "@") searches the Zotero/bibliography index with citekey-first fuzzy matching. When OFF, plain "[@key" yields to another plugin's suggester (e.g. ZotLit); "[[@key" is still always handled by this plugin since Obsidian's link search can't see unimported references.`)).addToggle((toggle) => {
       var _a2;
       return toggle.setValue((_a2 = this.plugin.settings.prioritizeCiteKeyCompletion) != null ? _a2 : true).onChange((value) => {
         this.plugin.settings.prioritizeCiteKeyCompletion = value;
@@ -83651,14 +84520,14 @@ var ReferenceListSettingsTab = class extends import_obsidian10.PluginSettingTab 
       });
     });
     const showDeco = (_a = this.plugin.settings.showCitationDecorations) != null ? _a : true;
-    new import_obsidian10.Setting(containerEl).setName(t("Citation decoration")).setDesc(t("Underline citation keys in the editor to show their status at a glance: pandoc citations get a faint dotted underline, [[@linked]] citations with a literature note get a coloured underline, and [[@linked]] citations without one get a different colour. Use the colour pickers below to customise each state.")).addToggle((toggle) => toggle.setValue(showDeco).onChange((value) => {
+    new import_obsidian11.Setting(containerEl).setName(t("Citation decoration")).setDesc(t("Underline citation keys in the editor to show their status at a glance: pandoc citations get a faint dotted underline, [[@linked]] citations with a literature note get a coloured underline, and [[@linked]] citations without one get a different colour. Use the colour pickers below to customise each state.")).addToggle((toggle) => toggle.setValue(showDeco).onChange((value) => {
       this.plugin.settings.showCitationDecorations = value;
       this.plugin.saveSettings();
       this.display();
     }));
     if (showDeco) {
       const makeColorPicker = (name, desc, settingKey, cssVar) => {
-        new import_obsidian10.Setting(containerEl).setName(t(name)).setDesc(t(desc)).then((setting) => {
+        new import_obsidian11.Setting(containerEl).setName(t(name)).setDesc(t(desc)).then((setting) => {
           const savedVal = this.plugin.settings[settingKey];
           const cssVal = savedVal != null ? savedVal : getComputedStyle(document.body).getPropertyValue(cssVar).trim();
           const m3 = cssVal.match(/^(#[0-9a-fA-F]{3,8})/);
@@ -83744,17 +84613,17 @@ var ReferenceListSettingsTab = class extends import_obsidian10.PluginSettingTab 
       addRow("[[", "@sanchez2001|@, no note", "]]", "lc-prev-unimported", "(Sanchez 2001, no note)");
       addRow("[[", "@nothing1899", "]]", "lc-prev-unresolved-key", "@nothing1899", "lc-prev-unresolved-val");
     }
-    new import_obsidian10.Setting(containerEl).setName(t("Show citekey tooltips")).setDesc(t("Hovering over a citekey opens a tooltip showing the formatted citation, an abstract preview, and buttons to open the item in Zotero, open its PDF, and create or navigate to its literature note.")).addToggle((text) => text.setValue(!!this.plugin.settings.showCitekeyTooltips).onChange((value) => {
+    new import_obsidian11.Setting(containerEl).setName(t("Show citekey tooltips")).setDesc(t("Hovering over a citekey opens a tooltip showing the formatted citation, an abstract preview, and buttons to open the item in Zotero, open its PDF, and create or navigate to its literature note.")).addToggle((text) => text.setValue(!!this.plugin.settings.showCitekeyTooltips).onChange((value) => {
       this.plugin.settings.showCitekeyTooltips = value;
       this.plugin.saveSettings();
     }));
-    new import_obsidian10.Setting(containerEl).setName(t("Tooltip delay")).setDesc(t("Set the amount of time (in milliseconds) to wait before displaying tooltips.")).addSlider((slider) => {
+    new import_obsidian11.Setting(containerEl).setName(t("Tooltip delay")).setDesc(t("Set the amount of time (in milliseconds) to wait before displaying tooltips.")).addSlider((slider) => {
       slider.setDynamicTooltip().setLimits(0, 7e3, 100).setValue(this.plugin.settings.tooltipDelay).onChange((value) => {
         this.plugin.settings.tooltipDelay = value;
         this.plugin.saveSettings();
       });
     });
-    new import_obsidian10.Setting(containerEl).setName(t("Mobile tap action")).setDesc(t("What happens when you tap a citation on mobile. On desktop, hover tooltips are used instead.")).addDropdown((dd) => {
+    new import_obsidian11.Setting(containerEl).setName(t("Mobile tap action")).setDesc(t("What happens when you tap a citation on mobile. On desktop, hover tooltips are used instead.")).addDropdown((dd) => {
       var _a2;
       return dd.addOption("show", t("Show citation info")).addOption("copy", t("Copy citation to clipboard")).addOption("link", t("Open link (Zotero \u2192 PDF \u2192 URL)")).setValue((_a2 = this.plugin.settings.mobileClickAction) != null ? _a2 : "show").onChange((value) => {
         this.plugin.settings.mobileClickAction = value;
@@ -83762,10 +84631,188 @@ var ReferenceListSettingsTab = class extends import_obsidian10.PluginSettingTab 
       });
     });
   }
+  renderLiteratureNotes(containerEl) {
+    renderDependencyNote(containerEl, ["zotero", "zotlit"], t("Creating literature notes needs Zotero for citekey and metadata lookup; ZotLit is optional and adds richer templates."));
+    new import_obsidian11.Setting(containerEl).setName(t("Literature notes folder")).setDesc(t(`Folder where the plugin's own literature notes are created (vault-relative). Leave blank to create at the vault root. Used for the "Create literature note" button when ZotLit is not handling creation. ZotLit uses its own configured folder.`)).addText((text) => {
+      var _a;
+      text.setPlaceholder("_2 Bibliographic notes").setValue((_a = this.plugin.settings.literatureNoteFolder) != null ? _a : "").onChange((value) => {
+        this.plugin.settings.literatureNoteFolder = value;
+        this.plugin.saveSettings();
+      });
+      new FolderSuggest(this.app, text.inputEl);
+    });
+    new import_obsidian11.Setting(containerEl).setName(t("Create literature notes with ZotLit")).setDesc(t(`When ZotLit is available, the tooltip's "Create literature note" button creates the note with ZotLit's templates instead of the plugin's basic template. Falls back to the plugin template when ZotLit is absent or this is off.`)).addToggle((toggle) => toggle.setValue(this.plugin.settings.createNotesWithZotLit !== false).onChange((value) => {
+      this.plugin.settings.createNotesWithZotLit = value;
+      this.plugin.saveSettings();
+    }));
+    if (import_obsidian11.Platform.isDesktop) {
+      new import_obsidian11.Setting(containerEl).setName(t("Install and use ScholarWeave's ZotLit import templates")).setDesc(t(`Copies ScholarWeave's ZotLit templates into "sw-zotlit-templates/" and points ZotLit's "Template folder" setting there. Your own ZotLit templates (in "Templates/") are left untouched.`)).addButton((btn) => btn.setButtonText(t("Install templates")).onClick(async () => {
+        btn.setDisabled(true);
+        try {
+          await installZotlitTemplatesWithNotice(this.plugin);
+        } finally {
+          btn.setDisabled(false);
+        }
+      }));
+    }
+  }
+  renderDocuments(containerEl) {
+    renderDependencyNote(containerEl, ["python", "pandoc", "libreoffice", "latex", "zotero", "bbt"], t("Compiling, exporting, and importing call external tools. PDF via an ODT/DOCX template needs LibreOffice; PDF via a .tex template needs LuaLaTeX; live citation fields need Zotero (and Better BibTeX for automatic citekeys)."));
+    const toolStatusEl = containerEl.createDiv({ cls: "sw-tool-status" });
+    void this.renderToolStatus(toolStatusEl);
+    if (import_obsidian11.Platform.isDesktop) {
+      new import_obsidian11.Setting(containerEl).setName(t("Path to Pandoc (optional)")).setDesc(t("Absolute path to the Pandoc executable. Used for document import/export, and (when set) to convert .bib/.yaml files instead of the built-in parser. Leave blank to use the built-in parser for .bib files (works on all platforms).")).then((setting) => {
+        let inputEl;
+        setting.addText((text) => {
+          var _a;
+          inputEl = text.inputEl;
+          text.setPlaceholder("/usr/local/bin/pandoc").setValue((_a = this.plugin.settings.pathToPandoc) != null ? _a : "").onChange((value) => {
+            this.plugin.settings.pathToPandoc = value;
+            this.plugin.saveSettings();
+            invalidateToolProbe();
+          });
+        });
+        setting.addExtraButton((b3) => {
+          b3.setIcon("magnifying-glass");
+          b3.setTooltip(t("Auto-detect Pandoc"));
+          b3.onClick(async () => {
+            const found = await findPandoc();
+            if (found) {
+              inputEl.value = found;
+              this.plugin.settings.pathToPandoc = found;
+              this.plugin.saveSettings();
+            }
+          });
+        });
+      });
+    }
+    if (import_obsidian11.Platform.isDesktop) {
+      new import_obsidian11.Setting(containerEl).setName(t("Path to Python 3 (for Document Compiler)")).setDesc(t('Absolute path to the python3 interpreter used by "Compile and export a book, article, or other document" and "Import a Word or ODT document". It must have the lxml and python-docx packages. Leave blank to auto-detect (python3 on PATH, then common install locations).')).then((setting) => {
+        let inputEl;
+        setting.addText((text) => {
+          var _a;
+          inputEl = text.inputEl;
+          text.setPlaceholder("/usr/local/bin/python3").setValue((_a = this.plugin.settings.pathToPython) != null ? _a : "").onChange((value) => {
+            this.plugin.settings.pathToPython = value;
+            this.plugin.saveSettings();
+            invalidateToolProbe();
+          });
+        });
+      });
+      new import_obsidian11.Setting(containerEl).setName(t("Export templates directory (optional)")).setDesc(t("Directory of your export templates (.docx, .odt, .tex). Vault-relative (e.g. Export Templates) or absolute. Leave blank to use <vault>/Export Templates/, then the templates bundled with the plugin.")).then((setting) => {
+        setting.addText((text) => {
+          var _a;
+          return text.setPlaceholder("Export Templates").setValue((_a = this.plugin.settings.exportTemplatesDir) != null ? _a : "").onChange((value) => {
+            this.plugin.settings.exportTemplatesDir = value;
+            this.plugin.saveSettings();
+          });
+        });
+      });
+      new import_obsidian11.Setting(containerEl).setName(t("Default output folder for compiled/exported documents (optional)")).setDesc(t(`Vault-relative folder where "Compile and export a book, article, or other document" puts the compiled markdown and the exported file. Leave blank to use the source file's own folder. Can be changed per-export in the modal.`)).then((setting) => {
+        setting.addText((text) => {
+          var _a;
+          return text.setPlaceholder("Export Compiled").setValue((_a = this.plugin.settings.defaultOutputDir) != null ? _a : "").onChange((value) => {
+            this.plugin.settings.defaultOutputDir = value;
+            this.plugin.saveSettings();
+          });
+        });
+      });
+    }
+    new import_obsidian11.Setting(containerEl).setName(t("Default author name (optional)")).setDesc(t("Used as the document author when the note has no `author:` frontmatter property. Leave blank to omit the author field in exported documents.")).addText((text) => {
+      var _a;
+      return text.setPlaceholder("First Last").setValue((_a = this.plugin.settings.defaultAuthor) != null ? _a : "").onChange((value) => {
+        this.plugin.settings.defaultAuthor = value;
+        this.plugin.saveSettings();
+      });
+    });
+    new import_obsidian11.Setting(containerEl).setName(t("Use Obsidian account name as author fallback")).setDesc(t("If enabled and no `author:` property or default author name is set, the display name from your Obsidian account (if signed in) is used instead.")).addToggle((toggle) => {
+      var _a;
+      return toggle.setValue((_a = this.plugin.settings.useAccountNameAsAuthor) != null ? _a : false).onChange((value) => {
+        this.plugin.settings.useAccountNameAsAuthor = value;
+        this.plugin.saveSettings();
+      });
+    });
+    {
+      const renderMappingList = (listEl2) => {
+        var _a;
+        listEl2.empty();
+        const mappings = (_a = this.plugin.settings.styleMappings) != null ? _a : [];
+        if (mappings.length === 0) {
+          listEl2.createEl("p", {
+            text: t('No mappings yet. Click "+ Add" to create one.'),
+            cls: "lc-mapping-empty"
+          });
+          return;
+        }
+        for (let i3 = 0; i3 < mappings.length; i3++) {
+          const m3 = mappings[i3];
+          const row = listEl2.createDiv({ cls: "lc-mapping-row" });
+          const cb = row.createEl("input", { type: "checkbox" });
+          cb.title = t("Enable this mapping by default on export");
+          cb.checked = m3.enabled;
+          cb.addEventListener("change", () => {
+            mappings[i3].enabled = cb.checked;
+            this.plugin.saveSettings();
+          });
+          const srcInput = row.createEl("input", { type: "text" });
+          srcInput.placeholder = "callout-type";
+          srcInput.value = m3.source;
+          srcInput.title = t("Callout type or CSS class name (e.g. arabic-poetry)");
+          srcInput.classList.add("lc-mapping-input");
+          srcInput.addEventListener("change", () => {
+            mappings[i3].source = srcInput.value.trim();
+            this.plugin.saveSettings();
+          });
+          row.createSpan({ text: "\u2192", cls: "lc-mapping-arrow" });
+          const nameInput = row.createEl("input", { type: "text" });
+          nameInput.placeholder = "Style name";
+          nameInput.value = m3.styleName;
+          nameInput.title = t("Style name as defined in the template (e.g. Arabic poetry)");
+          nameInput.classList.add("lc-mapping-input", "lc-mapping-style");
+          nameInput.addEventListener("change", () => {
+            mappings[i3].styleName = nameInput.value.trim();
+            this.plugin.saveSettings();
+          });
+          const del = row.createEl("button", { text: "\u{1F5D1}", cls: "lc-mapping-del" });
+          del.title = t("Remove this mapping");
+          del.addEventListener("click", () => {
+            mappings.splice(i3, 1);
+            this.plugin.saveSettings();
+            renderMappingList(listEl2);
+          });
+        }
+      };
+      new import_obsidian11.Setting(containerEl).setName(t("Custom style mappings")).setDesc(t("Map callout types (e.g. arabic-poetry) to word-processor style names. Applied during DOCX and ODT export. For multi-style or per-line formatting, add a .lua filter to your Export Templates folder instead.")).addToggle((toggle) => {
+        var _a;
+        return toggle.setValue((_a = this.plugin.settings.styleMappingsEnabled) != null ? _a : true).onChange((value) => {
+          this.plugin.settings.styleMappingsEnabled = value;
+          this.plugin.saveSettings();
+        });
+      });
+      const listEl = containerEl.createDiv({ cls: "lc-mapping-list" });
+      renderMappingList(listEl);
+      const addBtn = containerEl.createEl("button", {
+        text: t("+ Add mapping"),
+        cls: "lc-mapping-add"
+      });
+      addBtn.addEventListener("click", () => {
+        if (!this.plugin.settings.styleMappings)
+          this.plugin.settings.styleMappings = [];
+        this.plugin.settings.styleMappings.push({
+          id: crypto.randomUUID(),
+          enabled: true,
+          source: "",
+          styleName: ""
+        });
+        this.plugin.saveSettings();
+        renderMappingList(listEl);
+      });
+    }
+  }
 };
 
 // src/tooltip.ts
-var import_obsidian11 = __toModule(require("obsidian"));
+var import_obsidian12 = __toModule(require("obsidian"));
 var import_text_clipper = __toModule(require_dist());
 var TooltipManager = class {
   constructor(plugin) {
@@ -83784,7 +84831,7 @@ var TooltipManager = class {
     if (!el.dataset.source)
       return;
     const file = app.vault.getAbstractFileByPath(el.dataset.source);
-    if (!file && !(file instanceof import_obsidian11.TFile)) {
+    if (!file && !(file instanceof import_obsidian12.TFile)) {
       return;
     }
     const view = el.win || ((_a = el.ownerDocument) == null ? void 0 : _a.defaultView) || window;
@@ -83876,7 +84923,7 @@ var TooltipManager = class {
   showMobileCard(el) {
     var _a, _b, _c, _d, _e;
     const file = app.vault.getAbstractFileByPath((_a = el.dataset.source) != null ? _a : "");
-    if (!(file instanceof import_obsidian11.TFile))
+    if (!(file instanceof import_obsidian12.TFile))
       return;
     const keys = ((_b = el.dataset.citekey) != null ? _b : "").split("|").filter(Boolean);
     if (!keys.length)
@@ -83899,7 +84946,7 @@ var TooltipManager = class {
     const card = backdrop.createDiv({ cls: "lc-mobile-card lc-reference-list" });
     const header = card.createDiv({ cls: "lc-mobile-card-header" });
     const closeBtn = header.createDiv({ cls: "clickable-icon" });
-    (0, import_obsidian11.setIcon)(closeBtn, "x");
+    (0, import_obsidian12.setIcon)(closeBtn, "x");
     closeBtn.setAttribute("aria-label", t("Close"));
     closeBtn.onClickEvent(() => backdrop.remove());
     if (content) {
@@ -83918,7 +84965,7 @@ var TooltipManager = class {
     var _a, _b, _c;
     const action = (_a = this.plugin.settings.mobileClickAction) != null ? _a : "show";
     const file = app.vault.getAbstractFileByPath((_b = el.dataset.source) != null ? _b : "");
-    if (!(file instanceof import_obsidian11.TFile))
+    if (!(file instanceof import_obsidian12.TFile))
       return;
     const keys = ((_c = el.dataset.citekey) != null ? _c : "").split("|").filter(Boolean);
     if (!keys.length)
@@ -83971,7 +85018,7 @@ var TooltipManager = class {
     }
   }
   bindPreviewTooltipHandler(el) {
-    if (import_obsidian11.Platform.isMobile) {
+    if (import_obsidian12.Platform.isMobile) {
       el.addEventListener("click", () => this.handleMobileTap(el));
       return;
     }
@@ -84051,7 +85098,7 @@ var TooltipManager = class {
       },
       touchstart: (evt) => {
         var _a, _b, _c;
-        if (!import_obsidian11.Platform.isMobile)
+        if (!import_obsidian12.Platform.isMobile)
           return;
         const target = evt.target;
         if (!((_a = target == null ? void 0 : target.dataset) == null ? void 0 : _a.citekey) || target.classList.contains("is-link"))
@@ -84095,7 +85142,7 @@ var TooltipManager = class {
           lpCancel((_a = evt.view) != null ? _a : window);
       },
       click: (evt) => {
-        if (!import_obsidian11.Platform.isMobile)
+        if (!import_obsidian12.Platform.isMobile)
           return;
         if (lpFired) {
           lpFired = false;
@@ -84103,7 +85150,7 @@ var TooltipManager = class {
         }
       },
       pointerover: (evt) => {
-        if (import_obsidian11.Platform.isMobile)
+        if (import_obsidian12.Platform.isMobile)
           return;
         const target = evt.targetNode;
         if (target.instanceOf(HTMLElement)) {
@@ -84146,9 +85193,9 @@ var TooltipManager = class {
 };
 
 // src/view.ts
-var import_obsidian12 = __toModule(require("obsidian"));
+var import_obsidian13 = __toModule(require("obsidian"));
 var viewType = "ReferenceListView";
-var ReferenceListView = class extends import_obsidian12.ItemView {
+var ReferenceListView = class extends import_obsidian13.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
@@ -84160,7 +85207,7 @@ var ReferenceListView = class extends import_obsidian12.ItemView {
     var _a, _b;
     if (bib && this.contentEl.firstChild !== bib) {
       let count = 0;
-      const activeView = this.plugin.app.workspace.getActiveViewOfType(import_obsidian12.MarkdownView);
+      const activeView = this.plugin.app.workspace.getActiveViewOfType(import_obsidian13.MarkdownView);
       const fileCache = (activeView == null ? void 0 : activeView.file) ? this.plugin.bibManager.fileCache.get(activeView.file) : null;
       const unresolvedCount = (_a = fileCache == null ? void 0 : fileCache.unresolvedKeys.size) != null ? _a : 0;
       const globalOnlyCount = (_b = fileCache == null ? void 0 : fileCache.globalOnlyKeys.size) != null ? _b : 0;
@@ -84214,7 +85261,7 @@ var ReferenceListView = class extends import_obsidian12.ItemView {
               "aria-label": t("Copy list")
             }
           }, (btn) => {
-            (0, import_obsidian12.setIcon)(btn, "lucide-copy");
+            (0, import_obsidian13.setIcon)(btn, "lucide-copy");
             btn.onClickEvent(() => copyElToClipboard(bib));
           });
           if (activeView == null ? void 0 : activeView.file) {
@@ -84224,7 +85271,7 @@ var ReferenceListView = class extends import_obsidian12.ItemView {
                 "aria-label": t("Save bibliography snapshot")
               }
             }, (btn) => {
-              (0, import_obsidian12.setIcon)(btn, "lucide-camera");
+              (0, import_obsidian13.setIcon)(btn, "lucide-camera");
               btn.onClickEvent(() => {
                 const file = activeView.file;
                 const entries = this.plugin.bibManager.snapshotEntries(file);
@@ -84446,21 +85493,21 @@ var Config = {
 };
 var SPACE = /[^ ]+/g;
 function norm(weight = 1, mantissa = 3) {
-  const cache = new Map();
+  const cache2 = new Map();
   const m3 = Math.pow(10, mantissa);
   return {
     get(value) {
       const numTokens = value.match(SPACE).length;
-      if (cache.has(numTokens)) {
-        return cache.get(numTokens);
+      if (cache2.has(numTokens)) {
+        return cache2.get(numTokens);
       }
       const norm2 = 1 / Math.pow(numTokens, 0.5 * weight);
       const n2 = parseFloat(Math.round(norm2 * m3) / m3);
-      cache.set(numTokens, n2);
+      cache2.set(numTokens, n2);
       return n2;
     },
     clear() {
-      cache.clear();
+      cache2.clear();
     }
   };
 }
@@ -85633,7 +86680,7 @@ var SimpleLRU = class {
 };
 
 // src/bib/bibManager.ts
-var import_obsidian13 = __toModule(require("obsidian"));
+var import_obsidian14 = __toModule(require("obsidian"));
 
 // src/parser/citeproc.ts
 function genUid(length) {
@@ -85848,7 +86895,7 @@ function resolveScopedPath(file, scopedPath) {
   if (isAbsolutePath(scopedPath))
     return scopedPath;
   const noteDir = file.path.split("/").slice(0, -1).join("/");
-  return (0, import_obsidian13.normalizePath)(noteDir ? `${noteDir}/${scopedPath}` : scopedPath);
+  return (0, import_obsidian14.normalizePath)(noteDir ? `${noteDir}/${scopedPath}` : scopedPath);
 }
 function fastHash(input) {
   let h3 = 2166136261;
@@ -85936,14 +86983,14 @@ var BibManager = class {
     this.warming = false;
     this.warmingSkipPDFs = false;
     this.warmingSkipLRU = false;
-    this.scheduleRenderedCacheSave = (0, import_obsidian13.debounce)(() => {
+    this.scheduleRenderedCacheSave = (0, import_obsidian14.debounce)(() => {
       void this.saveRenderedCache();
     }, 2500);
     this.plugin = plugin;
     this.initPromise = new PromiseCapability();
     this.fileCache = new SimpleLRU({ max: 10 });
     plugin.registerEvent(plugin.app.vault.on("modify", (file) => {
-      const p4 = (0, import_obsidian13.normalizePath)(file.path);
+      const p4 = (0, import_obsidian14.normalizePath)(file.path);
       if (!this.watchedBibPaths.has(p4))
         return;
       const { settings } = plugin;
@@ -86103,8 +87150,8 @@ var BibManager = class {
     const paths = (_a = settings.bibliographyPaths) != null ? _a : [];
     if (!paths.length)
       return;
-    const CACHE_DIR2 = (0, import_obsidian13.normalizePath)(".pandoc");
-    const BIB_CACHE_PATH = (0, import_obsidian13.normalizePath)(".pandoc/bib-parsed.json");
+    const CACHE_DIR2 = (0, import_obsidian14.normalizePath)(".pandoc");
+    const BIB_CACHE_PATH = (0, import_obsidian14.normalizePath)(".pandoc/bib-parsed.json");
     const pandoc = (_b = settings.pathToPandoc) != null ? _b : "";
     const cacheMap = new Map();
     try {
@@ -86138,7 +87185,7 @@ var BibManager = class {
       let bib = null;
       if (!isAbsolutePath(resolved)) {
         try {
-          const stat = await app.vault.adapter.stat((0, import_obsidian13.normalizePath)(resolved));
+          const stat = await app.vault.adapter.stat((0, import_obsidian14.normalizePath)(resolved));
           const cached = cacheMap.get(resolved);
           if (stat && cached && cached.mtime === stat.mtime && cached.size === stat.size && cached.pandoc === pandoc) {
             bib = cached.entries;
@@ -86157,7 +87204,7 @@ var BibManager = class {
         }
         if (!isAbsolutePath(resolved)) {
           try {
-            const stat = await app.vault.adapter.stat((0, import_obsidian13.normalizePath)(resolved));
+            const stat = await app.vault.adapter.stat((0, import_obsidian14.normalizePath)(resolved));
             if (stat) {
               cacheMap.set(resolved, { mtime: stat.mtime, size: stat.size, pandoc, entries: bib });
               cacheModified = true;
@@ -86167,7 +87214,7 @@ var BibManager = class {
         }
       }
       if (!isAbsolutePath(resolved)) {
-        this.globalWatchedBibPaths.add((0, import_obsidian13.normalizePath)(resolved));
+        this.globalWatchedBibPaths.add((0, import_obsidian14.normalizePath)(resolved));
       }
       for (const entry of bib) {
         this.bibCache.set(entry.id, { ...entry, _source: "bib" });
@@ -86478,9 +87525,9 @@ var BibManager = class {
     if (!this.fileCache.has(file)) {
       return null;
     }
-    const cache = this.fileCache.get(file);
+    const cache2 = this.fileCache.get(file);
     const noteIndex = parseInt(index);
-    const cite2 = cache.citations.find((c3) => c3.noteIndex === noteIndex);
+    const cite2 = cache2.citations.find((c3) => c3.noteIndex === noteIndex);
     if (!cite2.note) {
       return null;
     }
@@ -86502,11 +87549,11 @@ var BibManager = class {
     if (!this.fileCache.has(file)) {
       return null;
     }
-    const cache = this.fileCache.get(file);
-    if (!cache.keys.has(key)) {
+    const cache2 = this.fileCache.get(file);
+    if (!cache2.keys.has(key)) {
       return null;
     }
-    const html = cache.citeBibMap.get(key);
+    const html = cache2.citeBibMap.get(key);
     if (!html) {
       return null;
     }
@@ -86688,10 +87735,10 @@ var BibManager = class {
       try {
         let text;
         if (isAbsolutePath(p4)) {
-          const buf = await import_obsidian13.FileSystemAdapter.readLocalFile(p4);
+          const buf = await import_obsidian14.FileSystemAdapter.readLocalFile(p4);
           text = new TextDecoder().decode(buf);
         } else {
-          text = await app.vault.adapter.read((0, import_obsidian13.normalizePath)(p4));
+          text = await app.vault.adapter.read((0, import_obsidian14.normalizePath)(p4));
         }
         for (const m3 of text.matchAll(/@\w+\s*\{\s*([^,\s\n]+)\s*,/gm)) {
           keys.add(m3[1].trim());
@@ -86702,10 +87749,10 @@ var BibManager = class {
     return keys;
   }
   snapshotEntries(file) {
-    const cache = this.fileCache.get(file);
-    if (!cache)
+    const cache2 = this.fileCache.get(file);
+    if (!cache2)
       return null;
-    const allKeys = new Set([...cache.resolvedKeys, ...cache.globalOnlyKeys]);
+    const allKeys = new Set([...cache2.resolvedKeys, ...cache2.globalOnlyKeys]);
     if (!allKeys.size)
       return null;
     const entries = [];
@@ -86774,11 +87821,11 @@ var BibManager = class {
   }
   async saveZLinks() {
     try {
-      const dir = (0, import_obsidian13.normalizePath)(".pandoc");
+      const dir = (0, import_obsidian14.normalizePath)(".pandoc");
       if (!await app.vault.adapter.exists(dir)) {
         await app.vault.adapter.mkdir(dir);
       }
-      await app.vault.adapter.write((0, import_obsidian13.normalizePath)(".pandoc/zlinks.json"), JSON.stringify({
+      await app.vault.adapter.write((0, import_obsidian14.normalizePath)(".pandoc/zlinks.json"), JSON.stringify({
         links: Object.fromEntries(this.zCitekeyToLinks),
         pdfs: Object.fromEntries(this.zCitekeyToPDFLinks)
       }));
@@ -86788,7 +87835,7 @@ var BibManager = class {
   }
   async loadZLinks() {
     try {
-      const raw = await app.vault.adapter.read((0, import_obsidian13.normalizePath)(".pandoc/zlinks.json"));
+      const raw = await app.vault.adapter.read((0, import_obsidian14.normalizePath)(".pandoc/zlinks.json"));
       const data = JSON.parse(raw);
       if (data == null ? void 0 : data.links) {
         for (const [k4, v3] of Object.entries(data.links)) {
@@ -86829,7 +87876,7 @@ var BibManager = class {
         if (this.renderedCache.has(path))
           continue;
         const file = app.vault.getAbstractFileByPath(path);
-        if (file instanceof import_obsidian13.TFile)
+        if (file instanceof import_obsidian14.TFile)
           candidates.push(file);
       }
       candidates.sort((a3, b3) => {
@@ -86880,7 +87927,7 @@ var BibManager = class {
           });
           e3.oncontextmenu = (evt) => {
             evt.preventDefault();
-            new import_obsidian13.Menu().addItem((item) => item.setTitle(t("Copy citekey")).setIcon("lucide-copy").onClick(() => copyTextToClipboard(`@${citekey}`))).addItem((item) => item.setTitle(t("Copy reference")).setIcon("lucide-copy").onClick(() => copyElToClipboard(e3))).showAtMouseEvent(evt);
+            new import_obsidian14.Menu().addItem((item) => item.setTitle(t("Copy citekey")).setIcon("lucide-copy").onClick(() => copyTextToClipboard(`@${citekey}`))).addItem((item) => item.setTitle(t("Copy reference")).setIcon("lucide-copy").onClick(() => copyElToClipboard(e3))).showAtMouseEvent(evt);
           };
         }
         this.ensureZLink(citekey);
@@ -86897,22 +87944,22 @@ var BibManager = class {
         wrapper.createDiv({ cls: "lc-entry-btns" }, (div) => {
           if (hasConflict) {
             div.createDiv("clickable-icon lc-conflict-icon", (div2) => {
-              (0, import_obsidian13.setIcon)(div2, "lucide-alert-triangle");
+              (0, import_obsidian14.setIcon)(div2, "lucide-alert-triangle");
               div2.setAttr("aria-label", t("This entry exists in both your .bib file and Zotero. Zotero data is shown."));
             });
           }
           if (litNote) {
             div.createDiv("clickable-icon", (div2) => {
-              (0, import_obsidian13.setIcon)(div2, "sticky-note");
+              (0, import_obsidian14.setIcon)(div2, "sticky-note");
               div2.setAttr("aria-label", t("Open literature note"));
               div2.onClickEvent((evt) => {
-                const newPane = import_obsidian13.Keymap.isModEvent(evt);
+                const newPane = import_obsidian14.Keymap.isModEvent(evt);
                 app.workspace.openLinkText(litNote.linkText, file.path, newPane);
               });
             });
           } else if (canCreateNote) {
             div.createDiv("clickable-icon", (div2) => {
-              (0, import_obsidian13.setIcon)(div2, "lucide-file-plus");
+              (0, import_obsidian14.setIcon)(div2, "lucide-file-plus");
               div2.setAttr("aria-label", t("Create literature note"));
               div2.onClickEvent(async () => {
                 await this.createLiteratureNote(citekey, file);
@@ -86921,7 +87968,7 @@ var BibManager = class {
           }
           if (zLink) {
             div.createDiv("clickable-icon", (div2) => {
-              (0, import_obsidian13.setIcon)(div2, "lucide-external-link");
+              (0, import_obsidian14.setIcon)(div2, "lucide-external-link");
               div2.setAttr("aria-label", t("Open in Zotero"));
               div2.onClickEvent(() => {
                 activeWindow.open(zLink, "_blank");
@@ -86931,7 +87978,7 @@ var BibManager = class {
           if (zPDFLinks) {
             zPDFLinks.forEach((link) => {
               div.createDiv("clickable-icon", (div2) => {
-                (0, import_obsidian13.setIcon)(div2, "lucide-file-text");
+                (0, import_obsidian14.setIcon)(div2, "lucide-file-text");
                 div2.setAttr("aria-label", pathBasename(link));
                 div2.onClickEvent(() => {
                   activeWindow.open(`file://${encodeURI(link)}`, "_blank");
@@ -86957,7 +88004,7 @@ var BibManager = class {
     });
     if (!targetView) {
       await this.plugin.app.workspace.openLinkText(sourceFile.path, "", false);
-      targetView = (_a = this.plugin.app.workspace.getActiveViewOfType(import_obsidian13.MarkdownView)) != null ? _a : null;
+      targetView = (_a = this.plugin.app.workspace.getActiveViewOfType(import_obsidian14.MarkdownView)) != null ? _a : null;
     }
     if (!(targetView == null ? void 0 : targetView.editor))
       return;
@@ -86998,7 +88045,7 @@ var BibManager = class {
     const settingsFolder = ((_t = this.plugin.settings.literatureNoteFolder) != null ? _t : "").trim();
     const folder = settingsFolder || zotlitFolder || "_2 Bibliographic notes";
     const filename = `@${citekey}.md`;
-    const notePath = folder ? (0, import_obsidian13.normalizePath)(`${folder}/${filename}`) : filename;
+    const notePath = folder ? (0, import_obsidian14.normalizePath)(`${folder}/${filename}`) : filename;
     if (await app.vault.adapter.exists(notePath)) {
       await app.workspace.openLinkText(notePath, sourceFile.path, true);
       return;
@@ -87017,8 +88064,8 @@ var BibManager = class {
 # ${title}
 
 `;
-    if (folder && !await app.vault.adapter.exists((0, import_obsidian13.normalizePath)(folder))) {
-      await app.vault.adapter.mkdir((0, import_obsidian13.normalizePath)(folder));
+    if (folder && !await app.vault.adapter.exists((0, import_obsidian14.normalizePath)(folder))) {
+      await app.vault.adapter.mkdir((0, import_obsidian14.normalizePath)(folder));
     }
     await app.vault.create(notePath, content);
     await app.workspace.openLinkText(notePath, sourceFile.path, true);
@@ -87027,9 +88074,9 @@ var BibManager = class {
     var _a;
     const results = [];
     const dir = app.vault.getAbstractFileByPath(folder);
-    if (!(dir instanceof import_obsidian13.TFolder))
+    if (!(dir instanceof import_obsidian14.TFolder))
       return results;
-    const files = dir.children.filter((f3) => f3 instanceof import_obsidian13.TFile && /^@.+\.md$/.test(f3.name));
+    const files = dir.children.filter((f3) => f3 instanceof import_obsidian14.TFile && /^@.+\.md$/.test(f3.name));
     for (const file of files) {
       try {
         const content = await app.vault.read(file);
@@ -87040,7 +88087,7 @@ var BibManager = class {
         const stem = file.basename.startsWith("@") ? file.basename.slice(1) : file.basename;
         if (stem === citekey)
           continue;
-        const newPath = (0, import_obsidian13.normalizePath)(file.path.replace(/[^/]+$/, `@${citekey}.md`));
+        const newPath = (0, import_obsidian14.normalizePath)(file.path.replace(/[^/]+$/, `@${citekey}.md`));
         if (app.vault.getAbstractFileByPath(newPath))
           continue;
         await app.vault.rename(file, newPath);
@@ -87058,6 +88105,10 @@ var BibManager = class {
   async indexFileCitekeys(file) {
     if (!this.isIndexablePath(file.path))
       return;
+    this.citedKeysByFile.set(file.path, await this.citekeysInFile(file));
+    this.citedKeysIndexDirty = true;
+  }
+  async citekeysInFile(file) {
     const keys = new Set();
     try {
       const content = await app.vault.read(file);
@@ -87070,8 +88121,7 @@ var BibManager = class {
       }
     } catch (e3) {
     }
-    this.citedKeysByFile.set(file.path, keys);
-    this.citedKeysIndexDirty = true;
+    return keys;
   }
   async buildCitedKeysIndex() {
     this.citedKeysByFile.clear();
@@ -87117,7 +88167,7 @@ var BibManager = class {
     this.indexMdCount = (_a = data == null ? void 0 : data.mdCount) != null ? _a : 0;
   }
   renderedCachePath() {
-    return (0, import_obsidian13.normalizePath)(".pandoc/rendered-citations.json");
+    return (0, import_obsidian14.normalizePath)(".pandoc/rendered-citations.json");
   }
   async loadRenderedCache() {
     if (this.renderedCacheLoaded)
@@ -87143,7 +88193,7 @@ var BibManager = class {
     for (const [p4, v3] of this.renderedCache)
       notes[p4] = v3;
     try {
-      const dir = (0, import_obsidian13.normalizePath)(".pandoc");
+      const dir = (0, import_obsidian14.normalizePath)(".pandoc");
       if (!await app.vault.adapter.exists(dir)) {
         await app.vault.adapter.mkdir(dir);
       }
@@ -87245,12 +88295,12 @@ var BibManager = class {
       source
     };
   }
-  persistFileCache(file, cache, hash) {
+  persistFileCache(file, cache2, hash) {
     var _a, _b, _c, _d, _e;
     const versions = {};
     const authorYearFp = {};
-    const srcBibCache = (_a = cache.source) == null ? void 0 : _a.bibCache;
-    for (const key of cache.keys) {
+    const srcBibCache = (_a = cache2.source) == null ? void 0 : _a.bibCache;
+    for (const key of cache2.keys) {
       const entry = srcBibCache == null ? void 0 : srcBibCache.get(key);
       versions[key] = entry == null ? void 0 : entry._version;
       authorYearFp[key] = this.authorYearFingerprint(entry);
@@ -87259,26 +88309,25 @@ var BibManager = class {
       contentHash: hash,
       mtime: (_c = (_b = file.stat) == null ? void 0 : _b.mtime) != null ? _c : 0,
       libraryVersion: this.currentLibraryVersion(),
-      keys: [...cache.keys],
-      resolvedKeys: [...cache.resolvedKeys],
-      unresolvedKeys: [...cache.unresolvedKeys],
-      globalOnlyKeys: [...cache.globalOnlyKeys],
+      keys: [...cache2.keys],
+      resolvedKeys: [...cache2.resolvedKeys],
+      unresolvedKeys: [...cache2.unresolvedKeys],
+      globalOnlyKeys: [...cache2.globalOnlyKeys],
       versions,
       authorYearFp,
-      bibHtml: (_e = (_d = cache.bib) == null ? void 0 : _d.outerHTML) != null ? _e : null,
-      citations: cache.citations,
-      citeBibMap: Object.fromEntries(cache.citeBibMap)
+      bibHtml: (_e = (_d = cache2.bib) == null ? void 0 : _d.outerHTML) != null ? _e : null,
+      citations: cache2.citations,
+      citeBibMap: Object.fromEntries(cache2.citeBibMap)
     });
     this.renderedCacheDirty = true;
     this.scheduleRenderedCacheSave();
   }
   async createMissingLitNotes(opts = {}, onProgress) {
-    var _a, _b, _c, _d, _e, _f;
+    var _a, _b, _c, _d, _e, _f, _g, _h;
     const citekeys = new Set();
     if (opts.file) {
       await this.indexFileCitekeys(opts.file);
-      const keys = this.citedKeysByFile.get(opts.file.path);
-      keys == null ? void 0 : keys.forEach((k4) => citekeys.add(k4));
+      (await this.citekeysInFile(opts.file)).forEach((k4) => citekeys.add(k4));
     } else if (opts.allVault) {
       const mdCount = app.vault.getMarkdownFiles().filter((f3) => this.isIndexablePath(f3.path)).length;
       const stale = this.citedKeysByFile.size === 0 || this.indexMdCount !== mdCount;
@@ -87287,11 +88336,10 @@ var BibManager = class {
       for (const k4 of this.getCitedKeys())
         citekeys.add(k4);
     } else {
-      const view = app.workspace.getActiveViewOfType(import_obsidian13.MarkdownView);
+      const view = app.workspace.getActiveViewOfType(import_obsidian14.MarkdownView);
       if (view == null ? void 0 : view.file) {
         await this.indexFileCitekeys(view.file);
-        const keys = this.citedKeysByFile.get(view.file.path);
-        keys == null ? void 0 : keys.forEach((k4) => citekeys.add(k4));
+        (await this.citekeysInFile(view.file)).forEach((k4) => citekeys.add(k4));
       }
     }
     const sourcePath = (_d = (_c = (_a = opts.file) == null ? void 0 : _a.path) != null ? _c : (_b = app.workspace.getActiveFile()) == null ? void 0 : _b.path) != null ? _d : "";
@@ -87314,18 +88362,35 @@ var BibManager = class {
       const indexedKey = groupId && groupId !== 1 ? `${zoteroItemKey}g${groupId}` : zoteroItemKey;
       refs.push({ indexedKey, entry });
     }
-    if (!refs.length)
-      return { created: 0, missing: refs.map((r3) => r3.indexedKey), missingKeys: missing };
-    if (this.plugin.settings.createNotesWithZotLit !== false) {
-      const accepted = await createLitNotesViaZotLitBulk(app, refs, onProgress);
-      return { created: accepted, missing: refs.map((r3) => r3.indexedKey), missingKeys: missing };
+    if (!refs.length) {
+      let created2 = 0;
+      const sourceFile2 = (_f = (_e = opts.file) != null ? _e : app.workspace.getActiveFile()) != null ? _f : app.vault.getMarkdownFiles()[0];
+      if (sourceFile2) {
+        for (const key of missing) {
+          if (getLitNoteForCitekey(key, sourcePath, app))
+            continue;
+          await this.createLiteratureNote(key, sourceFile2);
+          created2++;
+          onProgress == null ? void 0 : onProgress(created2, missing.length);
+          await new Promise((r3) => setTimeout(r3, 250));
+        }
+      }
+      return { created: created2, missing: [], missingKeys: missing };
     }
     let created = 0;
-    const sourceFile = (_f = (_e = opts.file) != null ? _e : app.workspace.getActiveFile()) != null ? _f : app.vault.getMarkdownFiles()[0];
+    if (this.plugin.settings.createNotesWithZotLit !== false) {
+      created = await createLitNotesViaZotLitBulk(app, refs, onProgress);
+      if (created >= refs.length) {
+        return { created, missing: refs.map((r3) => r3.indexedKey), missingKeys: missing };
+      }
+    }
+    const sourceFile = (_h = (_g = opts.file) != null ? _g : app.workspace.getActiveFile()) != null ? _h : app.vault.getMarkdownFiles()[0];
     const total = missing.length;
     for (const key of missing) {
       if (!sourceFile)
         break;
+      if (getLitNoteForCitekey(key, sourcePath, app))
+        continue;
       await this.createLiteratureNote(key, sourceFile);
       created++;
       onProgress == null ? void 0 : onProgress(created, total);
@@ -87379,7 +88444,7 @@ var BibManager = class {
     if ((_a = settings == null ? void 0 : settings.bibliography) == null ? void 0 : _a.length) {
       for (const scopedBibPath of settings.bibliography) {
         if (!isAbsolutePath(scopedBibPath)) {
-          paths.add((0, import_obsidian13.normalizePath)(scopedBibPath));
+          paths.add((0, import_obsidian14.normalizePath)(scopedBibPath));
         }
       }
     }
@@ -87423,11 +88488,11 @@ var BibManager = class {
   }
   getCacheForPath(filePath) {
     const file = app.vault.getAbstractFileByPath(filePath);
-    if (file && file instanceof import_obsidian13.TFile && this.fileCache.has(file)) {
-      const cache = this.fileCache.get(file);
-      return cache;
+    if (file && file instanceof import_obsidian14.TFile && this.fileCache.has(file)) {
+      const cache2 = this.fileCache.get(file);
+      return cache2;
     }
-    if (file instanceof import_obsidian13.TFile) {
+    if (file instanceof import_obsidian14.TFile) {
       const entry = this.renderedCache.get(file.path);
       if (entry && this.persistedEntryIsCurrent(file, entry)) {
         const result = this.fileCacheFromPersisted(file, entry);
@@ -87441,11 +88506,11 @@ var BibManager = class {
   }
   getResolution(filePath, key) {
     const file = app.vault.getAbstractFileByPath(filePath);
-    if (file && file instanceof import_obsidian13.TFile && this.fileCache.has(file)) {
-      const cache = this.fileCache.get(file);
+    if (file && file instanceof import_obsidian14.TFile && this.fileCache.has(file)) {
+      const cache2 = this.fileCache.get(file);
       return {
-        isResolved: cache.resolvedKeys.has(key),
-        isUnresolved: cache.unresolvedKeys.has(key)
+        isResolved: cache2.resolvedKeys.has(key),
+        isUnresolved: cache2.unresolvedKeys.has(key)
       };
     }
     return {
@@ -87456,8 +88521,8 @@ var BibManager = class {
   getCitationsForSection(filePath, lineStart, lineEnd) {
     var _a, _b, _c, _d;
     const file = app.vault.getAbstractFileByPath(filePath);
-    if (file && file instanceof import_obsidian13.TFile && this.fileCache.has(file)) {
-      const cache = this.fileCache.get(file);
+    if (file && file instanceof import_obsidian14.TFile && this.fileCache.has(file)) {
+      const cache2 = this.fileCache.get(file);
       const mCache = app.metadataCache.getCache(filePath);
       const exact = (_a = mCache.sections) == null ? void 0 : _a.find((s3) => s3.position.start.line === lineStart && s3.position.end.line === lineEnd);
       const containing = !exact ? (_b = mCache.sections) == null ? void 0 : _b.find((s3) => s3.position.start.line <= lineStart && s3.position.end.line >= lineEnd) : void 0;
@@ -87467,7 +88532,7 @@ var BibManager = class {
         return [];
       const startOffset = section.position.start.offset;
       const endOffset = section.position.end.offset;
-      const cites = cache.citations.filter((c3) => c3.from >= startOffset && c3.to <= endOffset);
+      const cites = cache2.citations.filter((c3) => c3.from >= startOffset && c3.to <= endOffset);
       return cites;
     }
     return [];
@@ -87475,7 +88540,7 @@ var BibManager = class {
 };
 
 // src/citeSuggest/citeSuggest.ts
-var import_obsidian14 = __toModule(require("obsidian"));
+var import_obsidian15 = __toModule(require("obsidian"));
 var SUGGEST_DEBUG = false;
 var LOG = SUGGEST_DEBUG ? (...args) => console.log("[lc:suggest]", ...args) : (..._args) => {
 };
@@ -87526,7 +88591,7 @@ function searchCitekeyFirst(fuse, query, limit) {
 var triggerRE = /(^|[^\p{L}\p{N}@])(@)([\p{L}\p{N}:.#$%&\-+?<>~_/]+)$/u;
 var doubleAtRE = /(^|[^\p{L}\p{N}@])(@@)([^.]*)$/u;
 var DOUBLE_AT_PREFIX = "\0";
-var CiteSuggest = class extends import_obsidian14.EditorSuggest {
+var CiteSuggest = class extends import_obsidian15.EditorSuggest {
   constructor(app2, plugin) {
     super(app2);
     this.limit = 20;
@@ -87541,7 +88606,7 @@ var CiteSuggest = class extends import_obsidian14.EditorSuggest {
     });
     this.setInstructions([
       {
-        command: import_obsidian14.Platform.isMacOS ? "\u2318 \u21B5" : "ctrl \u21B5",
+        command: import_obsidian15.Platform.isMacOS ? "\u2318 \u21B5" : "ctrl \u21B5",
         purpose: "Wrap cite key with brackets"
       }
     ]);
@@ -87763,7 +88828,129 @@ var CiteSuggest = class extends import_obsidian14.EditorSuggest {
 };
 
 // src/exportModal.ts
-var import_obsidian15 = __toModule(require("obsidian"));
+var import_obsidian16 = __toModule(require("obsidian"));
+
+// src/convertCitations.ts
+var SPECIAL_RE = new RegExp("\\[\\[@([^|\\]\\s]+)\\|([\\s\\S]*?)\\]\\]|\\[\\[@([^|\\]\\s]+)\\]\\]|\u27E6", "g");
+var LINK_RE = /\[\[@([^|\]\s]+)(?:\|([\s\S]*?))?\]\]|\[@([^\]\s,;]+)([^\]]*)\]/g;
+function rewriteContainers(str) {
+  var _a, _b, _c;
+  const containers = [];
+  let scan = 0;
+  while (scan < str.length) {
+    const open2 = str.indexOf("[", scan);
+    if (open2 === -1)
+      break;
+    if (str[open2 + 1] === "[") {
+      scan = open2 + 2;
+      continue;
+    }
+    let depth = 0;
+    let close2 = -1;
+    for (let i3 = open2 + 1; i3 < str.length; i3++) {
+      if (str[i3] === "[" && str[i3 + 1] === "[") {
+        depth++;
+        i3++;
+      } else if (str[i3] === "[" && str[i3 + 1] !== "[") {
+        depth++;
+      } else if (str[i3] === "]" && str[i3 + 1] === "]") {
+        if (depth > 0) {
+          depth--;
+          i3++;
+        } else {
+          close2 = i3;
+          break;
+        }
+      } else if (str[i3] === "]" && str[i3 + 1] !== "]") {
+        if (depth > 0) {
+          depth--;
+        } else {
+          close2 = i3;
+          break;
+        }
+      }
+    }
+    if (close2 === -1)
+      break;
+    const inside = str.slice(open2 + 1, close2);
+    const links = [];
+    let lm;
+    LINK_RE.lastIndex = 0;
+    while (lm = LINK_RE.exec(inside)) {
+      if (lm[1] !== void 0) {
+        links.push({ key: lm[1], alias: lm[2] });
+      } else {
+        const key = lm[3];
+        const tail = ((_a = lm[4]) != null ? _a : "").trim();
+        links.push({ key, alias: tail ? `@@${tail}` : void 0 });
+      }
+    }
+    if (links.length >= 1) {
+      const mergedParts = [];
+      for (const link of links) {
+        const aliasText = (_b = link.alias) != null ? _b : "@" + link.key;
+        mergedParts.push(expandAlias(aliasText, link.key));
+      }
+      containers.push({
+        open: open2,
+        close: close2,
+        merged: "[" + mergedParts.join("; ") + "]"
+      });
+      scan = close2 + 1;
+      continue;
+    }
+    scan = open2 + 1;
+  }
+  let out = "";
+  let last = 0;
+  let emittedUntil = -1;
+  const isInside = (pos) => pos <= emittedUntil;
+  let ci = 0;
+  let m3;
+  SPECIAL_RE.lastIndex = 0;
+  while (m3 = SPECIAL_RE.exec(str)) {
+    while (ci < containers.length && containers[ci].open < m3.index) {
+      const c3 = containers[ci];
+      if (c3.open > emittedUntil) {
+        out += str.slice(last, c3.open);
+        out += c3.merged;
+        last = c3.close + 1;
+        emittedUntil = c3.close;
+      }
+      ci++;
+    }
+    if (isInside(m3.index))
+      continue;
+    out += str.slice(last, m3.index);
+    const full = m3[0];
+    const key = (_c = m3[1]) != null ? _c : m3[3];
+    const alias = m3[2];
+    const aliasText = alias != null ? alias : "@" + key;
+    if (alias !== void 0 && !/@/.test(alias)) {
+      out += alias + " [@" + key + "]";
+    } else {
+      out += "[" + expandAlias(aliasText, key) + "]";
+    }
+    last = m3.index + full.length;
+  }
+  while (ci < containers.length) {
+    const c3 = containers[ci];
+    if (c3.open > emittedUntil) {
+      out += str.slice(last, c3.open);
+      out += c3.merged;
+      last = c3.close + 1;
+      emittedUntil = c3.close;
+    }
+    ci++;
+  }
+  out += str.slice(last);
+  return out;
+}
+function convertCitationsInText(text) {
+  const lines = text.split("\n");
+  const outLines = lines.map((line) => /\[\[@/.test(line) ? rewriteContainers(line) : line);
+  return outLines.join("\n");
+}
 
 // src/exportCompiler.ts
 function execFileAsync(file, args, options) {
@@ -87792,76 +88979,6 @@ function expandTilde(p4) {
   }
   return p4;
 }
-async function findPython3(configured) {
-  var _a;
-  if (configured.trim())
-    return configured.trim();
-  const { execFile } = require("child_process");
-  const { promisify } = require("util");
-  const execAsync = promisify(execFile);
-  const platform = (_a = globalThis.process) == null ? void 0 : _a.platform;
-  const probe = async (p4) => {
-    try {
-      await execAsync(p4, [
-        "-c",
-        "import lxml, docx; import sys; sys.exit(0)"
-      ]);
-      return true;
-    } catch (e3) {
-      return false;
-    }
-  };
-  const candidates = [];
-  if (platform === "win32") {
-    candidates.push("py", "python", "python3");
-  } else {
-    candidates.push("python3");
-  }
-  candidates.push(...platform === "win32" ? [
-    "C:\\Python313\\python.exe",
-    "C:\\Python312\\python.exe",
-    "C:\\Python311\\python.exe"
-  ] : [
-    "/opt/homebrew/bin/python3",
-    "/usr/local/bin/python3",
-    "/usr/bin/python3"
-  ]);
-  for (const p4 of candidates) {
-    if (await probe(p4))
-      return p4;
-  }
-  return null;
-}
-async function findNode() {
-  var _a, _b;
-  const { execFile } = require("child_process");
-  const { promisify } = require("util");
-  const execAsync = promisify(execFile);
-  const platform = (_a = globalThis.process) == null ? void 0 : _a.platform;
-  const probe = async (p4) => {
-    try {
-      await execAsync(p4, ["--version"]);
-      return true;
-    } catch (e3) {
-      return false;
-    }
-  };
-  const candidates = platform === "win32" ? [
-    "node",
-    "C:\\Program Files\\nodejs\\node.exe",
-    `${(_b = process.env.APPDATA) != null ? _b : ""}\\nvm\\node.exe`
-  ] : [
-    "node",
-    "/opt/homebrew/bin/node",
-    "/usr/local/bin/node",
-    "/usr/bin/node"
-  ];
-  for (const p4 of candidates) {
-    if (await probe(p4))
-      return p4;
-  }
-  return null;
-}
 function resolveFolder(folder, vaultBase) {
   const f3 = (folder != null ? folder : "").trim();
   if (!f3)
@@ -87872,7 +88989,7 @@ function resolveFolder(folder, vaultBase) {
   return `${vaultBase}/${expanded}`;
 }
 async function runDocumentCompiler(plugin, file, opts) {
-  var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k;
+  var _a, _b, _c, _d, _e, _f;
   const scriptsDir = pluginScriptsDir(plugin);
   if (!scriptsDir) {
     return {
@@ -87895,59 +89012,71 @@ async function runDocumentCompiler(plugin, file, opts) {
   const isExport = opts.format !== "md";
   let templateName = (_b = opts.template) != null ? _b : "";
   if (!templateName) {
-    const cache = plugin.app.metadataCache.getFileCache(file);
-    const rawTpl = (_c = cache == null ? void 0 : cache.frontmatter) == null ? void 0 : _c.template;
+    const cache2 = plugin.app.metadataCache.getFileCache(file);
+    const rawTpl = (_c = cache2 == null ? void 0 : cache2.frontmatter) == null ? void 0 : _c.template;
     templateName = typeof rawTpl === "string" ? rawTpl.replace(/\.(docx|odt|tex)$/i, "") : "";
   }
-  const args = [absMaster];
-  if (isExport) {
-    args.push("--export");
-    args.push("--format", opts.format);
-    if (opts.format === "pdf" && opts.keepIntermediate) {
-      args.push("--keep-intermediate");
-    }
-    if (opts.keepIntermediateMd)
-      args.push("--keep-compiled-md");
-  }
-  args.push(opts.toc ? "--toc" : "--no-toc");
-  args.push(opts.tof ? "--list-of-figures" : "--no-list-of-figures");
-  args.push(opts.restartFootnotes ? "--no-global-footnotes" : "--global-footnotes");
-  args.push(opts.newPageHeadings ? "--new-page-headings" : "--no-new-page-headings");
-  if (!opts.generatedDate)
-    args.push("--no-generated-date");
-  if (opts.romanFrontmatter) {
-    args.push("--roman-frontmatter");
-    if (opts.romanStart)
-      args.push("--page1-starts-with", opts.romanStart);
-  }
-  if (isExport && opts.overrideCslStyle === true && opts.cslStyle) {
-    args.push("--csl-style", opts.cslStyle);
-  } else if (isExport && opts.overrideCslStyle === false) {
-    args.push("--csl-style-from-template");
-  }
-  const accountName = (_e = (_d = plugin.app.account) == null ? void 0 : _d.name) != null ? _e : void 0;
-  if (accountName)
-    args.push("--default-author", accountName);
-  const templateDir = resolveFolder(plugin.settings.exportTemplatesDir || "Export Templates", vaultBase);
-  args.push("--templates-dir", templateDir);
-  if (templateName)
-    args.push("--template", templateName);
   const outputDir = resolveFolder(opts.outputDir, vaultBase);
-  if (outputDir)
-    args.push("--output-dir", outputDir);
-  if (opts.outputFilename) {
-    args.push("--output-name", opts.outputFilename);
-  }
-  if (isExport && opts.enabledMappingIds && opts.enabledMappingIds.length > 0) {
-    const allMappings = (_f = plugin.settings.styleMappings) != null ? _f : [];
-    const enabledSet = new Set(opts.enabledMappingIds);
-    const activeMappings = allMappings.filter((m3) => enabledSet.has(m3.id) && m3.source && m3.styleName).map((m3) => ({ source: m3.source, styleName: m3.styleName }));
-    if (activeMappings.length > 0) {
-      args.push("--mappings", JSON.stringify(activeMappings));
+  const buildArgs = (input, citationsInput) => {
+    var _a2, _b2, _c2;
+    const args = [input];
+    if (isExport) {
+      args.push("--export");
+      args.push("--format", opts.format);
+      if (opts.format === "pdf" && opts.keepIntermediate) {
+        args.push("--keep-intermediate");
+      }
+      if (opts.keepIntermediateMd)
+        args.push("--keep-compiled-md");
     }
-  }
+    args.push(opts.toc ? "--toc" : "--no-toc");
+    args.push(opts.tof ? "--list-of-figures" : "--no-list-of-figures");
+    args.push(opts.restartFootnotes ? "--no-global-footnotes" : "--global-footnotes");
+    args.push(opts.newPageHeadings ? "--new-page-headings" : "--no-new-page-headings");
+    if (!opts.generatedDate)
+      args.push("--no-generated-date");
+    if (opts.romanFrontmatter) {
+      args.push("--roman-frontmatter");
+      if (opts.romanStart)
+        args.push("--page1-starts-with", opts.romanStart);
+    }
+    if (isExport && opts.overrideCslStyle === true && opts.cslStyle) {
+      args.push("--csl-style", opts.cslStyle);
+    } else if (isExport && opts.overrideCslStyle === false) {
+      args.push("--csl-style-from-template");
+    }
+    if (isExport && opts.rawCitations && (opts.format === "docx" || opts.format === "odt")) {
+      args.push("--raw-citations");
+    }
+    if (isExport && opts.staticBibliography && (opts.format === "docx" || opts.format === "odt")) {
+      args.push("--static-bibliography", opts.staticBibliography);
+    }
+    const accountName = (_b2 = (_a2 = plugin.app.account) == null ? void 0 : _a2.name) != null ? _b2 : void 0;
+    if (accountName)
+      args.push("--default-author", accountName);
+    const templateDir = resolveFolder(plugin.settings.exportTemplatesDir || "Export Templates", vaultBase);
+    args.push("--templates-dir", templateDir);
+    if (templateName)
+      args.push("--template", templateName);
+    if (outputDir)
+      args.push("--output-dir", outputDir);
+    if (opts.outputFilename) {
+      args.push("--output-name", opts.outputFilename);
+    }
+    if (isExport && opts.enabledMappingIds && opts.enabledMappingIds.length > 0) {
+      const allMappings = (_c2 = plugin.settings.styleMappings) != null ? _c2 : [];
+      const enabledSet = new Set(opts.enabledMappingIds);
+      const activeMappings = allMappings.filter((m3) => enabledSet.has(m3.id) && m3.source && m3.styleName).map((m3) => ({ source: m3.source, styleName: m3.styleName }));
+      if (activeMappings.length > 0) {
+        args.push("--mappings", JSON.stringify(activeMappings));
+      }
+    }
+    if (citationsInput)
+      args.push("--citations-input", citationsInput);
+    return args;
+  };
   const script = `${scriptsDir}/DocumentCompiler.py`;
-  const baseEnv = (_h = (_g = globalThis.process) == null ? void 0 : _g.env) != null ? _h : {};
+  const baseEnv = (_e = (_d = globalThis.process) == null ? void 0 : _d.env) != null ? _e : {};
   const env = { ...baseEnv, SW_PYTHON: py };
   {
     const a3 = plugin.app.vault.adapter;
@@ -87962,42 +89091,83 @@ async function runDocumentCompiler(plugin, file, opts) {
     if (configured)
       env.SW_DEFAULT_CSL = configured;
   }
-  if (isExport) {
-    const node = await findNode();
-    if (!node) {
-      return {
-        ok: false,
-        stdout: "",
-        stderr: "Node.js not found. Install it (nodejs.org or Homebrew)."
-      };
-    }
-    env.SW_NODE = node;
-    const pandoc = ((_i = plugin.settings.pathToPandoc) == null ? void 0 : _i.trim()) || await findPandoc();
-    if (!pandoc) {
-      return {
-        ok: false,
-        stdout: "",
-        stderr: "Pandoc not found. Set its path in the plugin settings."
-      };
-    }
-    env.SW_PANDOC = pandoc;
-  }
-  try {
-    const res = await execFileAsync(py, [script, ...args], { env });
-    const rawOutputPath = (_j = res.stdout.trim().split("\n").pop()) != null ? _j : "";
+  const execCompiler = (args) => execFileAsync(py, [script, ...args], { env });
+  const toResult2 = (res) => {
+    var _a2;
+    const rawOutputPath = (_a2 = res.stdout.trim().split("\n").pop()) != null ? _a2 : "";
     return {
       ok: true,
       stdout: res.stdout,
       stderr: res.stderr,
       outputPath: rawOutputPath || void 0
     };
-  } catch (e3) {
-    const err = e3;
+  };
+  const toError = (e3) => {
+    var _a2;
     return {
       ok: false,
-      stdout: (err == null ? void 0 : err.stdout) || "",
-      stderr: ((err == null ? void 0 : err.stderr) || String((_k = err == null ? void 0 : err.message) != null ? _k : err)).trim()
+      stdout: (e3 == null ? void 0 : e3.stdout) || "",
+      stderr: ((e3 == null ? void 0 : e3.stderr) || String((_a2 = e3 == null ? void 0 : e3.message) != null ? _a2 : e3)).trim()
     };
+  };
+  if (!isExport) {
+    try {
+      return toResult2(await execCompiler(buildArgs(absMaster)));
+    } catch (e3) {
+      return toError(e3);
+    }
+  }
+  const pandoc = ((_f = plugin.settings.pathToPandoc) == null ? void 0 : _f.trim()) || await findPandoc();
+  if (!pandoc) {
+    return {
+      ok: false,
+      stdout: "",
+      stderr: "Pandoc not found. Set its path in the plugin settings."
+    };
+  }
+  env.SW_PANDOC = pandoc;
+  try {
+    const fs = require("fs");
+    const prepArgs = [
+      "--prepare-convert",
+      opts.restartFootnotes ? "--no-global-footnotes" : "--global-footnotes"
+    ];
+    if (outputDir)
+      prepArgs.push("--output-dir", outputDir);
+    if (templateName)
+      prepArgs.push("--template", templateName);
+    const prep = await execCompiler([absMaster, ...prepArgs]);
+    const mdPath = (prep.stdout.trim().split("\n").pop() || "").trim();
+    if (!mdPath || !fs.existsSync(mdPath)) {
+      throw new Error("prepare-convert did not return a usable markdown path");
+    }
+    const converted = convertCitationsInText(fs.readFileSync(mdPath, "utf-8"));
+    const convPath = `${mdPath}.swcitations.md`;
+    fs.writeFileSync(convPath, converted, "utf-8");
+    try {
+      return toResult2(await execCompiler(buildArgs(mdPath, convPath)));
+    } finally {
+      try {
+        fs.unlinkSync(convPath);
+      } catch (e3) {
+      }
+      if (mdPath !== absMaster && !opts.keepIntermediateMd) {
+        try {
+          fs.unlinkSync(mdPath);
+        } catch (e3) {
+        }
+      }
+    }
+  } catch (e3) {
+    const node = await findNode();
+    if (!node)
+      return toError(e3);
+    env.SW_NODE = node;
+    try {
+      return toResult2(await execCompiler(buildArgs(absMaster)));
+    } catch (e22) {
+      return toError(e22);
+    }
   }
 }
 
@@ -88013,11 +89183,53 @@ function listTemplates(dir, format2) {
     return [];
   }
 }
-var ExportModal = class extends import_obsidian15.Modal {
+var ZoteroWarningModal = class extends import_obsidian16.Modal {
+  constructor(app2, needCount, liveFields, decide) {
+    super(app2);
+    this.needCount = needCount;
+    this.liveFields = liveFields;
+    this.decide = decide;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.createEl("h3", { text: "Zotero is not running" });
+    const n2 = this.needCount;
+    const message = this.liveFields ? "This export creates live Zotero citation fields, so it needs Zotero while exporting. Start Zotero and try again, or proceed \u2014 the citations are then written out as static plain text instead." : `${n2} citation${n2 === 1 ? "" : "s"} in this document can't be resolved from your bibliography files and need Zotero. Start Zotero and try again, or proceed.`;
+    contentEl.createEl("p", { text: message });
+    const row = contentEl.createDiv();
+    row.style.cssText = "display:flex;justify-content:flex-end;gap:8px;margin-top:14px";
+    const cancel = row.createEl("button", { text: "Cancel" });
+    const proceed = row.createEl("button", { text: "Proceed without Zotero" });
+    const retry = row.createEl("button", {
+      text: "Try connecting again",
+      cls: "mod-cta"
+    });
+    cancel.onclick = () => {
+      this.close();
+      this.decide("cancel");
+    };
+    proceed.onclick = () => {
+      this.close();
+      this.decide("proceed");
+    };
+    retry.onclick = () => {
+      this.close();
+      this.decide("retry");
+    };
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
+function askZotero(app2, needCount, liveFields) {
+  return new Promise((resolve) => new ZoteroWarningModal(app2, needCount, liveFields, resolve).open());
+}
+var ExportModal = class extends import_obsidian16.Modal {
   constructor(app2, plugin, file) {
     super(app2);
     this.cslStyleHasList = false;
     this.mappingCheckboxes = new Map();
+    this.probe = null;
     this.pluginTplDir = "";
     this.userTplDir = "";
     this.plugin = plugin;
@@ -88061,6 +89273,7 @@ var ExportModal = class extends import_obsidian15.Modal {
       cls: "lc-mapping-modal-note"
     });
     this.pdfNote.style.marginTop = "4px";
+    this.depNote = contentEl.createDiv({ cls: "lc-export-depnote" });
     const tplWrap = contentEl.createDiv({ cls: "lc-export-row" });
     tplWrap.style.marginTop = "10px";
     tplWrap.createEl("label", { text: "Template" });
@@ -88225,6 +89438,58 @@ var ExportModal = class extends import_obsidian15.Modal {
         this.close();
     });
     setTimeout(() => this.runButton.focus(), 50);
+    void this.applyToolGating();
+  }
+  formatMissing(fmt) {
+    const p4 = this.probe;
+    if (!p4)
+      return [];
+    const missing = [];
+    if (!p4.python)
+      missing.push("python");
+    if (fmt === "md")
+      return missing;
+    if (!p4.pandoc)
+      missing.push("pandoc");
+    if (fmt === "latex") {
+      if (!p4.latex)
+        missing.push("latex");
+    } else if (fmt === "pdf") {
+      if (!p4.soffice && !p4.latex)
+        missing.push("libreoffice", "latex");
+    }
+    return missing;
+  }
+  async applyToolGating() {
+    var _a;
+    this.probe = await probeTools(this.plugin);
+    for (const opt of Array.from(this.formatSelect.options)) {
+      const missing = this.formatMissing(opt.value);
+      opt.disabled = missing.length > 0;
+      opt.title = missing.length ? `Requires ${missing.map((k4) => DEPENDENCIES[k4].label).join(", ")}` : "";
+    }
+    if ((_a = this.formatSelect.selectedOptions[0]) == null ? void 0 : _a.disabled) {
+      const firstOk = Array.from(this.formatSelect.options).find((o3) => !o3.disabled);
+      if (firstOk)
+        this.formatSelect.value = firstOk.value;
+    }
+    const fmt = this.formatSelect.value;
+    this.buildTemplateDropdown(fmt, this.templateSelect.value || this.templateFromFrontmatter());
+    this.applyDocSettings();
+    this.refreshFilename();
+    this.syncFormatState(fmt);
+  }
+  refreshDepNote() {
+    if (!this.depNote)
+      return;
+    this.depNote.empty();
+    const fmt = this.formatSelect.value;
+    const missing = this.formatMissing(fmt);
+    if (missing.length > 0) {
+      renderDependencyNote(this.depNote, missing, "This output format needs the following, which was not found on this computer:");
+    }
+    if (this.runButton)
+      this.runButton.disabled = missing.length > 0;
   }
   frontmatterCsl() {
     var _a, _b;
@@ -88342,8 +89607,10 @@ var ExportModal = class extends import_obsidian15.Modal {
     this.keepIntermediateMdRow.style.display = isMd ? "none" : "";
     this.cslOverrideCb.parentElement.style.display = isMd ? "none" : "";
     this.cslStyleRow.style.display = !isMd && this.cslOverrideCb.checked ? "" : "none";
+    this.refreshDepNote();
   }
   buildTemplateDropdown(format2, preferredValue = "") {
+    var _a, _b, _c;
     this.templateSelect.empty();
     const pluginTpls = this.pluginTplDir ? listTemplates(this.pluginTplDir, format2) : [];
     if (pluginTpls.length > 0) {
@@ -88381,11 +89648,28 @@ var ExportModal = class extends import_obsidian15.Modal {
     if (!trySelect(preferredValue)) {
       trySelect(this.templateFromFrontmatter());
     }
+    if (format2 === "pdf" && this.probe) {
+      for (const opt of Array.from(this.templateSelect.options)) {
+        const ext = ((_b = (_a = opt.value.match(/\.(docx|odt|tex)$/i)) == null ? void 0 : _a[1]) != null ? _b : "").toLowerCase();
+        if ((ext === "docx" || ext === "odt") && !this.probe.soffice) {
+          opt.disabled = true;
+          opt.title = "Requires LibreOffice";
+        } else if (ext === "tex" && !this.probe.latex) {
+          opt.disabled = true;
+          opt.title = "Requires a LaTeX distribution (LuaLaTeX)";
+        }
+      }
+      if ((_c = this.templateSelect.selectedOptions[0]) == null ? void 0 : _c.disabled) {
+        const firstOk = Array.from(this.templateSelect.options).find((o3) => !o3.disabled);
+        if (firstOk)
+          this.templateSelect.value = firstOk.value;
+      }
+    }
   }
   templateFromFrontmatter() {
     var _a;
-    const cache = this.app.metadataCache.getFileCache(this.file);
-    const tpl = (_a = cache == null ? void 0 : cache.frontmatter) == null ? void 0 : _a.template;
+    const cache2 = this.app.metadataCache.getFileCache(this.file);
+    const tpl = (_a = cache2 == null ? void 0 : cache2.frontmatter) == null ? void 0 : _a.template;
     return typeof tpl === "string" ? tpl.replace(/\.(docx|odt|tex)$/i, "") : "";
   }
   getFileHistory() {
@@ -88469,7 +89753,7 @@ var ExportModal = class extends import_obsidian15.Modal {
         this.sameSourceCb.checked = false;
       }
     } catch (e3) {
-      new import_obsidian15.Notice("Directory picker unavailable \u2014 type the path into the box above.");
+      new import_obsidian16.Notice("Directory picker unavailable \u2014 type the path into the box above.");
     }
   }
   options() {
@@ -88495,12 +89779,50 @@ var ExportModal = class extends import_obsidian15.Modal {
     };
   }
   async run() {
-    var _a, _b;
-    if (!import_obsidian15.Platform.isDesktop) {
-      new import_obsidian15.Notice("Document compile/export is only available on desktop.");
+    var _a, _b, _c;
+    if (!import_obsidian16.Platform.isDesktop) {
+      new import_obsidian16.Notice("Document compile/export is only available on desktop.");
       return;
     }
     const opts = this.options();
+    const missing = this.formatMissing(opts.format);
+    if (missing.length > 0) {
+      new import_obsidian16.Notice(`This export needs ${missing.map((k4) => DEPENDENCIES[k4].label).join(", ")}. Install it, then reopen this dialogue.`, 8e3);
+      return;
+    }
+    let tempBiblio = null;
+    if (opts.format !== "md") {
+      const probe = await probeTools(this.plugin, true);
+      if (!probe.zotero) {
+        const cache2 = this.plugin.bibManager.fileCache.get(this.file);
+        const keys = (cache2 == null ? void 0 : cache2.keys) ? Array.from(cache2.keys) : await this.citedKeysFromText();
+        const usesLiveFields = opts.format === "docx" || opts.format === "odt";
+        let needsZotero = 0;
+        for (const k4 of keys) {
+          if (((_a = this.plugin.bibManager.bibCache.get(k4)) == null ? void 0 : _a._source) !== "bib")
+            needsZotero++;
+        }
+        if (needsZotero > 0) {
+          let choice = "cancel";
+          for (; ; ) {
+            choice = await askZotero(this.app, needsZotero, usesLiveFields);
+            if (choice !== "retry")
+              break;
+            if ((await probeTools(this.plugin, true)).zotero)
+              break;
+          }
+          if (choice === "cancel")
+            return;
+        }
+        if (usesLiveFields) {
+          tempBiblio = await this.writeStaticBibliography(keys);
+          if (tempBiblio)
+            opts.staticBibliography = tempBiblio;
+          else
+            opts.rawCitations = true;
+        }
+      }
+    }
     const entry = {
       format: opts.format,
       docType: opts.docType,
@@ -88532,18 +89854,57 @@ var ExportModal = class extends import_obsidian15.Modal {
     await this.plugin.saveSettings();
     this.close();
     const label = opts.format === "md" ? "Compiling outline\u2026" : opts.format === "odt" ? "Compiling + exporting to ODT\u2026" : opts.format === "latex" ? "Compiling + exporting to LaTeX\u2026" : opts.format === "pdf" ? "Compiling + exporting to PDF\u2026" : "Compiling + exporting to DOCX\u2026";
-    const progress = new import_obsidian15.Notice(label, 0);
-    const res = await runDocumentCompiler(this.plugin, this.file, opts);
+    const progress = new import_obsidian16.Notice(label, 0);
+    const res = await runDocumentCompiler(this.plugin, this.file, opts).finally(() => {
+      if (tempBiblio) {
+        try {
+          require("fs").unlinkSync(tempBiblio);
+        } catch (e3) {
+        }
+      }
+    });
     progress.hide();
     if (!res.ok) {
-      new import_obsidian15.Notice(`Document compiler failed:
+      new import_obsidian16.Notice(`Document compiler failed:
 ${res.stderr}`, 8e3);
       console.error("[scholar-weave] DocumentCompiler failed:", res.stderr);
       return;
     }
-    const outPath = (_b = (_a = res.outputPath) != null ? _a : res.stdout.trim().split("\n").pop()) != null ? _b : "";
+    const outPath = (_c = (_b = res.outputPath) != null ? _b : res.stdout.trim().split("\n").pop()) != null ? _c : "";
     const doneLabel = opts.format === "md" ? `Compiled: ${outPath}` : `Exported: ${outPath}`;
-    new import_obsidian15.Notice(doneLabel, 6e3);
+    new import_obsidian16.Notice(doneLabel, 6e3);
+  }
+  async writeStaticBibliography(keys) {
+    const entries = [];
+    for (const k4 of keys) {
+      const e3 = this.plugin.bibManager.bibCache.get(k4);
+      if (!e3)
+        continue;
+      const copy = {};
+      for (const [key, val] of Object.entries(e3)) {
+        if (!key.startsWith("_"))
+          copy[key] = val;
+      }
+      entries.push(copy);
+    }
+    if (entries.length === 0)
+      return null;
+    const fs = require("fs");
+    const os = require("os");
+    const nodePath = require("path");
+    const p4 = nodePath.join(os.tmpdir(), `sw-static-${Date.now()}.json`);
+    fs.writeFileSync(p4, JSON.stringify(entries), "utf-8");
+    return p4;
+  }
+  async citedKeysFromText() {
+    var _a;
+    const text = await this.app.vault.cachedRead(this.file);
+    const keys = new Set();
+    const re = /\[\[@([^|\]\s]+)|(?:^|[^\w@])@([A-Za-z][\w:.#$%&+?<>~/-]*)/gm;
+    let m3;
+    while (m3 = re.exec(text))
+      keys.add((_a = m3[1]) != null ? _a : m3[2]);
+    return Array.from(keys);
   }
   onClose() {
     this.contentEl.empty();
@@ -88551,7 +89912,7 @@ ${res.stderr}`, 8e3);
 };
 
 // src/importModal.ts
-var import_obsidian17 = __toModule(require("obsidian"));
+var import_obsidian18 = __toModule(require("obsidian"));
 
 // src/importCompiler.ts
 function execFileAsync2(file, args, options) {
@@ -88572,36 +89933,13 @@ function pluginScriptsDir2(plugin) {
     return null;
   return `${base}/${dir}/scripts`;
 }
-async function findPython32(configured) {
-  var _a;
-  if (configured.trim())
-    return configured.trim();
-  const { execFile } = require("child_process");
-  const { promisify } = require("util");
-  const execAsync = promisify(execFile);
-  const platform = (_a = globalThis.process) == null ? void 0 : _a.platform;
-  const probe = async (p4) => {
-    try {
-      await execAsync(p4, ["-c", "import lxml, requests"]);
-      return true;
-    } catch (e3) {
-      return false;
-    }
-  };
-  const candidates = platform === "win32" ? ["py", "python", "python3", "C:\\Python313\\python.exe", "C:\\Python312\\python.exe", "C:\\Python311\\python.exe"] : ["python3", "/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/usr/bin/python3"];
-  for (const c3 of candidates) {
-    if (await probe(c3))
-      return c3;
-  }
-  return null;
-}
 async function runImportScript(plugin, inputPath, outputPath) {
   var _a, _b, _c, _d, _e, _f;
   const scriptsDir = pluginScriptsDir2(plugin);
   if (!scriptsDir) {
     return { ok: false, stdout: "", stderr: "Document import is only available on desktop." };
   }
-  const py = await findPython32((_a = plugin.settings.pathToPython) != null ? _a : "");
+  const py = await findPython3((_a = plugin.settings.pathToPython) != null ? _a : "", ["lxml", "requests"]);
   if (!py) {
     return {
       ok: false,
@@ -88628,7 +89966,7 @@ async function runImportScript(plugin, inputPath, outputPath) {
 }
 
 // src/pandocToLinked.ts
-var import_obsidian16 = __toModule(require("obsidian"));
+var import_obsidian17 = __toModule(require("obsidian"));
 function aliasFor(a3) {
   let alias = (a3.prefix || "") + "@" + (a3.suffix || "");
   alias = alias.trim();
@@ -88777,11 +90115,11 @@ function rewritePandocToLinked(body, resolvable, allowUnresolved = false) {
 async function convertVault(plugin) {
   const resolvable = new Set(plugin.bibManager.bibCache.keys());
   if (!resolvable.size) {
-    new import_obsidian16.Notice("No bibliography loaded \u2014 cannot resolve citekeys.", 6e3);
+    new import_obsidian17.Notice("No bibliography loaded \u2014 cannot resolve citekeys.", 6e3);
     return;
   }
   const files = plugin.app.vault.getMarkdownFiles().filter((f3) => !f3.path.endsWith(".bk") && !f3.path.endsWith(".bk.md"));
-  const progress = new import_obsidian16.Notice(`Converting citations across ${files.length} files\u2026`, 0);
+  const progress = new import_obsidian17.Notice(`Converting citations across ${files.length} files\u2026`, 0);
   let convertedFiles = 0;
   let totalSkipped = 0;
   try {
@@ -88813,13 +90151,13 @@ async function convertVault(plugin) {
   }
   const skippedNote = totalSkipped > 0 ? `
 Skipped ${totalSkipped} citations (unresolved/unparseable \u2014 see console)` : "";
-  new import_obsidian16.Notice(convertedFiles > 0 ? `Converted citations in ${convertedFiles} file${convertedFiles !== 1 ? "s" : ""}.${skippedNote}` : `No pandoc citations found in vault.`, 6e3);
+  new import_obsidian17.Notice(convertedFiles > 0 ? `Converted citations in ${convertedFiles} file${convertedFiles !== 1 ? "s" : ""}.${skippedNote}` : `No pandoc citations found in vault.`, 6e3);
 }
 async function convertActiveNote(plugin, file, { allowUnresolved = false } = {}) {
   const content = await plugin.app.vault.read(file);
   const resolvable = new Set(plugin.bibManager.bibCache.keys());
   if (!allowUnresolved && !resolvable.size) {
-    new import_obsidian16.Notice("No bibliography loaded \u2014 cannot resolve citekeys.", 6e3);
+    new import_obsidian17.Notice("No bibliography loaded \u2014 cannot resolve citekeys.", 6e3);
     return { converted: 0, skipped: [] };
   }
   let body = content;
@@ -88831,7 +90169,7 @@ async function convertActiveNote(plugin, file, { allowUnresolved = false } = {})
   }
   const { out, report } = rewritePandocToLinked(body, resolvable, allowUnresolved);
   if (out === body) {
-    new import_obsidian16.Notice(`No pandoc citations found in ${file.basename}.`, 4e3);
+    new import_obsidian17.Notice(`No pandoc citations found in ${file.basename}.`, 4e3);
     return report;
   }
   const bkPath = `${file.path}.bk`;
@@ -88841,7 +90179,7 @@ async function convertActiveNote(plugin, file, { allowUnresolved = false } = {})
   await plugin.app.vault.modify(file, frontmatter + out);
   const skippedNote = report.skipped.length > 0 ? `
 Skipped ${report.skipped.length} (unresolved/unparseable \u2014 see console)` : "";
-  new import_obsidian16.Notice(`Converted citations in ${file.basename}.${skippedNote}`, 6e3);
+  new import_obsidian17.Notice(`Converted citations in ${file.basename}.${skippedNote}`, 6e3);
   if (report.skipped.length) {
     console.warn("[scholar-weave] skipped pandoc citations:", report.skipped.map((s3) => `${s3.text} (${s3.reason})`));
   }
@@ -88850,10 +90188,42 @@ Skipped ${report.skipped.length} (unresolved/unparseable \u2014 see console)` : 
 
 // src/importModal.ts
 var LAST_DIR_KEY = "scholar-weave:import-last-dir";
-var ImportModal = class extends import_obsidian17.Modal {
+var LAST_OUTDIR_KEY = "scholar-weave:import-outdir";
+var IMPORT_HISTORY_KEY = "scholar-weave:import-history";
+function loadImportHistory() {
+  try {
+    return JSON.parse(localStorage.getItem(IMPORT_HISTORY_KEY) || "{}");
+  } catch (e3) {
+    return {};
+  }
+}
+function saveImportHistory(sourcePath, entry) {
+  try {
+    const hist = loadImportHistory();
+    hist[sourcePath] = entry;
+    localStorage.setItem(IMPORT_HISTORY_KEY, JSON.stringify(hist));
+  } catch (e3) {
+  }
+}
+function pathForDroppedFile(file) {
+  try {
+    const { webUtils } = require("electron");
+    if (webUtils == null ? void 0 : webUtils.getPathForFile) {
+      const p4 = webUtils.getPathForFile(file);
+      if (p4)
+        return p4;
+    }
+  } catch (e3) {
+  }
+  return file.path;
+}
+var ImportModal = class extends import_obsidian18.Modal {
   constructor(app2, plugin) {
     super(app2);
     this.inputPath = "";
+    this.filenameTouched = false;
+    this.probe = null;
+    this.importReady = false;
     this.plugin = plugin;
   }
   getDefaultDir() {
@@ -88874,11 +90244,57 @@ var ImportModal = class extends import_obsidian17.Modal {
     }
   }
   selectFile(filePath, fileName) {
+    var _a;
     this.inputPath = filePath;
     this.fileLabel.textContent = fileName;
     this.fileLabel.classList.remove("lc-import-drop-hint");
-    this.importBtn.disabled = false;
+    this.importBtn.disabled = !this.importReady;
+    const hist = loadImportHistory()[filePath];
+    if (hist && this.filenameInput && this.outputDirInput) {
+      this.outputDirInput.value = (_a = hist.folder) != null ? _a : "";
+      this.filenameInput.value = hist.filename || `${fileName.replace(/\.(docx|odt)$/i, "")}.md`;
+      this.filenameTouched = true;
+    } else if (this.filenameInput && !this.filenameTouched) {
+      this.filenameInput.value = `${fileName.replace(/\.(docx|odt)$/i, "")}.md`;
+    }
     this.saveLastDir(filePath);
+  }
+  getLastOutputDir() {
+    var _a;
+    try {
+      return (_a = localStorage.getItem(LAST_OUTDIR_KEY)) != null ? _a : "";
+    } catch (e3) {
+      return "";
+    }
+  }
+  saveLastOutputDir() {
+    try {
+      localStorage.setItem(LAST_OUTDIR_KEY, this.outputDirInput.value.trim());
+    } catch (e3) {
+    }
+  }
+  importMissing() {
+    const p4 = this.probe;
+    if (!p4)
+      return [];
+    const missing = [];
+    if (!p4.pythonImport)
+      missing.push("python");
+    if (!p4.pandoc)
+      missing.push("pandoc");
+    if (!p4.zotero)
+      missing.push("zotero");
+    return missing;
+  }
+  async applyImportGating() {
+    this.probe = await probeTools(this.plugin);
+    const missing = this.importMissing();
+    this.depNote.empty();
+    if (missing.length > 0) {
+      renderDependencyNote(this.depNote, missing, "Document import needs the following, which was not found (or Zotero is not running):");
+    }
+    this.importReady = missing.length === 0;
+    this.importBtn.disabled = !(this.importReady && !!this.inputPath);
   }
   onOpen() {
     const { contentEl } = this;
@@ -88889,6 +90305,7 @@ var ImportModal = class extends import_obsidian17.Modal {
       text: "Import a Word (.docx) or LibreOffice (.odt) file with Zotero citation fields into your vault as a Markdown note. Requires Zotero to be running.",
       cls: "lc-export-modal-note"
     });
+    this.depNote = contentEl.createDiv({ cls: "lc-import-depnote" });
     const dropZone = contentEl.createDiv({ cls: "lc-import-drop-zone" });
     dropZone.style.cssText = [
       "border: 2px dashed var(--background-modifier-border)",
@@ -88921,14 +90338,14 @@ var ImportModal = class extends import_obsidian17.Modal {
       const file = (_b = (_a = e3.dataTransfer) == null ? void 0 : _a.files) == null ? void 0 : _b[0];
       if (!file)
         return;
-      const filePath = file.path;
+      const filePath = pathForDroppedFile(file);
       if (!filePath) {
-        new import_obsidian17.Notice("[ScholarWeave] Could not read the file path from the dropped file.");
+        new import_obsidian18.Notice("[ScholarWeave] Could not read the file path from the dropped file.");
         return;
       }
       const lower = filePath.toLowerCase();
       if (!lower.endsWith(".docx") && !lower.endsWith(".odt")) {
-        new import_obsidian17.Notice("[ScholarWeave] Please drop a .docx or .odt file.");
+        new import_obsidian18.Notice("[ScholarWeave] Please drop a .docx or .odt file.");
         return;
       }
       this.selectFile(filePath, file.name);
@@ -88986,6 +90403,38 @@ var ImportModal = class extends import_obsidian17.Modal {
       text: "Create literature notes for citations that lack them"
     });
     litLabel.htmlFor = "lc-import-litnotes";
+    const fnWrap = contentEl.createDiv({ cls: "lc-export-row" });
+    fnWrap.style.marginTop = "12px";
+    fnWrap.createEl("label", { text: "Output filename" });
+    this.filenameInput = fnWrap.createEl("input", {
+      type: "text",
+      cls: "lc-export-filename-input"
+    });
+    this.filenameInput.style.cssText = "width:100%;margin-top:4px";
+    this.filenameInput.addEventListener("input", () => {
+      this.filenameTouched = true;
+    });
+    const dirWrap = contentEl.createDiv({ cls: "lc-export-row" });
+    dirWrap.style.marginTop = "10px";
+    dirWrap.createEl("label", { text: "Import folder (vault-relative)" });
+    this.outputDirInput = dirWrap.createEl("input", {
+      type: "text",
+      placeholder: "(vault root)",
+      cls: "lc-export-outdir-input"
+    });
+    this.outputDirInput.style.cssText = "width:100%;margin-top:4px";
+    this.outputDirInput.value = this.getLastOutputDir();
+    new FolderSuggest(this.app, this.outputDirInput);
+    this.outputDirInput.addEventListener("change", () => this.saveLastOutputDir());
+    const owRow = contentEl.createDiv({ cls: "lc-export-check-row" });
+    owRow.style.marginTop = "4px";
+    this.overwriteCb = owRow.createEl("input", { type: "checkbox" });
+    this.overwriteCb.id = "lc-import-overwrite";
+    this.overwriteCb.checked = true;
+    const owLabel = owRow.createEl("label", {
+      text: "Overwrite the note if it already exists"
+    });
+    owLabel.htmlFor = "lc-import-overwrite";
     const btnRow = contentEl.createDiv({ cls: "lc-export-btn-row" });
     btnRow.style.cssText = "display:flex;justify-content:flex-end;gap:8px;margin-top:16px";
     const cancelBtn = btnRow.createEl("button", { text: "Cancel" });
@@ -88994,27 +90443,37 @@ var ImportModal = class extends import_obsidian17.Modal {
     this.importBtn.disabled = true;
     this.importBtn.addEventListener("click", () => this.run());
     setTimeout(() => browseBtn.focus(), 50);
+    void this.applyImportGating();
   }
   async run() {
     if (!this.inputPath)
       return;
-    if (!import_obsidian17.Platform.isDesktop) {
-      new import_obsidian17.Notice("Document import is only available on desktop.");
+    if (!import_obsidian18.Platform.isDesktop) {
+      new import_obsidian18.Notice("Document import is only available on desktop.");
+      return;
+    }
+    const missing = this.importMissing();
+    if (missing.length > 0) {
+      new import_obsidian18.Notice(`Document import needs ${missing.map((k4) => DEPENDENCIES[k4].label).join(", ")}. Install it, then reopen this dialogue.`, 8e3);
       return;
     }
     const doConvert = this.convertCb.checked;
     const doLitNotes = this.litNotesCb.checked;
+    const overwrite = this.overwriteCb.checked;
+    const outFolder = this.outputDirInput.value.trim().replace(/^\/+|\/+$/g, "");
+    const outFilename = this.filenameInput.value.trim();
+    this.saveLastOutputDir();
     this.close();
     const nodePath = require("path");
     const fs = require("fs");
     const os = require("os");
     const basename = nodePath.basename(this.inputPath).replace(/\.(docx|odt)$/i, "");
     const tmpOutput = nodePath.join(os.tmpdir(), `${basename}.sw-import.md`);
-    const progress = new import_obsidian17.Notice("Importing document\u2026 Zotero must be running.", 0);
+    const progress = new import_obsidian18.Notice("Importing document\u2026 Zotero must be running.", 0);
     const result = await runImportScript(this.plugin, this.inputPath, tmpOutput);
     if (!result.ok) {
       progress.hide();
-      new import_obsidian17.Notice(`[ScholarWeave] Import failed:
+      new import_obsidian18.Notice(`[ScholarWeave] Import failed:
 ${result.stderr}`, 1e4);
       console.error("[scholar-weave] Import failed:", result.stderr);
       return;
@@ -89028,7 +90487,7 @@ ${result.stderr}`, 1e4);
       }
     } catch (e3) {
       progress.hide();
-      new import_obsidian17.Notice(`[ScholarWeave] Import failed: could not read converted file.
+      new import_obsidian18.Notice(`[ScholarWeave] Import failed: could not read converted file.
 ${e3}`, 8e3);
       return;
     }
@@ -89043,26 +90502,45 @@ ${e3}`, 8e3);
       const { out } = rewritePandocToLinked(body, new Set(), true);
       mdContent = frontmatter + out;
     }
-    let vaultRelPath = `${basename}.md`;
-    let suffix = 0;
-    while (await this.app.vault.adapter.exists(vaultRelPath)) {
-      suffix++;
-      vaultRelPath = `${basename} (${suffix}).md`;
+    const stem = (outFilename || `${basename}.md`).replace(/\.md$/i, "") || basename;
+    const filename = `${stem}.md`;
+    if (outFolder) {
+      try {
+        await this.app.vault.createFolder(outFolder);
+      } catch (e3) {
+      }
     }
+    const vaultRelPath = outFolder ? `${outFolder}/${filename}` : filename;
+    saveImportHistory(this.inputPath, { folder: outFolder, filename });
     let newFile;
     try {
-      newFile = await this.app.vault.create(vaultRelPath, mdContent);
+      const existing = this.app.vault.getAbstractFileByPath(vaultRelPath);
+      if (existing instanceof import_obsidian18.TFile && overwrite) {
+        await this.app.vault.modify(existing, mdContent);
+        newFile = existing;
+      } else if (existing) {
+        let suffix = 0;
+        let alt = vaultRelPath;
+        do {
+          suffix++;
+          const unique = `${stem} (${suffix}).md`;
+          alt = outFolder ? `${outFolder}/${unique}` : unique;
+        } while (await this.app.vault.adapter.exists(alt));
+        newFile = await this.app.vault.create(alt, mdContent);
+      } else {
+        newFile = await this.app.vault.create(vaultRelPath, mdContent);
+      }
     } catch (e3) {
       progress.hide();
-      new import_obsidian17.Notice(`[ScholarWeave] Import failed: could not create note in vault.
+      new import_obsidian18.Notice(`[ScholarWeave] Import failed: could not create note in vault.
 ${e3}`, 8e3);
       return;
     }
     await this.app.workspace.getLeaf(false).openFile(newFile);
     progress.hide();
-    new import_obsidian17.Notice(`Imported: ${newFile.basename}`, 5e3);
+    new import_obsidian18.Notice(`Imported: ${newFile.basename}`, 5e3);
     if (doLitNotes) {
-      const litProgress = new import_obsidian17.Notice("Creating missing literature notes\u2026", 0);
+      const litProgress = new import_obsidian18.Notice("Creating missing literature notes\u2026", 0);
       try {
         const { created, missingKeys } = await this.plugin.bibManager.createMissingLitNotes({ file: newFile }, (done, total) => {
           var _a;
@@ -89070,11 +90548,11 @@ ${e3}`, 8e3);
         });
         litProgress.hide();
         if (missingKeys.length) {
-          new import_obsidian17.Notice(`Created ${created} of ${missingKeys.length} missing literature note(s).`, 5e3);
+          new import_obsidian18.Notice(`Created ${created} of ${missingKeys.length} missing literature note(s).`, 5e3);
         }
       } catch (e3) {
         litProgress.hide();
-        new import_obsidian17.Notice(`[ScholarWeave] Literature note creation failed: ${e3}`, 6e3);
+        new import_obsidian18.Notice(`[ScholarWeave] Literature note creation failed: ${e3}`, 6e3);
         console.error("[scholar-weave] lit note creation error:", e3);
       }
     }
@@ -89086,8 +90564,8 @@ ${e3}`, 8e3);
 };
 
 // src/modals/citekeyRenameModal.ts
-var import_obsidian18 = __toModule(require("obsidian"));
-var CitekeyRenameModal = class extends import_obsidian18.Modal {
+var import_obsidian19 = __toModule(require("obsidian"));
+var CitekeyRenameModal = class extends import_obsidian19.Modal {
   constructor(app2, plan, onConfirm, showLitNotesOption = true, alsoUnresolved = []) {
     super(app2);
     this.plan = plan;
@@ -89215,7 +90693,7 @@ var CitekeyRenameModal = class extends import_obsidian18.Modal {
 };
 
 // src/linkedToPandoc.ts
-var import_obsidian19 = __toModule(require("obsidian"));
+var import_obsidian20 = __toModule(require("obsidian"));
 function singleToPandoc(key, alias) {
   const a3 = (alias != null ? alias : "").trim();
   if (!a3 || a3 === "@")
@@ -89280,7 +90758,7 @@ async function convertNoteToPandoc(plugin, file) {
   }
   const { out, changed } = rewriteLinkedToPandoc(body);
   if (!changed) {
-    new import_obsidian19.Notice(`No linked citations found in ${file.basename}.`, 4e3);
+    new import_obsidian20.Notice(`No linked citations found in ${file.basename}.`, 4e3);
     return;
   }
   const bkPath = `${file.path}.bk`;
@@ -89288,11 +90766,11 @@ async function convertNoteToPandoc(plugin, file) {
     await plugin.app.vault.adapter.write(bkPath, content);
   }
   await plugin.app.vault.modify(file, frontmatter + out);
-  new import_obsidian19.Notice(`Reverted linked citations to pandoc-style in ${file.basename}.`, 5e3);
+  new import_obsidian20.Notice(`Reverted linked citations to pandoc-style in ${file.basename}.`, 5e3);
 }
 async function convertVaultToPandoc(plugin) {
   const files = plugin.app.vault.getMarkdownFiles().filter((f3) => !f3.path.endsWith(".bk") && !f3.path.endsWith(".bk.md"));
-  const progress = new import_obsidian19.Notice(`Reverting citations across ${files.length} files\u2026`, 0);
+  const progress = new import_obsidian20.Notice(`Reverting citations across ${files.length} files\u2026`, 0);
   let convertedFiles = 0;
   try {
     for (const file of files) {
@@ -89317,11 +90795,11 @@ async function convertVaultToPandoc(plugin) {
   } finally {
     progress.hide();
   }
-  new import_obsidian19.Notice(convertedFiles > 0 ? `Reverted linked citations in ${convertedFiles} file${convertedFiles !== 1 ? "s" : ""}.` : `No linked citations found in vault.`, 6e3);
+  new import_obsidian20.Notice(convertedFiles > 0 ? `Reverted linked citations in ${convertedFiles} file${convertedFiles !== 1 ? "s" : ""}.` : `No linked citations found in vault.`, 6e3);
 }
 
 // src/assetSetup.ts
-var import_obsidian20 = __toModule(require("obsidian"));
+var import_obsidian21 = __toModule(require("obsidian"));
 async function setupAssets(plugin) {
   const { app: app2, manifest } = plugin;
   const pluginDir = manifest.dir;
@@ -89329,7 +90807,7 @@ async function setupAssets(plugin) {
   for (const relativePath of Object.keys(BUNDLED_ASSETS)) {
     const slash = relativePath.lastIndexOf("/");
     if (slash > 0) {
-      dirs.add((0, import_obsidian20.normalizePath)(`${pluginDir}/${relativePath.slice(0, slash)}`));
+      dirs.add((0, import_obsidian21.normalizePath)(`${pluginDir}/${relativePath.slice(0, slash)}`));
     }
   }
   for (const dir of dirs) {
@@ -89341,9 +90819,15 @@ async function setupAssets(plugin) {
   let written = 0;
   let failed = 0;
   for (const [relativePath, { content, binary }] of Object.entries(BUNDLED_ASSETS)) {
-    const fullPath = (0, import_obsidian20.normalizePath)(`${pluginDir}/${relativePath}`);
+    const fullPath = (0, import_obsidian21.normalizePath)(`${pluginDir}/${relativePath}`);
     try {
       if (relativePath.startsWith("zotlit-templates/")) {
+        continue;
+      }
+      if (relativePath.startsWith("docs/")) {
+        continue;
+      }
+      if (relativePath.startsWith("images/") || relativePath === "README.md" || relativePath === "NOTICE.md") {
         continue;
       }
       if (binary) {
@@ -89363,7 +90847,7 @@ async function setupAssets(plugin) {
   }
   console.log(`ScholarWeave ${manifest.version}: extracted ${written} bundled asset(s)` + (failed ? `, ${failed} failed` : ""));
   try {
-    await app2.vault.adapter.remove((0, import_obsidian20.normalizePath)(`${pluginDir}/.asset-version`));
+    await app2.vault.adapter.remove((0, import_obsidian21.normalizePath)(`${pluginDir}/.asset-version`));
   } catch (e3) {
   }
 }
@@ -89371,7 +90855,7 @@ async function setupAssets(plugin) {
 // src/main.ts
 var bibliographyExtensions = new Set(["bib", "json", "yaml", "yml"]);
 function isBibliographyFile(file) {
-  return file instanceof import_obsidian21.TFile && bibliographyExtensions.has(file.extension);
+  return file instanceof import_obsidian22.TFile && bibliographyExtensions.has(file.extension);
 }
 function posixDirname(p4) {
   const idx = p4.lastIndexOf("/");
@@ -89397,9 +90881,9 @@ function getFileRelativePath(sourceFile, targetPath) {
 function bibliographyMatchesPath(sourceFile, bibliography, targetPath) {
   var _a, _b, _c;
   const sourceDir = posixDirname(sourceFile.path);
-  const normalizedBibliography = (0, import_obsidian21.normalizePath)(bibliography);
-  const noteRelativePath = (0, import_obsidian21.normalizePath)(`${sourceDir}/${normalizedBibliography}`);
-  const vaultRelativePath = (0, import_obsidian21.normalizePath)(normalizedBibliography);
+  const normalizedBibliography = (0, import_obsidian22.normalizePath)(bibliography);
+  const noteRelativePath = (0, import_obsidian22.normalizePath)(`${sourceDir}/${normalizedBibliography}`);
+  const vaultRelativePath = (0, import_obsidian22.normalizePath)(normalizedBibliography);
   if (noteRelativePath === targetPath || vaultRelativePath === targetPath) {
     return true;
   }
@@ -89428,21 +90912,21 @@ function updateBibliographyPath(sourceFile, bibliography, oldPath, newPath) {
   }
   return getUpdatedPath(bibliography);
 }
-var ReferenceList = class extends import_obsidian21.Plugin {
+var ReferenceList = class extends import_obsidian22.Plugin {
   constructor() {
     super(...arguments);
     this.cacheDir = ".pandoc";
     this.processReferencesRun = 0;
     this.suggestPosition = null;
-    this.persistCitedKeysIndex = (0, import_obsidian21.debounce)(async () => {
+    this.persistCitedKeysIndex = (0, import_obsidian22.debounce)(async () => {
       if (!this.bibManager.citedKeysIndexDirty)
         return;
       if (this.bibManager.indexMdCount <= 0)
         return;
       try {
-        const path = (0, import_obsidian21.normalizePath)(`${this.cacheDir}/cited-keys.json`);
-        if (!await this.app.vault.adapter.exists((0, import_obsidian21.normalizePath)(this.cacheDir))) {
-          await this.app.vault.adapter.mkdir((0, import_obsidian21.normalizePath)(this.cacheDir));
+        const path = (0, import_obsidian22.normalizePath)(`${this.cacheDir}/cited-keys.json`);
+        if (!await this.app.vault.adapter.exists((0, import_obsidian22.normalizePath)(this.cacheDir))) {
+          await this.app.vault.adapter.mkdir((0, import_obsidian22.normalizePath)(this.cacheDir));
         }
         await this.app.vault.adapter.write(path, JSON.stringify(this.bibManager.serializeCitedKeysIndex()));
         this.bibManager.citedKeysIndexDirty = false;
@@ -89450,13 +90934,13 @@ var ReferenceList = class extends import_obsidian21.Plugin {
         console.warn("[lc] persistCitedKeysIndex: error", e3);
       }
     }, 2e3);
-    this.persistRenderedCache = (0, import_obsidian21.debounce)(async () => {
+    this.persistRenderedCache = (0, import_obsidian22.debounce)(async () => {
       await this.bibManager.saveRenderedCache();
     }, 3e3);
-    this.persistZLinks = (0, import_obsidian21.debounce)(async () => {
+    this.persistZLinks = (0, import_obsidian22.debounce)(async () => {
       await this.bibManager.saveZLinks();
     }, 5e3);
-    this.emitSettingsUpdate = (0, import_obsidian21.debounce)((cb) => {
+    this.emitSettingsUpdate = (0, import_obsidian22.debounce)((cb) => {
       var _a;
       if (this.initPromise.settled) {
         (_a = this.view) == null ? void 0 : _a.contentEl.toggleClass("collapsed-links", !!this.settings.hideLinks);
@@ -89469,7 +90953,7 @@ var ReferenceList = class extends import_obsidian21.Plugin {
       const run = ++this.processReferencesRun;
       const isCurrent = () => run === this.processReferencesRun;
       const { settings, view } = this;
-      const activeView = this.app.workspace.getActiveViewOfType(import_obsidian21.MarkdownView);
+      const activeView = this.app.workspace.getActiveViewOfType(import_obsidian22.MarkdownView);
       const scopedSettings = activeView ? getScopedSettings(activeView.file) : null;
       if (!((_a = settings.bibliographyPaths) == null ? void 0 : _a.length) && !settings.pullFromZotero && !((_b = scopedSettings == null ? void 0 : scopedSettings.bibliography) == null ? void 0 : _b.length)) {
         return view == null ? void 0 : view.setMessage(t("Please provide the path to your bibliography file in the Linked Citations plugin settings."));
@@ -89482,8 +90966,8 @@ var ReferenceList = class extends import_obsidian21.Plugin {
           const bib = await this.bibManager.getReferenceList(activeView.file, fileContent, isCurrent);
           if (!isCurrent())
             return;
-          const cache = this.bibManager.fileCache.get(activeView.file);
-          if (!bib && settings.pullFromZotero && !((_c = settings.bibliographyPaths) == null ? void 0 : _c.length) && !await this.bibManager.isZoteroAvailable() && isCurrent() && (cache == null ? void 0 : cache.keys.size)) {
+          const cache2 = this.bibManager.fileCache.get(activeView.file);
+          if (!bib && settings.pullFromZotero && !((_c = settings.bibliographyPaths) == null ? void 0 : _c.length) && !await this.bibManager.isZoteroAvailable() && isCurrent() && (cache2 == null ? void 0 : cache2.keys.size)) {
             view == null ? void 0 : view.setMessage(t("Cannot connect to Zotero"));
           } else {
             view == null ? void 0 : view.setViewContent(bib);
@@ -89509,7 +90993,7 @@ var ReferenceList = class extends import_obsidian21.Plugin {
     await this.loadSettings();
     await setupAssets(this);
     this.registerView(viewType, (leaf) => new ReferenceListView(leaf, this));
-    this.emitter = new import_obsidian21.Events();
+    this.emitter = new import_obsidian22.Events();
     this.bibManager = new BibManager(this);
     if (this._pendingCitedKeysIndex) {
       this.bibManager.deserializeCitedKeysIndex(this._pendingCitedKeysIndex);
@@ -89546,7 +91030,7 @@ var ReferenceList = class extends import_obsidian21.Plugin {
       }
       bibManager.buildFuseIndex();
       const hasSources = ((_c = (_b = settings.bibliographyPaths) == null ? void 0 : _b.length) != null ? _c : 0) > 0 || settings.pullFromZotero;
-      const engineNotice = hasSources ? new import_obsidian21.Notice("ScholarWeave: building citation engine\u2026 autocomplete and citation formatting will be ready shortly.", 0) : null;
+      const engineNotice = hasSources ? new import_obsidian22.Notice("ScholarWeave: building citation engine\u2026 autocomplete and citation formatting will be ready shortly.", 0) : null;
       await bibManager.buildGlobalEngine();
       engineNotice == null ? void 0 : engineNotice.hide();
       this.app.workspace.getLeavesOfType("markdown").forEach((leaf) => {
@@ -89601,13 +91085,13 @@ var ReferenceList = class extends import_obsidian21.Plugin {
       editorCallback: (editor, view) => {
         if (!view.file)
           return;
-        const cache = this.bibManager.fileCache.get(view.file);
-        if (!(cache == null ? void 0 : cache.bib))
+        const cache2 = this.bibManager.fileCache.get(view.file);
+        if (!(cache2 == null ? void 0 : cache2.bib))
           return;
-        const entries = cache.bib.findAll(".csl-entry");
+        const entries = cache2.bib.findAll(".csl-entry");
         if (!entries.length)
           return;
-        const text = entries.map((e3) => (0, import_obsidian21.htmlToMarkdown)(e3.innerHTML).trim()).join("\n\n");
+        const text = entries.map((e3) => (0, import_obsidian22.htmlToMarkdown)(e3.innerHTML).trim()).join("\n\n");
         editor.replaceSelection(text);
       }
     });
@@ -89615,7 +91099,7 @@ var ReferenceList = class extends import_obsidian21.Plugin {
       id: "snapshot-bibliography",
       name: t("Save bibliography snapshot for this note"),
       checkCallback: (checking) => {
-        const view = this.app.workspace.getActiveViewOfType(import_obsidian21.MarkdownView);
+        const view = this.app.workspace.getActiveViewOfType(import_obsidian22.MarkdownView);
         if (!(view == null ? void 0 : view.file))
           return false;
         const entries = this.bibManager.snapshotEntries(view.file);
@@ -89631,10 +91115,10 @@ var ReferenceList = class extends import_obsidian21.Plugin {
       name: t("Create literature notes for citations lacking notes (current note)"),
       callback: async () => {
         var _a2;
-        const view = this.app.workspace.getActiveViewOfType(import_obsidian21.MarkdownView);
+        const view = this.app.workspace.getActiveViewOfType(import_obsidian22.MarkdownView);
         if (!(view == null ? void 0 : view.file))
           return;
-        const progress = new import_obsidian21.Notice("Creating literature notes\u2026", 0);
+        const progress = new import_obsidian22.Notice("Creating literature notes\u2026", 0);
         (_a2 = progress.setProgress) == null ? void 0 : _a2.call(progress, 0, 0);
         const { created, missingKeys } = await this.bibManager.createMissingLitNotes({ file: view.file }, (done, total) => {
           var _a3;
@@ -89642,7 +91126,7 @@ var ReferenceList = class extends import_obsidian21.Plugin {
         });
         progress.hide();
         this.processReferences();
-        new import_obsidian21.Notice(missingKeys.length ? `Created literature notes for ${created}/${missingKeys.length} missing citations.` : "All citations in this note already have literature notes.", 6e3);
+        new import_obsidian22.Notice(missingKeys.length ? `Created literature notes for ${created}/${missingKeys.length} missing citations.` : "All citations in this note already have literature notes.", 6e3);
       }
     });
     this.addCommand({
@@ -89650,7 +91134,7 @@ var ReferenceList = class extends import_obsidian21.Plugin {
       name: t("Create literature notes for citations lacking notes (vault)"),
       callback: async () => {
         var _a2;
-        const progress = new import_obsidian21.Notice("Creating literature notes\u2026", 0);
+        const progress = new import_obsidian22.Notice("Creating literature notes\u2026", 0);
         (_a2 = progress.setProgress) == null ? void 0 : _a2.call(progress, 0, 0);
         const { created, missingKeys } = await this.bibManager.createMissingLitNotes({ allVault: true }, (done, total) => {
           var _a3;
@@ -89658,16 +91142,16 @@ var ReferenceList = class extends import_obsidian21.Plugin {
         });
         progress.hide();
         this.processReferences();
-        new import_obsidian21.Notice(missingKeys.length ? `Created literature notes for ${created}/${missingKeys.length} missing citations vault-wide.` : "All cited works in the vault already have literature notes.", 6e3);
+        new import_obsidian22.Notice(missingKeys.length ? `Created literature notes for ${created}/${missingKeys.length} missing citations vault-wide.` : "All cited works in the vault already have literature notes.", 6e3);
       }
     });
-    if (import_obsidian21.Platform.isDesktop) {
+    if (import_obsidian22.Platform.isDesktop) {
       this.addCommand({
         id: "compile-export-book",
         name: t("Compile and export a book, article, or other document (outline or markdown)"),
         checkCallback: (checking) => {
           var _a2;
-          const file = (_a2 = app2.workspace.getActiveViewOfType(import_obsidian21.MarkdownView)) == null ? void 0 : _a2.file;
+          const file = (_a2 = app2.workspace.getActiveViewOfType(import_obsidian22.MarkdownView)) == null ? void 0 : _a2.file;
           if (!file)
             return false;
           if (!checking) {
@@ -89677,7 +91161,7 @@ var ReferenceList = class extends import_obsidian21.Plugin {
         }
       });
     }
-    if (import_obsidian21.Platform.isDesktop) {
+    if (import_obsidian22.Platform.isDesktop) {
       this.addCommand({
         id: "import-document",
         name: t("Import a Word or ODT document with Zotero citations"),
@@ -89691,7 +91175,7 @@ var ReferenceList = class extends import_obsidian21.Plugin {
       name: t("Convert pandoc citations to linked citations (current note)"),
       checkCallback: (checking) => {
         var _a2;
-        const file = (_a2 = app2.workspace.getActiveViewOfType(import_obsidian21.MarkdownView)) == null ? void 0 : _a2.file;
+        const file = (_a2 = app2.workspace.getActiveViewOfType(import_obsidian22.MarkdownView)) == null ? void 0 : _a2.file;
         if (!file)
           return false;
         if (!checking) {
@@ -89712,7 +91196,7 @@ var ReferenceList = class extends import_obsidian21.Plugin {
       name: t("Revert linked citations to pandoc-style citations (current note)"),
       checkCallback: (checking) => {
         var _a2;
-        const file = (_a2 = app2.workspace.getActiveViewOfType(import_obsidian21.MarkdownView)) == null ? void 0 : _a2.file;
+        const file = (_a2 = app2.workspace.getActiveViewOfType(import_obsidian22.MarkdownView)) == null ? void 0 : _a2.file;
         if (!file)
           return false;
         if (!checking)
@@ -89741,32 +91225,32 @@ var ReferenceList = class extends import_obsidian21.Plugin {
         var _a2;
         const count = Object.keys((_a2 = this.settings.citekeyRenameHistory) != null ? _a2 : {}).length;
         if (!count) {
-          new import_obsidian21.Notice("Citekey rename history is already empty.");
+          new import_obsidian22.Notice("Citekey rename history is already empty.");
           return;
         }
         this.settings.citekeyRenameHistory = {};
         this.saveSettings();
-        new import_obsidian21.Notice(`Cleared ${count} citekey rename record${count !== 1 ? "s" : ""}.`);
+        new import_obsidian22.Notice(`Cleared ${count} citekey rename record${count !== 1 ? "s" : ""}.`);
       }
     });
     document.body.toggleClass("lc-tooltips", this.settings.showCitekeyTooltips !== false);
     document.body.toggleClass("lc-decorations", (_a = this.settings.showCitationDecorations) != null ? _a : true);
     this.applyCitationColors();
-    this.registerEvent(app2.metadataCache.on("changed", (0, import_obsidian21.debounce)(async (file) => {
+    this.registerEvent(app2.metadataCache.on("changed", (0, import_obsidian22.debounce)(async (file) => {
       await this.initPromise.promise;
       await this.bibManager.initPromise.promise;
-      const activeView = app2.workspace.getActiveViewOfType(import_obsidian21.MarkdownView);
+      const activeView = app2.workspace.getActiveViewOfType(import_obsidian22.MarkdownView);
       if (activeView && file === activeView.file) {
         this.processReferences();
       }
     }, 100, true)));
-    this.registerEvent(app2.workspace.on("active-leaf-change", (0, import_obsidian21.debounce)(async (leaf) => {
+    this.registerEvent(app2.workspace.on("active-leaf-change", (0, import_obsidian22.debounce)(async (leaf) => {
       await this.initPromise.promise;
       await this.bibManager.initPromise.promise;
       app2.workspace.iterateRootLeaves((rootLeaf) => {
         var _a2;
         if (rootLeaf === leaf) {
-          if (leaf.view instanceof import_obsidian21.MarkdownView) {
+          if (leaf.view instanceof import_obsidian22.MarkdownView) {
             this.processReferences();
           } else {
             (_a2 = this.view) == null ? void 0 : _a2.setNoContentMessage();
@@ -89774,27 +91258,27 @@ var ReferenceList = class extends import_obsidian21.Plugin {
         }
       });
     }, 100, true)));
-    this.registerEvent(app2.vault.on("rename", (0, import_obsidian21.debounce)(async (file, oldPath) => {
+    this.registerEvent(app2.vault.on("rename", (0, import_obsidian22.debounce)(async (file, oldPath) => {
       await this.initPromise.promise;
       await this.bibManager.initPromise.promise;
       if (isBibliographyFile(file)) {
         await this.updateBibliographyFrontmatter(oldPath, file.path);
       }
       this.bibManager.removeFromCitedKeysIndex(oldPath);
-      if (file instanceof import_obsidian21.TFile) {
+      if (file instanceof import_obsidian22.TFile) {
         await this.bibManager.updateCitedKeysIndex(file);
         this.persistCitedKeysIndex();
       }
       this.persistRenderedCache();
-      const activeView = app2.workspace.getActiveViewOfType(import_obsidian21.MarkdownView);
-      if ((activeView == null ? void 0 : activeView.file) instanceof import_obsidian21.TFile) {
+      const activeView = app2.workspace.getActiveViewOfType(import_obsidian22.MarkdownView);
+      if ((activeView == null ? void 0 : activeView.file) instanceof import_obsidian22.TFile) {
         this.bibManager.fileCache.delete(activeView.file);
         this.processReferences();
       }
     }, 100, true)));
-    this.registerEvent(app2.vault.on("modify", (0, import_obsidian21.debounce)(async (file) => {
+    this.registerEvent(app2.vault.on("modify", (0, import_obsidian22.debounce)(async (file) => {
       var _a2;
-      if (!(file instanceof import_obsidian21.TFile))
+      if (!(file instanceof import_obsidian22.TFile))
         return;
       await this.bibManager.updateCitedKeysIndex(file);
       this.persistCitedKeysIndex();
@@ -89804,8 +91288,8 @@ var ReferenceList = class extends import_obsidian21.Plugin {
         this.processReferences();
       }
     }, 150, true)));
-    this.registerEvent(app2.vault.on("create", (0, import_obsidian21.debounce)(async (file) => {
-      if (!(file instanceof import_obsidian21.TFile))
+    this.registerEvent(app2.vault.on("create", (0, import_obsidian22.debounce)(async (file) => {
+      if (!(file instanceof import_obsidian22.TFile))
         return;
       await this.bibManager.updateCitedKeysIndex(file);
       this.persistCitedKeysIndex();
@@ -89821,7 +91305,7 @@ var ReferenceList = class extends import_obsidian21.Plugin {
       await this.initPromise.promise;
       await this.bibManager.initPromise.promise;
       this.setStatusBarIdle();
-      const activeView = this.app.workspace.getActiveViewOfType(import_obsidian21.MarkdownView);
+      const activeView = this.app.workspace.getActiveViewOfType(import_obsidian22.MarkdownView);
       if (activeView == null ? void 0 : activeView.file) {
         this.bibManager.invalidateFile(activeView.file);
       }
@@ -89837,8 +91321,8 @@ var ReferenceList = class extends import_obsidian21.Plugin {
   }
   async updateBibliographyFrontmatter(oldPath, newPath) {
     var _a;
-    oldPath = (0, import_obsidian21.normalizePath)(oldPath);
-    newPath = (0, import_obsidian21.normalizePath)(newPath);
+    oldPath = (0, import_obsidian22.normalizePath)(oldPath);
+    newPath = (0, import_obsidian22.normalizePath)(newPath);
     for (const file of this.app.vault.getMarkdownFiles()) {
       const metadata = this.app.metadataCache.getFileCache(file);
       if (!((_a = metadata == null ? void 0 : metadata.frontmatter) == null ? void 0 : _a.bibliography))
@@ -89871,19 +91355,19 @@ var ReferenceList = class extends import_obsidian21.Plugin {
       if (isOpen)
         return;
       const { settings } = this;
-      const menu = new import_obsidian21.Menu().addSections(["settings", "actions"]).addItem((item) => item.setSection("settings").setIcon("lucide-message-square").setTitle(t("Show citekey tooltips")).setChecked(!!settings.showCitekeyTooltips).onClick(() => {
+      const menu = new import_obsidian22.Menu().addSections(["settings", "actions"]).addItem((item) => item.setSection("settings").setIcon("lucide-message-square").setTitle(t("Show citekey tooltips")).setChecked(!!settings.showCitekeyTooltips).onClick(() => {
         this.settings.showCitekeyTooltips = !settings.showCitekeyTooltips;
         this.saveSettings();
       })).addItem((item) => item.setSection("settings").setIcon("lucide-at-sign").setTitle(t("Show citekey suggestions")).setChecked(!!settings.enableCiteKeyCompletion).onClick(() => {
         this.settings.enableCiteKeyCompletion = !settings.enableCiteKeyCompletion;
         this.saveSettings();
       })).addItem((item) => item.setSection("actions").setIcon("lucide-rotate-cw").setTitle(t("Refresh bibliography")).onClick(async () => {
-        const activeView = this.app.workspace.getActiveViewOfType(import_obsidian21.MarkdownView);
+        const activeView = this.app.workspace.getActiveViewOfType(import_obsidian22.MarkdownView);
         if (activeView) {
           const file = activeView.file;
           if (this.bibManager.fileCache.has(file)) {
-            const cache = this.bibManager.fileCache.get(file);
-            if (cache.source !== this.bibManager) {
+            const cache2 = this.bibManager.fileCache.get(file);
+            if (cache2.source !== this.bibManager) {
               this.bibManager.fileCache.delete(file);
               this.processReferences();
               return;
@@ -89910,11 +91394,11 @@ var ReferenceList = class extends import_obsidian21.Plugin {
   }
   setStatusBarLoading() {
     this.statusBarIcon.addClass("is-loading");
-    (0, import_obsidian21.setIcon)(this.statusBarIcon, "lucide-loader");
+    (0, import_obsidian22.setIcon)(this.statusBarIcon, "lucide-loader");
   }
   setStatusBarIdle() {
     this.statusBarIcon.removeClass("is-loading");
-    (0, import_obsidian21.setIcon)(this.statusBarIcon, "lucide-at-sign");
+    (0, import_obsidian22.setIcon)(this.statusBarIcon, "lucide-at-sign");
   }
   get view() {
     const leaves = this.app.workspace.getLeavesOfType(viewType);
@@ -89939,7 +91423,7 @@ var ReferenceList = class extends import_obsidian21.Plugin {
     await this.initPromise.promise;
     await this.bibManager.initPromise.promise;
     void this.ensureCitedKeysIndex();
-    const activeView = this.app.workspace.getActiveViewOfType(import_obsidian21.MarkdownView);
+    const activeView = this.app.workspace.getActiveViewOfType(import_obsidian22.MarkdownView);
     if (activeView) {
       this.processReferences();
     }
@@ -89974,7 +91458,7 @@ var ReferenceList = class extends import_obsidian21.Plugin {
     var _a, _b;
     const saved = (_a = await this.loadData()) != null ? _a : {};
     try {
-      const cached = await this.app.vault.adapter.read((0, import_obsidian21.normalizePath)(`${this.cacheDir}/cited-keys.json`));
+      const cached = await this.app.vault.adapter.read((0, import_obsidian22.normalizePath)(`${this.cacheDir}/cited-keys.json`));
       this._pendingCitedKeysIndex = JSON.parse(cached);
     } catch (e3) {
     }
@@ -90010,7 +91494,7 @@ var ReferenceList = class extends import_obsidian21.Plugin {
       suggests.push(this.citeSuggest);
   }
   suggestWantsFront() {
-    const view = this.app.workspace.getActiveViewOfType(import_obsidian21.MarkdownView);
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian22.MarkdownView);
     const editor = view == null ? void 0 : view.editor;
     if (!editor)
       return false;
@@ -90057,23 +91541,23 @@ var ReferenceList = class extends import_obsidian21.Plugin {
   }
   async autoUpdateCurrentNote(renameMap) {
     var _a;
-    const file = (_a = this.app.workspace.getActiveViewOfType(import_obsidian21.MarkdownView)) == null ? void 0 : _a.file;
+    const file = (_a = this.app.workspace.getActiveViewOfType(import_obsidian22.MarkdownView)) == null ? void 0 : _a.file;
     if (!file || !renameMap.size)
       return;
     const changed = await this.bibManager.applyRenamesInFile(file, renameMap);
     if (changed.length) {
       const summary = changed.map((c3) => `@${c3.oldKey} \u2192 @${c3.newKey}`).join(", ");
-      new import_obsidian21.Notice(`Auto-updated citekeys in current note: ${summary}`);
+      new import_obsidian22.Notice(`Auto-updated citekeys in current note: ${summary}`);
     }
   }
   async showCitekeyRenameDialog(overrideMap) {
     var _a;
     const renameMap = (_a = overrideMap != null ? overrideMap : this.settings.citekeyRenameHistory) != null ? _a : {};
     if (!Object.keys(renameMap).length) {
-      new import_obsidian21.Notice("No citekey rename history found.");
+      new import_obsidian22.Notice("No citekey rename history found.");
       return;
     }
-    const progress = new import_obsidian21.Notice("Scanning vault for stale citekeys\u2026", 0);
+    const progress = new import_obsidian22.Notice("Scanning vault for stale citekeys\u2026", 0);
     let plan;
     try {
       plan = await this.bibManager.findCitekeyUsagesInVault(renameMap);
@@ -90081,7 +91565,7 @@ var ReferenceList = class extends import_obsidian21.Plugin {
       progress.hide();
     }
     if (!plan.size) {
-      new import_obsidian21.Notice("No stale citekeys found in vault notes.");
+      new import_obsidian22.Notice("No stale citekeys found in vault notes.");
       return;
     }
     new CitekeyRenameModal(this.app, plan, async (includeLitNotes) => {
@@ -90095,14 +91579,14 @@ var ReferenceList = class extends import_obsidian21.Plugin {
 Renamed ${renamed.length} literature note${renamed.length !== 1 ? "s" : ""}: ` + renamed.map((r3) => `${r3.from.split("/").pop()} \u2192 ${r3.to.split("/").pop()}`).join(", ");
         }
       }
-      new import_obsidian21.Notice(msg, 6e3);
+      new import_obsidian22.Notice(msg, 6e3);
     }).open();
   }
   async showUnresolvedCitekeyDialog(file) {
     var _a;
     const fileCache = this.bibManager.fileCache.get(file);
     if (!fileCache || !fileCache.unresolvedKeys.size) {
-      new import_obsidian21.Notice("No unresolved citations in the current note.");
+      new import_obsidian22.Notice("No unresolved citations in the current note.");
       return;
     }
     const history = (_a = this.settings.citekeyRenameHistory) != null ? _a : {};
@@ -90123,11 +91607,11 @@ Renamed ${renamed.length} literature note${renamed.length !== 1 ? "s" : ""}: ` +
     }
     new CitekeyRenameModal(this.app, plan, async (_includeLitNotes) => {
       await this.bibManager.applyRenames(plan);
-      new import_obsidian21.Notice(`Updated stale citekeys in current note.`);
+      new import_obsidian22.Notice(`Updated stale citekeys in current note.`);
     }, false, trulyUnresolved).open();
   }
 };
-var BibSnapshotModal = class extends import_obsidian21.Modal {
+var BibSnapshotModal = class extends import_obsidian22.Modal {
   constructor(app2, plugin, file, entries) {
     super(app2);
     this.plugin = plugin;
@@ -90143,7 +91627,7 @@ var BibSnapshotModal = class extends import_obsidian21.Modal {
     });
     const folder = (_b = (_a = this.file.parent) == null ? void 0 : _a.path) != null ? _b : "";
     const stem = this.file.basename;
-    const defaultPath = (0, import_obsidian21.normalizePath)((folder ? folder + "/" : "") + stem + "-bibliography.bib");
+    const defaultPath = (0, import_obsidian22.normalizePath)((folder ? folder + "/" : "") + stem + "-bibliography.bib");
     const inputWrap = contentEl.createDiv({ cls: "lc-snapshot-input-wrap" });
     inputWrap.createEl("label", { text: t("Save as") });
     const input = inputWrap.createEl("input", {
@@ -90178,7 +91662,7 @@ var BibSnapshotModal = class extends import_obsidian21.Modal {
     var _a, _b;
     if (!rawPath)
       return;
-    const savePath = (0, import_obsidian21.normalizePath)(rawPath);
+    const savePath = (0, import_obsidian22.normalizePath)(rawPath);
     try {
       const dir = savePath.includes("/") ? savePath.substring(0, savePath.lastIndexOf("/")) : "";
       if (dir && !await this.app.vault.adapter.exists(dir)) {
@@ -90186,7 +91670,7 @@ var BibSnapshotModal = class extends import_obsidian21.Modal {
       }
       await this.app.vault.adapter.write(savePath, cslToBibTeX(this.entries));
       const noteDir = (_b = (_a = this.file.parent) == null ? void 0 : _a.path) != null ? _b : "";
-      const relPath = noteDir ? (0, import_obsidian21.normalizePath)(savePath).replace((0, import_obsidian21.normalizePath)(noteDir) + "/", "") : savePath;
+      const relPath = noteDir ? (0, import_obsidian22.normalizePath)(savePath).replace((0, import_obsidian22.normalizePath)(noteDir) + "/", "") : savePath;
       await this.app.fileManager.processFrontMatter(this.file, (fm) => {
         const existing = Array.isArray(fm.bibliography) ? fm.bibliography : fm.bibliography ? [fm.bibliography] : [];
         if (!existing.includes(relPath) && !existing.includes(savePath)) {
@@ -90194,11 +91678,11 @@ var BibSnapshotModal = class extends import_obsidian21.Modal {
         }
         fm.bibliography = existing.length === 1 ? existing[0] : existing;
       });
-      new import_obsidian21.Notice(`Bibliography saved to ${savePath}`);
+      new import_obsidian22.Notice(`Bibliography saved to ${savePath}`);
       this.plugin.bibManager.reinit(true);
       this.close();
     } catch (e3) {
-      new import_obsidian21.Notice(`Failed to save bibliography: ${e3.message}`);
+      new import_obsidian22.Notice(`Failed to save bibliography: ${e3.message}`);
     }
   }
   onClose() {

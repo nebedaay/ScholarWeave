@@ -1963,6 +1963,18 @@ export class BibManager {
   /** Parse ONE file and record its cited citekeys in the index. */
   private async indexFileCitekeys(file: TFile) {
     if (!this.isIndexablePath(file.path)) return;
+    this.citedKeysByFile.set(file.path, await this.citekeysInFile(file));
+    this.citedKeysIndexDirty = true;
+  }
+
+  /**
+   * Citekeys in a single file's content, WITHOUT the `_N*` indexable-path
+   * filter. Used whenever a specific file is the explicit target (the import
+   * flow writes notes to the vault root; the "current note" command can be run
+   * on any note) — the path-filtered index would otherwise report "no
+   * citations" for those files and create no literature notes.
+   */
+  private async citekeysInFile(file: TFile): Promise<Set<string>> {
     const keys = new Set<string>();
     try {
       const content = await app.vault.read(file);
@@ -1975,8 +1987,7 @@ export class BibManager {
     } catch {
       // unreadable — treat as no citations
     }
-    this.citedKeysByFile.set(file.path, keys);
-    this.citedKeysIndexDirty = true;
+    return keys;
   }
 
   /** Build the citation index from scratch over the numbered content folders. */
@@ -2278,10 +2289,10 @@ export class BibManager {
     const citekeys = new Set<string>();
 
     if (opts.file) {
-      // Current note: index (or re-index) just this file.
+      // Current note: index (or re-index) just this file — then read its keys
+      // directly too, so a note OUTSIDE the `_N*` folders is still handled.
       await this.indexFileCitekeys(opts.file);
-      const keys = this.citedKeysByFile.get(opts.file.path);
-      keys?.forEach((k) => citekeys.add(k));
+      (await this.citekeysInFile(opts.file)).forEach((k) => citekeys.add(k));
     } else if (opts.allVault) {
       // Vault-wide: use the maintained index. Rebuild only when the index is
       // missing, or the number of _N markdown files changed since it was built
@@ -2299,8 +2310,7 @@ export class BibManager {
       const view = app.workspace.getActiveViewOfType(MarkdownView);
       if (view?.file) {
         await this.indexFileCitekeys(view.file);
-        const keys = this.citedKeysByFile.get(view.file.path);
-        keys?.forEach((k) => citekeys.add(k));
+        (await this.citekeysInFile(view.file)).forEach((k) => citekeys.add(k));
       }
     }
 
@@ -2326,16 +2336,37 @@ export class BibManager {
           : zoteroItemKey;
       refs.push({ indexedKey, entry });
     }
-    if (!refs.length) return { created: 0, missing: refs.map((r) => r.indexedKey), missingKeys: missing };
-
-    // Prefer ZotLit's batch import (no tabs); fall back to per-note protocol.
-    if (this.plugin.settings.createNotesWithZotLit !== false) {
-      const accepted = await createLitNotesViaZotLitBulk(app, refs, onProgress);
-      return { created: accepted, missing: refs.map((r) => r.indexedKey), missingKeys: missing };
+    if (!refs.length) {
+      // No Zotero item keys resolvable — still attempt the plugin's own path
+      // (createLiteratureNote falls back from ZotLit to the plugin template).
+      let created = 0;
+      const sourceFile =
+        opts.file ?? app.workspace.getActiveFile() ?? app.vault.getMarkdownFiles()[0];
+      if (sourceFile) {
+        for (const key of missing) {
+          if (getLitNoteForCitekey(key, sourcePath, app)) continue;
+          await this.createLiteratureNote(key, sourceFile);
+          created++;
+          onProgress?.(created, missing.length);
+          await new Promise((r) => setTimeout(r, 250));
+        }
+      }
+      return { created, missing: [], missingKeys: missing };
     }
 
-    // Fallback: create one at a time via the tooltip path (opens each note).
+    // Prefer ZotLit's batch import (no tabs); if it can't handle everything,
+    // fall through to per-note creation (which itself falls back to the
+    // plugin's own template when ZotLit can't create a given item).
     let created = 0;
+    if (this.plugin.settings.createNotesWithZotLit !== false) {
+      created = await createLitNotesViaZotLitBulk(app, refs, onProgress);
+      if (created >= refs.length) {
+        return { created, missing: refs.map((r) => r.indexedKey), missingKeys: missing };
+      }
+    }
+
+    // Create any that ZotLit couldn't (re-checking existence so notes ZotLit
+    // did create aren't re-opened).
     const sourceFile =
       opts.file ??
       app.workspace.getActiveFile() ??
@@ -2343,6 +2374,7 @@ export class BibManager {
     const total = missing.length;
     for (const key of missing) {
       if (!sourceFile) break;
+      if (getLitNoteForCitekey(key, sourcePath, app)) continue;
       await this.createLiteratureNote(key, sourceFile);
       created++;
       onProgress?.(created, total);

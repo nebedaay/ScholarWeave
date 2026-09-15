@@ -1,5 +1,6 @@
 import type ReferenceList from './main';
 import { findPandoc } from './bib/pandoc';
+import { findPython3 } from './tools';
 
 declare const require: (id: string) => any;
 
@@ -26,37 +27,7 @@ function pluginScriptsDir(plugin: ReferenceList): string | null {
   return `${base}/${dir}/scripts`;
 }
 
-/**
- * Find a Python 3 interpreter that has lxml and requests installed.
- * Electron doesn't inherit the shell PATH, so we probe known locations in order.
- * Configured path wins; otherwise we try PATH candidates then common prefixes.
- */
-async function findPython3(configured: string): Promise<string | null> {
-  if (configured.trim()) return configured.trim();
-  const { execFile } = require('child_process') as typeof import('child_process');
-  const { promisify } = require('util') as typeof import('util');
-  const execAsync = promisify(execFile);
-  const platform = globalThis.process?.platform;
-
-  const probe = async (p: string): Promise<boolean> => {
-    try {
-      await execAsync(p, ['-c', 'import lxml, requests']);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
-  const candidates: string[] =
-    platform === 'win32'
-      ? ['py', 'python', 'python3', 'C:\\Python313\\python.exe', 'C:\\Python312\\python.exe', 'C:\\Python311\\python.exe']
-      : ['python3', '/opt/homebrew/bin/python3', '/usr/local/bin/python3', '/usr/bin/python3'];
-
-  for (const c of candidates) {
-    if (await probe(c)) return c;
-  }
-  return null;
-}
+// findPython3 now lives in src/tools.ts (shared with probeTools()).
 
 export interface ImportResult {
   ok: boolean;
@@ -78,7 +49,7 @@ export async function runImportScript(
     return { ok: false, stdout: '', stderr: 'Document import is only available on desktop.' };
   }
 
-  const py = await findPython3(plugin.settings.pathToPython ?? '');
+  const py = await findPython3(plugin.settings.pathToPython ?? '', ['lxml', 'requests']);
   if (!py) {
     return {
       ok: false,

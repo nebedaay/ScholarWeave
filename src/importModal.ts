@@ -2,10 +2,56 @@ import { App, Modal, Notice, Platform, TFile } from 'obsidian';
 import type ReferenceList from './main';
 import { runImportScript } from './importCompiler';
 import { rewritePandocToLinked } from './pandocToLinked';
+import { FolderSuggest } from './settings/FolderSuggest';
+import { probeTools } from './tools';
+import type { ToolProbe } from './tools';
+import { DEPENDENCIES, renderDependencyNote } from './dependencies';
+import type { DepKey } from './dependencies';
 
 declare const require: (id: string) => any;
 
 const LAST_DIR_KEY = 'scholar-weave:import-last-dir';
+const LAST_OUTDIR_KEY = 'scholar-weave:import-outdir';
+const IMPORT_HISTORY_KEY = 'scholar-weave:import-history';
+
+interface ImportHistoryEntry {
+  folder: string;
+  filename: string;
+}
+
+/** Per-source-file import destination, so re-importing an updated file updates
+ *  the same note (mirrors the export modal's per-file history). */
+function loadImportHistory(): Record<string, ImportHistoryEntry> {
+  try {
+    return JSON.parse(localStorage.getItem(IMPORT_HISTORY_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function saveImportHistory(sourcePath: string, entry: ImportHistoryEntry): void {
+  try {
+    const hist = loadImportHistory();
+    hist[sourcePath] = entry;
+    localStorage.setItem(IMPORT_HISTORY_KEY, JSON.stringify(hist));
+  } catch { /* ignore */ }
+}
+
+/**
+ * Absolute path of a dropped File. Electron < 32 exposed a non-standard
+ * `File.path`; Electron >= 32 removed it in favour of
+ * `webUtils.getPathForFile`, so probe the API first and fall back.
+ */
+function pathForDroppedFile(file: File): string | undefined {
+  try {
+    const { webUtils } = require('electron');
+    if (webUtils?.getPathForFile) {
+      const p = webUtils.getPathForFile(file);
+      if (p) return p;
+    }
+  } catch { /* older Electron */ }
+  return (file as any).path;
+}
 
 /**
  * Modal for "Import a Word/ODT document" command.
@@ -25,6 +71,13 @@ export class ImportModal extends Modal {
   private convertCb!: HTMLInputElement;
   private litNotesCb!: HTMLInputElement;
   private importBtn!: HTMLButtonElement;
+  private filenameInput!: HTMLInputElement;
+  private outputDirInput!: HTMLInputElement;
+  private overwriteCb!: HTMLInputElement;
+  private filenameTouched = false;
+  private probe: ToolProbe | null = null;
+  private depNote!: HTMLElement;
+  private importReady = false;
 
   constructor(app: App, plugin: ReferenceList) {
     super(app);
@@ -55,8 +108,59 @@ export class ImportModal extends Modal {
     this.inputPath = filePath;
     this.fileLabel.textContent = fileName;
     this.fileLabel.classList.remove('lc-import-drop-hint');
-    this.importBtn.disabled = false;
+    this.importBtn.disabled = !this.importReady;
+    // Restore this source file's previous destination if we have one; else
+    // default the filename to the source basename + .md.
+    const hist = loadImportHistory()[filePath];
+    if (hist && this.filenameInput && this.outputDirInput) {
+      this.outputDirInput.value = hist.folder ?? '';
+      this.filenameInput.value = hist.filename
+        || `${fileName.replace(/\.(docx|odt)$/i, '')}.md`;
+      this.filenameTouched = true;
+    } else if (this.filenameInput && !this.filenameTouched) {
+      this.filenameInput.value = `${fileName.replace(/\.(docx|odt)$/i, '')}.md`;
+    }
     this.saveLastDir(filePath);
+  }
+
+  private getLastOutputDir(): string {
+    try {
+      return localStorage.getItem(LAST_OUTDIR_KEY) ?? '';
+    } catch {
+      return '';
+    }
+  }
+
+  private saveLastOutputDir(): void {
+    try {
+      localStorage.setItem(LAST_OUTDIR_KEY, this.outputDirInput.value.trim());
+    } catch { /* ignore */ }
+  }
+
+  /** Dependencies the importer needs that were NOT found on this computer. */
+  private importMissing(): DepKey[] {
+    const p = this.probe;
+    if (!p) return [];
+    const missing: DepKey[] = [];
+    if (!p.pythonImport) missing.push('python');
+    if (!p.pandoc) missing.push('pandoc');
+    if (!p.zotero) missing.push('zotero');
+    return missing;
+  }
+
+  private async applyImportGating(): Promise<void> {
+    this.probe = await probeTools(this.plugin);
+    const missing = this.importMissing();
+    this.depNote.empty();
+    if (missing.length > 0) {
+      renderDependencyNote(
+        this.depNote,
+        missing,
+        'Document import needs the following, which was not found (or Zotero is not running):'
+      );
+    }
+    this.importReady = missing.length === 0;
+    this.importBtn.disabled = !(this.importReady && !!this.inputPath);
   }
 
   onOpen() {
@@ -68,6 +172,9 @@ export class ImportModal extends Modal {
       text: 'Import a Word (.docx) or LibreOffice (.odt) file with Zotero citation fields into your vault as a Markdown note. Requires Zotero to be running.',
       cls: 'lc-export-modal-note',
     });
+
+    // Requirement / missing-tool note, filled in by applyImportGating().
+    this.depNote = contentEl.createDiv({ cls: 'lc-import-depnote' });
 
     // ── Drop zone + file picker ───────────────────────────────────────────────
     const dropZone = contentEl.createDiv({ cls: 'lc-import-drop-zone' });
@@ -104,8 +211,7 @@ export class ImportModal extends Modal {
       dropZone.style.background = '';
       const file = e.dataTransfer?.files?.[0] as any;
       if (!file) return;
-      // Electron exposes .path on dropped File objects.
-      const filePath: string | undefined = file.path;
+      const filePath: string | undefined = pathForDroppedFile(file);
       if (!filePath) {
         new Notice('[ScholarWeave] Could not read the file path from the dropped file.');
         return;
@@ -175,6 +281,43 @@ export class ImportModal extends Modal {
     });
     litLabel.htmlFor = 'lc-import-litnotes';
 
+    // ── Output filename + folder (mirrors the export dialogue) ───────────────
+    const fnWrap = contentEl.createDiv({ cls: 'lc-export-row' });
+    fnWrap.style.marginTop = '12px';
+    fnWrap.createEl('label', { text: 'Output filename' });
+    this.filenameInput = fnWrap.createEl('input', {
+      type: 'text',
+      cls: 'lc-export-filename-input',
+    });
+    this.filenameInput.style.cssText = 'width:100%;margin-top:4px';
+    this.filenameInput.addEventListener('input', () => {
+      this.filenameTouched = true;
+    });
+
+    const dirWrap = contentEl.createDiv({ cls: 'lc-export-row' });
+    dirWrap.style.marginTop = '10px';
+    dirWrap.createEl('label', { text: 'Import folder (vault-relative)' });
+    this.outputDirInput = dirWrap.createEl('input', {
+      type: 'text',
+      placeholder: '(vault root)',
+      cls: 'lc-export-outdir-input',
+    });
+    this.outputDirInput.style.cssText = 'width:100%;margin-top:4px';
+    this.outputDirInput.value = this.getLastOutputDir();
+    new FolderSuggest(this.app, this.outputDirInput);
+    this.outputDirInput.addEventListener('change', () => this.saveLastOutputDir());
+
+    // Overwrite-by-default: re-importing is normally meant to update the note.
+    const owRow = contentEl.createDiv({ cls: 'lc-export-check-row' });
+    owRow.style.marginTop = '4px';
+    this.overwriteCb = owRow.createEl('input', { type: 'checkbox' });
+    this.overwriteCb.id = 'lc-import-overwrite';
+    this.overwriteCb.checked = true;
+    const owLabel = owRow.createEl('label', {
+      text: 'Overwrite the note if it already exists',
+    });
+    owLabel.htmlFor = 'lc-import-overwrite';
+
     // ── Buttons ──────────────────────────────────────────────────────────────
     const btnRow = contentEl.createDiv({ cls: 'lc-export-btn-row' });
     btnRow.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:16px';
@@ -187,6 +330,9 @@ export class ImportModal extends Modal {
     this.importBtn.addEventListener('click', () => this.run());
 
     setTimeout(() => browseBtn.focus(), 50);
+
+    // Probe installed tools and gate the Import button.
+    void this.applyImportGating();
   }
 
   private async run() {
@@ -196,9 +342,23 @@ export class ImportModal extends Modal {
       return;
     }
 
+    const missing = this.importMissing();
+    if (missing.length > 0) {
+      new Notice(
+        `Document import needs ${missing.map((k) => DEPENDENCIES[k].label).join(', ')}. ` +
+          `Install it, then reopen this dialogue.`,
+        8000
+      );
+      return;
+    }
+
     // Capture options before closing (onClose empties the DOM).
     const doConvert = this.convertCb.checked;
     const doLitNotes = this.litNotesCb.checked;
+    const overwrite = this.overwriteCb.checked;
+    const outFolder = this.outputDirInput.value.trim().replace(/^\/+|\/+$/g, '');
+    const outFilename = this.filenameInput.value.trim();
+    this.saveLastOutputDir();  // remembered for the next (new) import
     this.close();
 
     const nodePath = require('path') as typeof import('path');
@@ -243,17 +403,40 @@ export class ImportModal extends Modal {
       mdContent = frontmatter + out;
     }
 
-    // Pick a unique vault path (root level).
-    let vaultRelPath = `${basename}.md`;
-    let suffix = 0;
-    while (await this.app.vault.adapter.exists(vaultRelPath)) {
-      suffix++;
-      vaultRelPath = `${basename} (${suffix}).md`;
+    // Destination: chosen filename in the chosen vault folder (blank = root).
+    // Remember it per source file so a re-import updates the same note; an
+    // existing note is overwritten by default.
+    const stem = (outFilename || `${basename}.md`).replace(/\.md$/i, '') || basename;
+    const filename = `${stem}.md`;
+    if (outFolder) {
+      try {
+        await this.app.vault.createFolder(outFolder);
+      } catch {
+        // already exists — fine
+      }
     }
+    const vaultRelPath = outFolder ? `${outFolder}/${filename}` : filename;
+    saveImportHistory(this.inputPath, { folder: outFolder, filename });
 
     let newFile: TFile;
     try {
-      newFile = await this.app.vault.create(vaultRelPath, mdContent);
+      const existing = this.app.vault.getAbstractFileByPath(vaultRelPath);
+      if (existing instanceof TFile && overwrite) {
+        await this.app.vault.modify(existing, mdContent);
+        newFile = existing;
+      } else if (existing) {
+        // Keep the existing note; write alongside with a numeric suffix.
+        let suffix = 0;
+        let alt = vaultRelPath;
+        do {
+          suffix++;
+          const unique = `${stem} (${suffix}).md`;
+          alt = outFolder ? `${outFolder}/${unique}` : unique;
+        } while (await this.app.vault.adapter.exists(alt));
+        newFile = await this.app.vault.create(alt, mdContent);
+      } else {
+        newFile = await this.app.vault.create(vaultRelPath, mdContent);
+      }
     } catch (e) {
       progress.hide();
       new Notice(`[ScholarWeave] Import failed: could not create note in vault.\n${e}`, 8000);

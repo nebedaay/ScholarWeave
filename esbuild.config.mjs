@@ -37,6 +37,17 @@ const bundleAssetsPlugin = {
 			const skipPrefixes = ['__', '.'];
 			const assets = {};
 
+			const readFile = async (rel) => {
+				const fullPath = path.resolve(__dirname, rel);
+				if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isFile()) return;
+				const ext = path.extname(rel).toLowerCase();
+				const buf = fs.readFileSync(fullPath);
+				assets[rel] = {
+					content: binaryExts.has(ext) ? buf.toString('base64') : buf.toString('utf-8'),
+					binary: binaryExts.has(ext),
+				};
+			};
+
 			const readDir = async (subdir) => {
 				const dir = path.resolve(__dirname, subdir);
 				if (!fs.existsSync(dir)) return;
@@ -55,6 +66,14 @@ const bundleAssetsPlugin = {
 
 			await readDir('scripts');
 			await readDir('templates');
+			// User-facing docs — bundled as UTF-8 strings so the settings modal
+			// can render them in-app (src/docs.ts). NOT extracted to the plugin
+			// dir (see assetSetup.ts).
+			await readDir('docs');
+			// README (rendered as the docs "Overview" page) + NOTICE + images.
+			await readFile('README.md');
+			await readFile('NOTICE.md');
+			await readDir('images');
 			// ZotLit import templates — bundled so the "Install ScholarWeave's
 			// ZotLit templates" button in settings can write them into the
 			// vault. NOT auto-extracted to the plugin dir (see assetSetup.ts).

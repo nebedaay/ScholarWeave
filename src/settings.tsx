@@ -17,6 +17,10 @@ import { cslListRaw } from './bib/cslList';
 import { langListRaw } from './bib/cslLangList';
 import { ZoteroPullSetting } from './settings/ZoteroPullSetting';
 import { ZoteroStylePicker } from './settings/ZoteroStylePicker';
+import { renderDependencyNote } from './dependencies';
+import { probeTools, invalidateToolProbe } from './tools';
+import type { DepKey } from './dependencies';
+import { openDocs } from './docs';
 
 export const DEFAULT_SETTINGS: ReferenceListSettings = {
   pathToPandoc: '',
@@ -104,8 +108,8 @@ export interface ReferenceListSettings {
   /**
    * When true, aliased citation wikilinks of the form [[@key|alias]] are
    * parsed as Pandoc citations. The alias text becomes the citation
-   * expression; the `@@` placeholder inside it expands to the link's own
-   * citekey (e.g. [[@smith1992|see also @@, 6]] → [see also @smith1992, 6]).
+   * expression; the `@` placeholder inside it expands to the link's own
+   * citekey (e.g. [[@smith1992|see also @, 6]] → [see also @smith1992, 6]).
    * Aliases without any citekey (e.g. [[@key|Just a label]]) are left
    * untouched. Controlled together with renderLinkCitations by the single
    * "Process linked citations" toggle. Both default to true.
@@ -158,9 +162,9 @@ export interface ReferenceListSettings {
    * maps an old citekey to its current (most up-to-date) replacement, with
    * chain-following applied so that A→B→C is stored as {A: C, B: C}.
    *
-   * Used by "Update stale citekeys in vault notes" to find notes that contain
-   * citekeys from before one or more renames. Cleared by the companion
-   * "Purge citekey rename history" command.
+   * Used by "Update stale citekeys and literature note filenames (vault)" to
+   * find notes that contain citekeys from before one or more renames. Cleared
+   * by the companion "Purge citekey rename history" command.
    */
   citekeyRenameHistory?: Record<string, string>;
 
@@ -178,6 +182,15 @@ export interface ReferenceListSettings {
 }
 
 const BIB_EXTENSIONS = new Set(['bib', 'json', 'yaml', 'yml']);
+
+type SettingsPage = 'home' | 'bibliography' | 'citations' | 'literature-notes' | 'documents';
+
+const PAGE_TITLES: Record<Exclude<SettingsPage, 'home'>, string> = {
+  bibliography: 'Bibliography',
+  citations: 'Citation and reference formatting',
+  'literature-notes': 'Literature note import',
+  documents: 'Document import/export and compilation',
+};
 
 /**
  * Mobile vault file picker — opens a fuzzy-search modal over all vault files
@@ -209,6 +222,7 @@ class BibFilePickerModal extends FuzzySuggestModal<TFile> {
 
 export class ReferenceListSettingsTab extends PluginSettingTab {
   plugin: ReferenceList;
+  private page: SettingsPage = 'home';
 
   constructor(plugin: ReferenceList) {
     super(app, plugin);
@@ -217,242 +231,128 @@ export class ReferenceListSettingsTab extends PluginSettingTab {
 
   display(): void {
     const { containerEl } = this;
-
     containerEl.empty();
+    containerEl.addClass('lc-settings-tab');
 
-    // Pandoc is optional — the plugin uses a built-in JS parser by default.
-    // Set this path if you need Pandoc's higher-fidelity .bib/.yaml handling
-    // (e.g. @string macros, unusual encodings). Desktop only.
-    if (Platform.isDesktop) {
-      new Setting(containerEl)
-        .setName(t('Path to Pandoc (optional)'))
-        .setDesc(
-          t(
-            'Absolute path to the Pandoc executable. When set, Pandoc is used to convert .bib/.yaml files instead of the built-in parser. Leave blank to use the built-in parser (works on all platforms).'
-          )
-        )
-        .then((setting) => {
-          let inputEl: HTMLInputElement;
-          setting.addText((text) => {
-            inputEl = text.inputEl;
-            text
-              .setPlaceholder('/usr/local/bin/pandoc')
-              .setValue(this.plugin.settings.pathToPandoc ?? '')
-              .onChange((value) => {
-                this.plugin.settings.pathToPandoc = value;
-                this.plugin.saveSettings();
-              });
-          });
+    if (this.page === 'home') {
+      this.renderHome(containerEl);
+      return;
+    }
+    this.renderPageHeader(containerEl);
+    switch (this.page) {
+      case 'bibliography':
+        this.renderBibliography(containerEl);
+        break;
+      case 'citations':
+        this.renderCitations(containerEl);
+        break;
+      case 'literature-notes':
+        this.renderLiteratureNotes(containerEl);
+        break;
+      case 'documents':
+        this.renderDocuments(containerEl);
+        break;
+    }
+  }
 
-          setting.addExtraButton((b) => {
-            b.setIcon('magnifying-glass');
-            b.setTooltip(t('Auto-detect Pandoc'));
-            b.onClick(async () => {
-              const found = await findPandoc();
-              if (found) {
-                inputEl.value = found;
-                this.plugin.settings.pathToPandoc = found;
-                this.plugin.saveSettings();
-              }
-            });
-          });
-        });
+  private goto(page: SettingsPage): void {
+    this.page = page;
+    this.display();
+  }
+
+  // ── Navigation ────────────────────────────────────────────────────────────
+
+  private renderHome(containerEl: HTMLElement): void {
+    containerEl.createEl('h2', { text: t('ScholarWeave') });
+
+    const items: { page: SettingsPage; name: string; desc: string }[] = [
+      {
+        page: 'bibliography',
+        name: t('Bibliography'),
+        desc: t('Identify where your bibliographic sources come from (Zotero, BibTeX / CSL files).'),
+      },
+      {
+        page: 'citations',
+        name: t('Citation and reference formatting'),
+        desc: t('How Obsidian formats your citations and reference list.'),
+      },
+      {
+        page: 'literature-notes',
+        name: t('Literature note import'),
+        desc: t('How literature notes are imported from Zotero and where to keep them.'),
+      },
+      {
+        page: 'documents',
+        name: t('Document import/export and compilation'),
+        desc: t('How to compile and export your documents as DOCX / ODT / PDF.'),
+      },
+    ];
+
+    for (const item of items) {
+      const card = containerEl.createDiv({ cls: 'sw-settings-card' });
+      card.createDiv({ cls: 'sw-settings-card-title', text: item.name });
+      card.createDiv({ cls: 'sw-settings-card-desc', text: item.desc });
+      card.addEventListener('click', () => this.goto(item.page));
     }
 
-    // Document Compiler commands (outline → markdown → docx) run the bundled
-    // scripts/DocumentCompiler.py via Python 3. Desktop only.
-    if (Platform.isDesktop) {
-      new Setting(containerEl)
-        .setName(t('Path to Python 3 (for Document Compiler)'))
-        .setDesc(
-          t(
-            'Absolute path to the python3 interpreter used by the "Compile outline…" and "Compile + export to docx" commands. Leave blank to auto-detect (python3 on PATH, then common install locations).'
-          )
-        )
-        .then((setting) => {
-          let inputEl: HTMLInputElement;
-          setting.addText((text) => {
-            inputEl = text.inputEl;
-            text
-              .setPlaceholder('/usr/local/bin/python3')
-              .setValue(this.plugin.settings.pathToPython ?? '')
-              .onChange((value) => {
-                this.plugin.settings.pathToPython = value;
-                this.plugin.saveSettings();
-              });
-          });
-        });
+    const docsCard = containerEl.createDiv({ cls: 'sw-settings-card' });
+    docsCard.createDiv({ cls: 'sw-settings-card-title', text: t('Documentation') });
+    docsCard.createDiv({
+      cls: 'sw-settings-card-desc',
+      text: t('Read the guides (setup, dependencies, citations, export, …) in the app.'),
+    });
+    docsCard.addEventListener('click', () => openDocs('README.md'));
+  }
 
-      new Setting(containerEl)
-        .setName(t('Docx export templates directory (optional)'))
-        .setDesc(
-          t(
-            'Directory of your .docx export templates. Vault-relative (e.g. Export Templates) or absolute. Leave blank to use <vault>/Export Templates/, then the templates bundled with the plugin.'
-          )
-        )
-        .then((setting) => {
-          setting.addText((text) =>
-            text
-              .setPlaceholder('Export Templates')
-              .setValue(this.plugin.settings.exportTemplatesDir ?? '')
-              .onChange((value) => {
-                this.plugin.settings.exportTemplatesDir = value;
-                this.plugin.saveSettings();
-              })
-          );
-        });
+  private renderPageHeader(containerEl: HTMLElement): void {
+    const nav = containerEl.createDiv({ cls: 'sw-settings-nav' });
+    const back = nav.createEl('a', { text: `← ${t('Settings')}`, cls: 'sw-settings-back' });
+    back.addEventListener('click', (e) => {
+      e.preventDefault();
+      this.goto('home');
+    });
+    containerEl.createEl('h2', { text: t(PAGE_TITLES[this.page as Exclude<SettingsPage, 'home'>]) });
+  }
 
-      new Setting(containerEl)
-        .setName(t('Default output folder for compiled/exported documents (optional)'))
-        .setDesc(
-          t(
-            'Vault-relative folder where "Compile and export a book" puts the compiled markdown and docx. Leave blank to use the source file\'s own folder. Can be changed per-export in the modal.'
-          )
-        )
-        .then((setting) => {
-          setting.addText((text) =>
-            text
-              .setPlaceholder('Export Compiled')
-              .setValue(this.plugin.settings.defaultOutputDir ?? '')
-              .onChange((value) => {
-                this.plugin.settings.defaultOutputDir = value;
-                this.plugin.saveSettings();
-              })
-          );
-        });
-    }
+  /** Live "not found" indicator for the Documents page (compiler/exporter). */
+  private async renderToolStatus(el: HTMLElement): Promise<void> {
+    const probe = await probeTools(this.plugin);
+    el.empty();
+    const missing: DepKey[] = [];
+    if (!probe.python) missing.push('python');
+    if (!probe.pandoc) missing.push('pandoc');
+    if (!probe.soffice) missing.push('libreoffice');
+    if (!probe.latex) missing.push('latex');
+    if (missing.length === 0) return;
+    renderDependencyNote(
+      el,
+      missing,
+      t('Not found on this computer — document export/import options that need these are disabled until they are installed:')
+    );
+  }
 
-    new Setting(containerEl)
-      .setName(t('Default author name (optional)'))
-      .setDesc(
-        t(
-          'Used as the document author when the note has no `author:` frontmatter property. Leave blank to omit the author field in exported documents.'
-        )
-      )
-      .addText((text) =>
-        text
-          .setPlaceholder('First Last')
-          .setValue(this.plugin.settings.defaultAuthor ?? '')
-          .onChange((value) => {
-            this.plugin.settings.defaultAuthor = value;
-            this.plugin.saveSettings();
-          })
-      );
+  /** Live "Zotero not running" indicator for the Bibliography page. */
+  private async renderZoteroStatus(el: HTMLElement): Promise<void> {
+    const probe = await probeTools(this.plugin);
+    el.empty();
+    if (probe.zotero) return;
+    renderDependencyNote(
+      el,
+      ['zotero'],
+      t('Zotero is not running (or not installed). Bibliography files still work; live citations and citekey lookup need Zotero.')
+    );
+  }
 
-    new Setting(containerEl)
-      .setName(t('Use Obsidian account name as author fallback'))
-      .setDesc(
-        t(
-          'If enabled and no `author:` property or default author name is set, the display name from your Obsidian account (if signed in) is used instead.'
-        )
-      )
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.useAccountNameAsAuthor ?? false)
-          .onChange((value) => {
-            this.plugin.settings.useAccountNameAsAuthor = value;
-            this.plugin.saveSettings();
-          })
-      );
+  // ── Bibliography ────────────────────────────────────────────────────────────
 
-    // ── Custom style mappings ─────────────────────────────────────────────
-    {
-      // Helper: render / re-render the full mapping list into `listEl`.
-      const renderMappingList = (listEl: HTMLElement) => {
-        listEl.empty();
-        const mappings = this.plugin.settings.styleMappings ?? [];
-        if (mappings.length === 0) {
-          listEl.createEl('p', {
-            text: t('No mappings yet. Click "+ Add" to create one.'),
-            cls: 'lc-mapping-empty',
-          });
-          return;
-        }
-        for (let i = 0; i < mappings.length; i++) {
-          const m = mappings[i];
-          const row = listEl.createDiv({ cls: 'lc-mapping-row' });
-
-          // Global-default enable checkbox
-          const cb = row.createEl('input', { type: 'checkbox' });
-          cb.title = t('Enable this mapping by default on export');
-          cb.checked = m.enabled;
-          cb.addEventListener('change', () => {
-            mappings[i].enabled = cb.checked;
-            this.plugin.saveSettings();
-          });
-
-          // Source input
-          const srcInput = row.createEl('input', { type: 'text' });
-          srcInput.placeholder = 'callout-type';
-          srcInput.value = m.source;
-          srcInput.title = t('Callout type or CSS class name (e.g. arabic-poetry)');
-          srcInput.classList.add('lc-mapping-input');
-          srcInput.addEventListener('change', () => {
-            mappings[i].source = srcInput.value.trim();
-            this.plugin.saveSettings();
-          });
-
-          row.createSpan({ text: '→', cls: 'lc-mapping-arrow' });
-
-          // Style name input
-          const nameInput = row.createEl('input', { type: 'text' });
-          nameInput.placeholder = 'Style name';
-          nameInput.value = m.styleName;
-          nameInput.title = t('Style name as defined in the template (e.g. Arabic poetry)');
-          nameInput.classList.add('lc-mapping-input', 'lc-mapping-style');
-          nameInput.addEventListener('change', () => {
-            mappings[i].styleName = nameInput.value.trim();
-            this.plugin.saveSettings();
-          });
-
-          // Delete button
-          const del = row.createEl('button', { text: '🗑', cls: 'lc-mapping-del' });
-          del.title = t('Remove this mapping');
-          del.addEventListener('click', () => {
-            mappings.splice(i, 1);
-            this.plugin.saveSettings();
-            renderMappingList(listEl);
-          });
-        }
-      };
-
-      new Setting(containerEl)
-        .setName(t('Custom style mappings'))
-        .setDesc(
-          t(
-            'Map callout types (e.g. arabic-poetry) to word-processor style names. ' +
-            'Applied during DOCX and ODT export. For multi-style or per-line formatting, ' +
-            'add a .lua filter to your Export Templates folder instead.'
-          )
-        )
-        .addToggle((toggle) =>
-          toggle
-            .setValue(this.plugin.settings.styleMappingsEnabled ?? true)
-            .onChange((value) => {
-              this.plugin.settings.styleMappingsEnabled = value;
-              this.plugin.saveSettings();
-            })
-        );
-
-      const listEl = containerEl.createDiv({ cls: 'lc-mapping-list' });
-      renderMappingList(listEl);
-
-      const addBtn = containerEl.createEl('button', {
-        text: t('+ Add mapping'),
-        cls: 'lc-mapping-add',
-      });
-      addBtn.addEventListener('click', () => {
-        if (!this.plugin.settings.styleMappings) this.plugin.settings.styleMappings = [];
-        this.plugin.settings.styleMappings.push({
-          id: crypto.randomUUID(),
-          enabled: true,
-          source: '',
-          styleName: '',
-        });
-        this.plugin.saveSettings();
-        renderMappingList(listEl);
-      });
-    }
+  private renderBibliography(containerEl: HTMLElement): void {
+    renderDependencyNote(
+      containerEl,
+      ['zotero'],
+      t('Reading a bibliography file needs nothing installed. Connect Zotero to resolve and insert live citations.')
+    );
+    const zoteroStatusEl = containerEl.createDiv({ cls: 'sw-tool-status' });
+    void this.renderZoteroStatus(zoteroStatusEl);
 
     new Setting(containerEl)
       .setName(t('Bibliography files'))
@@ -548,6 +448,37 @@ export class ReferenceListSettingsTab extends PluginSettingTab {
       containerEl.createDiv('setting-item lc-setting-item-wrapper')
     );
 
+    if (Platform.isDesktop) {
+      new Setting(containerEl)
+        .setName(t('Zotero data folder'))
+        .setDesc(
+          t(
+            'Folder where Zotero keeps installed styles (its data directory, or the "styles" folder itself). Leave blank to auto-detect (~/Zotero). Used to resolve a bare style name in a note\'s "csl" frontmatter and to list styles for export.'
+          )
+        )
+        .addText((text) =>
+          text
+            .setPlaceholder('~/Zotero')
+            .setValue(this.plugin.settings.zoteroDataDir ?? '')
+            .onChange((value) => {
+              this.plugin.settings.zoteroDataDir = value.trim();
+              this.plugin.saveSettings(() =>
+                this.plugin.bibManager.reinit(false)
+              );
+            })
+        );
+    }
+  }
+
+  // ── Citation and reference formatting ───────────────────────────────────────
+
+  private renderCitations(containerEl: HTMLElement): void {
+    renderDependencyNote(
+      containerEl,
+      [],
+      t('These settings control how citations render inside Obsidian. They need no external tools.')
+    );
+
     const configuredStyle = this.plugin.settings.cslStyleURL;
     const defaultStyle =
       cslListRaw.find((item) => item.value === configuredStyle) ||
@@ -610,27 +541,6 @@ export class ReferenceListSettingsTab extends PluginSettingTab {
         }
       });
 
-    if (Platform.isDesktop) {
-      new Setting(containerEl)
-        .setName(t('Zotero data folder'))
-        .setDesc(
-          t(
-            'Folder where Zotero keeps installed styles (its data directory, or the "styles" folder itself). Leave blank to auto-detect (~/Zotero). Used to resolve a bare style name in a note\'s "csl" frontmatter and to list styles for export.'
-          )
-        )
-        .addText((text) =>
-          text
-            .setPlaceholder('~/Zotero')
-            .setValue(this.plugin.settings.zoteroDataDir ?? '')
-            .onChange((value) => {
-              this.plugin.settings.zoteroDataDir = value.trim();
-              this.plugin.saveSettings(() =>
-                this.plugin.bibManager.reinit(false)
-              );
-            })
-        );
-    }
-
     const defaultLanguage = langListRaw.find(
       (item) => item.value === this.plugin.settings.cslLang
     );
@@ -672,87 +582,19 @@ export class ReferenceListSettingsTab extends PluginSettingTab {
     );
 
     new Setting(containerEl)
-      .setName(t('Literature notes folder'))
+      .setName(t('Process linked citations'))
       .setDesc(
         t(
-          'Folder where the plugin\'s own literature notes are created (vault-relative). Leave blank to create at the vault root. Used for the "Create literature note" button when ZotLit is not handling creation. ZotLit uses its own configured folder.'
-        )
-      )
-      .addText((text) => {
-        text
-          .setPlaceholder('_2 Bibliographic notes')
-          .setValue(this.plugin.settings.literatureNoteFolder ?? '')
-          .onChange((value) => {
-            this.plugin.settings.literatureNoteFolder = value;
-            this.plugin.saveSettings();
-          });
-        new FolderSuggest(this.app, text.inputEl);
-      });
-
-    new Setting(containerEl)
-      .setName(t('Create literature notes with ZotLit'))
-      .setDesc(
-        t(
-          'When ZotLit is available, the tooltip\'s "Create literature note" button creates the note with ZotLit\'s templates instead of the plugin\'s basic template. Falls back to the plugin template when ZotLit is absent or this is off.'
-        )
-      )
-      .addToggle((toggle) =>
-        toggle
-          .setValue(this.plugin.settings.createNotesWithZotLit !== false)
-          .onChange((value) => {
-            this.plugin.settings.createNotesWithZotLit = value;
-            this.plugin.saveSettings();
-          })
-      );
-
-    if (Platform.isDesktop) {
-      new Setting(containerEl)
-        .setName(t("Install and use ScholarWeave's ZotLit import templates"))
-        .setDesc(
-          t(
-            'Copies ScholarWeave\'s ZotLit templates into "sw-zotlit-templates/" and points ZotLit\'s "Template folder" setting there. Your own ZotLit templates (in "Templates/") are left untouched.'
-          )
-        )
-        .addButton((btn) =>
-          btn
-            .setButtonText(t('Install templates'))
-            .onClick(async () => {
-              btn.setDisabled(true);
-              try {
-                await installZotlitTemplatesWithNotice(this.plugin);
-              } finally {
-                btn.setDisabled(false);
-              }
-            })
-        );
-    }
-
-    new Setting(containerEl)
-      .setName(t('Hide links in references'))
-      .setDesc(t('Replace links with link icons to save space.'))
-      .addToggle((text) =>
-        text.setValue(!!this.plugin.settings.hideLinks).onChange((value) => {
-          this.plugin.settings.hideLinks = value;
-          this.plugin.saveSettings();
-        })
-      );
-
-    new Setting(containerEl)
-      .setName(t('Show PDF links in references'))
-      .setDesc(
-        t(
-          'Add per-entry PDF-open icons to the bibliography and use PDFs as the tooltip link fallback. Off by default: "Open in Zotero" already reveals every attachment, and fetching the PDF list costs a per-citekey Zotero request.'
+          'Recognize [[@key]] and [[@key|see @, p. 6]] linked citations: include them in the reference list and render them as formatted inline citations in live preview. The @ placeholder inside an alias expands to the link\'s own citekey. Aliases without a citekey (e.g. [[@key|Just a label]]) are left untouched. On by default — this is the plugin\'s core feature.'
         )
       )
       .addToggle((text) =>
         text
-          .setValue(this.plugin.settings.showPdfLinks !== false)
+          .setValue(this.plugin.settings.renderLinkCitations !== false)
           .onChange((value) => {
-            this.plugin.settings.showPdfLinks = value;
+            this.plugin.settings.renderLinkCitations = value;
+            this.plugin.settings.formatLinkAliases = value;
             this.plugin.saveSettings();
-            // PDF state lives in the rendered bibliography — refresh the
-            // active view so buttons appear/disappear immediately.
-            this.plugin.processReferences();
           })
       );
 
@@ -789,23 +631,6 @@ export class ReferenceListSettingsTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName(t('Process linked citations'))
-      .setDesc(
-        t(
-          'Recognize [[@key]] and [[@key|see @, p. 6]] linked citations: include them in the reference list and render them as formatted inline citations in live preview. The @@ placeholder inside an alias expands to the link\'s own citekey. Aliases without a citekey (e.g. [[@key|Just a label]]) are left untouched. On by default — this is the plugin\'s core feature.'
-        )
-      )
-      .addToggle((text) =>
-        text
-          .setValue(this.plugin.settings.renderLinkCitations !== false)
-          .onChange((value) => {
-            this.plugin.settings.renderLinkCitations = value;
-            this.plugin.settings.formatLinkAliases = value;
-            this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
       .setName(t('Link citations to literature notes'))
       .setDesc(
         t(
@@ -818,6 +643,35 @@ export class ReferenceListSettingsTab extends PluginSettingTab {
           .onChange((value) => {
             this.plugin.settings.renderCitationsAsLinks = value;
             this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName(t('Hide links in references'))
+      .setDesc(t('Replace links with link icons to save space.'))
+      .addToggle((text) =>
+        text.setValue(!!this.plugin.settings.hideLinks).onChange((value) => {
+          this.plugin.settings.hideLinks = value;
+          this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(containerEl)
+      .setName(t('Show PDF links in references'))
+      .setDesc(
+        t(
+          'Add per-entry PDF-open icons to the bibliography and use PDFs as the tooltip link fallback. Off by default: "Open in Zotero" already reveals every attachment, and fetching the PDF list costs a per-citekey Zotero request.'
+        )
+      )
+      .addToggle((text) =>
+        text
+          .setValue(!!this.plugin.settings.showPdfLinks)
+          .onChange((value) => {
+            this.plugin.settings.showPdfLinks = value;
+            this.plugin.saveSettings();
+            // PDF state lives in the rendered bibliography — refresh the
+            // active view so buttons appear/disappear immediately.
+            this.plugin.processReferences();
           })
       );
 
@@ -1052,5 +906,311 @@ export class ReferenceListSettingsTab extends PluginSettingTab {
             this.plugin.saveSettings();
           })
       );
+  }
+
+  // ── Literature note import ──────────────────────────────────────────────────
+
+  private renderLiteratureNotes(containerEl: HTMLElement): void {
+    renderDependencyNote(
+      containerEl,
+      ['zotero', 'zotlit'],
+      t('Creating literature notes needs Zotero for citekey and metadata lookup; ZotLit is optional and adds richer templates.')
+    );
+
+    new Setting(containerEl)
+      .setName(t('Literature notes folder'))
+      .setDesc(
+        t(
+          'Folder where the plugin\'s own literature notes are created (vault-relative). Leave blank to create at the vault root. Used for the "Create literature note" button when ZotLit is not handling creation. ZotLit uses its own configured folder.'
+        )
+      )
+      .addText((text) => {
+        text
+          .setPlaceholder('_2 Bibliographic notes')
+          .setValue(this.plugin.settings.literatureNoteFolder ?? '')
+          .onChange((value) => {
+            this.plugin.settings.literatureNoteFolder = value;
+            this.plugin.saveSettings();
+          });
+        new FolderSuggest(this.app, text.inputEl);
+      });
+
+    new Setting(containerEl)
+      .setName(t('Create literature notes with ZotLit'))
+      .setDesc(
+        t(
+          'When ZotLit is available, the tooltip\'s "Create literature note" button creates the note with ZotLit\'s templates instead of the plugin\'s basic template. Falls back to the plugin template when ZotLit is absent or this is off.'
+        )
+      )
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.createNotesWithZotLit !== false)
+          .onChange((value) => {
+            this.plugin.settings.createNotesWithZotLit = value;
+            this.plugin.saveSettings();
+          })
+      );
+
+    if (Platform.isDesktop) {
+      new Setting(containerEl)
+        .setName(t("Install and use ScholarWeave's ZotLit import templates"))
+        .setDesc(
+          t(
+            'Copies ScholarWeave\'s ZotLit templates into "sw-zotlit-templates/" and points ZotLit\'s "Template folder" setting there. Your own ZotLit templates (in "Templates/") are left untouched.'
+          )
+        )
+        .addButton((btn) =>
+          btn
+            .setButtonText(t('Install templates'))
+            .onClick(async () => {
+              btn.setDisabled(true);
+              try {
+                await installZotlitTemplatesWithNotice(this.plugin);
+              } finally {
+                btn.setDisabled(false);
+              }
+            })
+        );
+    }
+  }
+
+  // ── Document import/export and compilation ──────────────────────────────────
+
+  private renderDocuments(containerEl: HTMLElement): void {
+    renderDependencyNote(
+      containerEl,
+      ['python', 'pandoc', 'libreoffice', 'latex', 'zotero', 'bbt'],
+      t('Compiling, exporting, and importing call external tools. PDF via an ODT/DOCX template needs LibreOffice; PDF via a .tex template needs LuaLaTeX; live citation fields need Zotero (and Better BibTeX for automatic citekeys).')
+    );
+    const toolStatusEl = containerEl.createDiv({ cls: 'sw-tool-status' });
+    void this.renderToolStatus(toolStatusEl);
+
+    // Pandoc is also used by the built-in bibliography parser when set.
+    if (Platform.isDesktop) {
+      new Setting(containerEl)
+        .setName(t('Path to Pandoc (optional)'))
+        .setDesc(
+          t(
+            'Absolute path to the Pandoc executable. Used for document import/export, and (when set) to convert .bib/.yaml files instead of the built-in parser. Leave blank to use the built-in parser for .bib files (works on all platforms).'
+          )
+        )
+        .then((setting) => {
+          let inputEl: HTMLInputElement;
+          setting.addText((text) => {
+            inputEl = text.inputEl;
+            text
+              .setPlaceholder('/usr/local/bin/pandoc')
+              .setValue(this.plugin.settings.pathToPandoc ?? '')
+              .onChange((value) => {
+                this.plugin.settings.pathToPandoc = value;
+                this.plugin.saveSettings();
+                invalidateToolProbe();
+              });
+          });
+
+          setting.addExtraButton((b) => {
+            b.setIcon('magnifying-glass');
+            b.setTooltip(t('Auto-detect Pandoc'));
+            b.onClick(async () => {
+              const found = await findPandoc();
+              if (found) {
+                inputEl.value = found;
+                this.plugin.settings.pathToPandoc = found;
+                this.plugin.saveSettings();
+              }
+            });
+          });
+        });
+    }
+
+    // Document Compiler commands run the bundled scripts/DocumentCompiler.py via Python 3. Desktop only.
+    if (Platform.isDesktop) {
+      new Setting(containerEl)
+        .setName(t('Path to Python 3 (for Document Compiler)'))
+        .setDesc(
+          t(
+            'Absolute path to the python3 interpreter used by "Compile and export a book, article, or other document" and "Import a Word or ODT document". It must have the lxml and python-docx packages. Leave blank to auto-detect (python3 on PATH, then common install locations).'
+          )
+        )
+        .then((setting) => {
+          let inputEl: HTMLInputElement;
+          setting.addText((text) => {
+            inputEl = text.inputEl;
+            text
+              .setPlaceholder('/usr/local/bin/python3')
+              .setValue(this.plugin.settings.pathToPython ?? '')
+              .onChange((value) => {
+                this.plugin.settings.pathToPython = value;
+                this.plugin.saveSettings();
+                invalidateToolProbe();
+              });
+          });
+        });
+
+      new Setting(containerEl)
+        .setName(t('Export templates directory (optional)'))
+        .setDesc(
+          t(
+            'Directory of your export templates (.docx, .odt, .tex). Vault-relative (e.g. Export Templates) or absolute. Leave blank to use <vault>/Export Templates/, then the templates bundled with the plugin.'
+          )
+        )
+        .then((setting) => {
+          setting.addText((text) =>
+            text
+              .setPlaceholder('Export Templates')
+              .setValue(this.plugin.settings.exportTemplatesDir ?? '')
+              .onChange((value) => {
+                this.plugin.settings.exportTemplatesDir = value;
+                this.plugin.saveSettings();
+              })
+          );
+        });
+
+      new Setting(containerEl)
+        .setName(t('Default output folder for compiled/exported documents (optional)'))
+        .setDesc(
+          t(
+            'Vault-relative folder where "Compile and export a book, article, or other document" puts the compiled markdown and the exported file. Leave blank to use the source file\'s own folder. Can be changed per-export in the modal.'
+          )
+        )
+        .then((setting) => {
+          setting.addText((text) =>
+            text
+              .setPlaceholder('Export Compiled')
+              .setValue(this.plugin.settings.defaultOutputDir ?? '')
+              .onChange((value) => {
+                this.plugin.settings.defaultOutputDir = value;
+                this.plugin.saveSettings();
+              })
+          );
+        });
+    }
+
+    new Setting(containerEl)
+      .setName(t('Default author name (optional)'))
+      .setDesc(
+        t(
+          'Used as the document author when the note has no `author:` frontmatter property. Leave blank to omit the author field in exported documents.'
+        )
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder('First Last')
+          .setValue(this.plugin.settings.defaultAuthor ?? '')
+          .onChange((value) => {
+            this.plugin.settings.defaultAuthor = value;
+            this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName(t('Use Obsidian account name as author fallback'))
+      .setDesc(
+        t(
+          'If enabled and no `author:` property or default author name is set, the display name from your Obsidian account (if signed in) is used instead.'
+        )
+      )
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.useAccountNameAsAuthor ?? false)
+          .onChange((value) => {
+            this.plugin.settings.useAccountNameAsAuthor = value;
+            this.plugin.saveSettings();
+          })
+      );
+
+    // ── Custom style mappings ─────────────────────────────────────────────
+    {
+      const renderMappingList = (listEl: HTMLElement) => {
+        listEl.empty();
+        const mappings = this.plugin.settings.styleMappings ?? [];
+        if (mappings.length === 0) {
+          listEl.createEl('p', {
+            text: t('No mappings yet. Click "+ Add" to create one.'),
+            cls: 'lc-mapping-empty',
+          });
+          return;
+        }
+        for (let i = 0; i < mappings.length; i++) {
+          const m = mappings[i];
+          const row = listEl.createDiv({ cls: 'lc-mapping-row' });
+
+          const cb = row.createEl('input', { type: 'checkbox' });
+          cb.title = t('Enable this mapping by default on export');
+          cb.checked = m.enabled;
+          cb.addEventListener('change', () => {
+            mappings[i].enabled = cb.checked;
+            this.plugin.saveSettings();
+          });
+
+          const srcInput = row.createEl('input', { type: 'text' });
+          srcInput.placeholder = 'callout-type';
+          srcInput.value = m.source;
+          srcInput.title = t('Callout type or CSS class name (e.g. arabic-poetry)');
+          srcInput.classList.add('lc-mapping-input');
+          srcInput.addEventListener('change', () => {
+            mappings[i].source = srcInput.value.trim();
+            this.plugin.saveSettings();
+          });
+
+          row.createSpan({ text: '→', cls: 'lc-mapping-arrow' });
+
+          const nameInput = row.createEl('input', { type: 'text' });
+          nameInput.placeholder = 'Style name';
+          nameInput.value = m.styleName;
+          nameInput.title = t('Style name as defined in the template (e.g. Arabic poetry)');
+          nameInput.classList.add('lc-mapping-input', 'lc-mapping-style');
+          nameInput.addEventListener('change', () => {
+            mappings[i].styleName = nameInput.value.trim();
+            this.plugin.saveSettings();
+          });
+
+          const del = row.createEl('button', { text: '🗑', cls: 'lc-mapping-del' });
+          del.title = t('Remove this mapping');
+          del.addEventListener('click', () => {
+            mappings.splice(i, 1);
+            this.plugin.saveSettings();
+            renderMappingList(listEl);
+          });
+        }
+      };
+
+      new Setting(containerEl)
+        .setName(t('Custom style mappings'))
+        .setDesc(
+          t(
+            'Map callout types (e.g. arabic-poetry) to word-processor style names. ' +
+            'Applied during DOCX and ODT export. For multi-style or per-line formatting, ' +
+            'add a .lua filter to your Export Templates folder instead.'
+          )
+        )
+        .addToggle((toggle) =>
+          toggle
+            .setValue(this.plugin.settings.styleMappingsEnabled ?? true)
+            .onChange((value) => {
+              this.plugin.settings.styleMappingsEnabled = value;
+              this.plugin.saveSettings();
+            })
+        );
+
+      const listEl = containerEl.createDiv({ cls: 'lc-mapping-list' });
+      renderMappingList(listEl);
+
+      const addBtn = containerEl.createEl('button', {
+        text: t('+ Add mapping'),
+        cls: 'lc-mapping-add',
+      });
+      addBtn.addEventListener('click', () => {
+        if (!this.plugin.settings.styleMappings) this.plugin.settings.styleMappings = [];
+        this.plugin.settings.styleMappings.push({
+          id: crypto.randomUUID(),
+          enabled: true,
+          source: '',
+          styleName: '',
+        });
+        this.plugin.saveSettings();
+        renderMappingList(listEl);
+      });
+    }
   }
 }

@@ -2325,8 +2325,10 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
                     default_author=None, new_page_headings=True,
                     restart_footnotes=True, mappings_data=None, generate_date=True,
                     roman_frontmatter=False, page1_starts_with='',
-                    static_citations=False, csl_style_override=None,
-                    csl_from_template=False, output_name=None):
+                    static_citations=False, raw_citations=False,
+                    static_bibliography=None, csl_style_override=None,
+                    csl_from_template=False, output_name=None,
+                    citations_input=None):
     """Unified export pipeline for DOCX and ODT.
 
     static_citations: when True, skip sw-zotero.lua's live-Zotero-field
@@ -2391,13 +2393,19 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
 
     # ── Citation conversion (identical for both formats) ───────────────────────
     citations_md = compiled_md.with_suffix('.citations.md')
-    conv_script  = plugin_script_path('convert-citations.mjs')
-    node_bin     = os.environ.get('SW_NODE', 'node')
-    subprocess.run([node_bin, conv_script, str(compiled_md), str(citations_md)],
-                   check=True)
+    if citations_input:
+        # The caller already converted citations (the plugin does this
+        # in-process, so no external Node.js is required); use its output.
+        cit_text = Path(citations_input).read_text(encoding='utf-8')
+        citations_md.write_text(cit_text, encoding='utf-8')
+    else:
+        conv_script = plugin_script_path('convert-citations.mjs')
+        node_bin    = os.environ.get('SW_NODE', 'node')
+        subprocess.run([node_bin, conv_script, str(compiled_md), str(citations_md)],
+                       check=True)
+        cit_text = citations_md.read_text(encoding='utf-8')
 
     # ── Markdown pre-processing (identical for both formats) ───────────────────
-    cit_text = citations_md.read_text(encoding='utf-8')
     cit_text = ensure_blank_before_headings(cit_text)
     cit_text = rewrite_poetry_callouts(cit_text)
     cit_text = preprocess_md_syntax(cit_text)
@@ -2406,6 +2414,11 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
     cit_text = linkify_bare_urls(cit_text)     # converts bare URLs to markdown links
     citations_md.write_text(cit_text, encoding='utf-8')
 
+    # A caller-provided CSL-JSON bibliography (the plugin's loaded library) means
+    # a STATIC export: --citeproc renders citations from it instead of live
+    # Zotero fields, and no Zotero fetch is needed.
+    use_static = static_citations or bool(static_bibliography)
+
     # ── Lua filter construction (identical for both formats) ───────────────────
     filters = [
         plugin_script_path('sw-doc-title.lua'),
@@ -2413,7 +2426,7 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
         plugin_script_path('sw-poetry.lua'),
         plugin_script_path('sw-bidi.lua'),
     ]
-    if not static_citations:
+    if not use_static and not raw_citations:
         filters.append(plugin_script_path('sw-zotero.lua'))
     filters += find_user_lua_filters(template_dir)
     active_mappings = mappings_data or load_mappings(template_dir)
@@ -2454,7 +2467,7 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
     # citation into a real footnote before pandoc runs (see
     # citations_to_footnotes). The static path skips this — pandoc's own
     # --citeproc already produces footnotes for a note style.
-    if not static_citations:
+    if not use_static and not raw_citations:
         try:
             _csl_path_for_notes = _fetch_csl_style_file(csl_style, zmeta['client'])
         except (RuntimeError, OSError):
@@ -2469,15 +2482,25 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
     # own --citeproc instead of sw-zotero.lua's live-field generation.
     citeproc_args = []
     _tmp_biblio_dir = None
-    if static_citations:
-        citekeys = _extract_citekeys(cit_text)
-        csl_items = _fetch_zotero_csl_items(
-            citekeys, csl_style, zmeta['client'], zmeta['library'])
-        csl_path = _fetch_csl_style_file(csl_style, zmeta['client'])
-        import tempfile as _tempfile
-        _tmp_biblio_dir = Path(_tempfile.mkdtemp())
-        biblio_path = _tmp_biblio_dir / 'bibliography.json'
-        biblio_path.write_text(json.dumps(csl_items, ensure_ascii=False), encoding='utf-8')
+    if use_static:
+        csl_path = None
+        if static_bibliography:
+            # Caller supplied the bibliography (the plugin's loaded library, so
+            # .bib-sourced citations render without Zotero); do NOT fetch Zotero.
+            biblio_path = Path(static_bibliography)
+            try:
+                csl_path = _fetch_csl_style_file(csl_style, zmeta['client'])
+            except Exception:
+                csl_path = None
+        else:
+            citekeys = _extract_citekeys(cit_text)
+            csl_items = _fetch_zotero_csl_items(
+                citekeys, csl_style, zmeta['client'], zmeta['library'])
+            csl_path = _fetch_csl_style_file(csl_style, zmeta['client'])
+            import tempfile as _tempfile
+            _tmp_biblio_dir = Path(_tempfile.mkdtemp())
+            biblio_path = _tmp_biblio_dir / 'bibliography.json'
+            biblio_path.write_text(json.dumps(csl_items, ensure_ascii=False), encoding='utf-8')
         citeproc_args = [
             '--citeproc',
             '--bibliography', str(biblio_path),
@@ -2563,7 +2586,7 @@ def export_document(fmt, compiled_md, vault_root=None, template=None, toc=False,
         merge_cmd.append('--roman-frontmatter')
         if page1_starts_with:
             merge_cmd += ['--page1-starts-with', page1_starts_with]
-    if static_citations:
+    if use_static or raw_citations:
         merge_cmd.append('--static-citations')
     if _csl_is_override and csl_style:
         # Write the chosen style into the output's Zotero document
@@ -2601,8 +2624,10 @@ def export_docx(compiled_md, vault_root=None, template=None, toc=False,
                 new_page_headings=True, restart_footnotes=True,
                 mappings_data=None, generate_date=True,
                 roman_frontmatter=False, page1_starts_with='',
-                static_citations=False, csl_style_override=None,
-                csl_from_template=False, output_name=None):
+                static_citations=False, raw_citations=False,
+                static_bibliography=None, csl_style_override=None,
+                csl_from_template=False, output_name=None,
+                citations_input=None):
     """Export compiled markdown to DOCX. Thin wrapper around export_document."""
     return export_document('docx', compiled_md,
                            vault_root=vault_root, template=template, toc=toc,
@@ -2615,9 +2640,12 @@ def export_docx(compiled_md, vault_root=None, template=None, toc=False,
                            roman_frontmatter=roman_frontmatter,
                            page1_starts_with=page1_starts_with,
                            static_citations=static_citations,
+                           raw_citations=raw_citations,
+                           static_bibliography=static_bibliography,
                            csl_style_override=csl_style_override,
                            csl_from_template=csl_from_template,
-                           output_name=output_name)
+                           output_name=output_name,
+                           citations_input=citations_input)
 
 
 def _prep_reference_odt(ref_doc_path, style_names):
@@ -2723,8 +2751,10 @@ def export_odt(compiled_md, vault_root=None, template=None, toc=False,
                new_page_headings=True, restart_footnotes=True,
                mappings_data=None, generate_date=True,
                roman_frontmatter=False, page1_starts_with='',
-               static_citations=False, csl_style_override=None,
-               csl_from_template=False, output_name=None):
+               static_citations=False, raw_citations=False,
+               static_bibliography=None, csl_style_override=None,
+               csl_from_template=False, output_name=None,
+               citations_input=None):
     """Export compiled markdown to ODT. Thin wrapper around export_document."""
     return export_document('odt', compiled_md,
                            vault_root=vault_root, template=template, toc=toc,
@@ -2737,9 +2767,12 @@ def export_odt(compiled_md, vault_root=None, template=None, toc=False,
                            roman_frontmatter=roman_frontmatter,
                            page1_starts_with=page1_starts_with,
                            static_citations=static_citations,
+                           raw_citations=raw_citations,
+                           static_bibliography=static_bibliography,
                            csl_style_override=csl_style_override,
                            csl_from_template=csl_from_template,
-                           output_name=output_name)
+                           output_name=output_name,
+                           citations_input=citations_input)
 
 
 def _latex_notes_parts(abstract, extra_sections):
@@ -2847,7 +2880,7 @@ def export_latex(compiled_md, vault_root=None, template=None, toc=False,
                  restart_footnotes=True, mappings_data=None, generate_date=True,
                  roman_frontmatter=False, page1_starts_with='',
                  csl_style_override=None, csl_from_template=False,
-                 output_name=None, as_pdf=False):
+                 output_name=None, citations_input=None, as_pdf=False):
     """Export compiled markdown to LaTeX (.tex), or — when as_pdf — straight
     to PDF via pandoc's own --pdf-engine=lualatex. No LibreOffice, no
     intermediate file: pandoc goes from markdown to PDF in one call.
@@ -2909,12 +2942,17 @@ def export_latex(compiled_md, vault_root=None, template=None, toc=False,
 
     # ── Citation conversion + markdown pre-processing (shared with DOCX/ODT) ──
     citations_md = compiled_md.with_suffix('.citations.md')
-    conv_script  = plugin_script_path('convert-citations.mjs')
-    node_bin     = os.environ.get('SW_NODE', 'node')
-    subprocess.run([node_bin, conv_script, str(compiled_md), str(citations_md)],
-                   check=True)
+    if citations_input:
+        # The caller already converted citations (plugin path; no external Node).
+        cit_text = Path(citations_input).read_text(encoding='utf-8')
+        citations_md.write_text(cit_text, encoding='utf-8')
+    else:
+        conv_script = plugin_script_path('convert-citations.mjs')
+        node_bin    = os.environ.get('SW_NODE', 'node')
+        subprocess.run([node_bin, conv_script, str(compiled_md), str(citations_md)],
+                       check=True)
+        cit_text = citations_md.read_text(encoding='utf-8')
 
-    cit_text = citations_md.read_text(encoding='utf-8')
     cit_text = ensure_blank_before_headings(cit_text)
     cit_text = rewrite_poetry_callouts(cit_text)
     cit_text = preprocess_md_syntax(cit_text)
@@ -3200,7 +3238,8 @@ def export_pdf(compiled_md, vault_root=None, template=None, toc=False, tof=False
                new_page_headings=True, restart_footnotes=True,
                intermediate_format=None, keep_intermediate=False,
                mappings_data=None, csl_style_override=None,
-               csl_from_template=False, output_name=None):
+               csl_from_template=False, output_name=None,
+               citations_input=None):
     """Export to PDF via an intermediate ODT, DOCX, or LaTeX file.
 
     The intermediate format is auto-determined from the template: ODT is
@@ -3266,7 +3305,8 @@ def export_pdf(compiled_md, vault_root=None, template=None, toc=False, tof=False
             mappings_data=mappings_data, generate_date=generate_date,
             roman_frontmatter=roman_frontmatter, page1_starts_with=page1_starts_with,
             csl_style_override=csl_style_override,
-            csl_from_template=csl_from_template, output_name=output_name)
+            csl_from_template=csl_from_template, output_name=output_name,
+            citations_input=citations_input)
         if keep_intermediate:
             tex_path = export_latex(compiled_md, as_pdf=False, **latex_kwargs)
             print(f'Intermediate LaTeX kept at: {tex_path}')
@@ -3290,7 +3330,8 @@ def export_pdf(compiled_md, vault_root=None, template=None, toc=False, tof=False
             # PDF has no live document to refresh fields in later, so let
             # pandoc's own --citeproc render final citations + bibliography
             # instead of live Zotero fields (see export_document's docstring).
-            static_citations=True)
+            static_citations=True,
+            citations_input=citations_input)
         if intermediate_format == 'docx':
             inter_path = Path(export_docx(compiled_md, **common_kwargs))
         else:
@@ -3407,6 +3448,30 @@ def main():
                        help='Ignore the note\'s csl: property; use the template\'s '
                             'embedded style (or the global default) only.')
 
+    parser.add_argument('--citations-input', default=None, dest='citations_input',
+                       help='Path to a markdown file whose citation wikilinks have '
+                            'ALREADY been converted to pandoc syntax. When given, the '
+                            'external Node.js conversion step is skipped (the plugin '
+                            'converts in-process); when omitted, convert-citations.mjs '
+                            'is run via Node as usual.')
+
+    parser.add_argument('--prepare-convert', action='store_true', dest='prepare_convert',
+                       help='Compile (if the input is an outline) and print the '
+                            'resulting markdown path as the last stdout line, then '
+                            'exit WITHOUT exporting. Used by the plugin, which '
+                            'converts citations in-process and re-invokes with '
+                            '--export --citations-input.')
+
+    parser.add_argument('--static-bibliography', default=None, dest='static_bibliography',
+                       help='Path to a CSL-JSON bibliography to render citations '
+                            'statically from (--citeproc), instead of live Zotero '
+                            'fields and instead of fetching from Zotero. Used by the '
+                            'plugin when Zotero is unavailable. DOCX/ODT only.')
+    parser.add_argument('--raw-citations', action='store_true', dest='raw_citations',
+                       help='Do NOT use Zotero fields or --citeproc: leave citations as '
+                            'literal text (e.g. [@citekey]). Used when the user chooses to '
+                            'export without Zotero running. DOCX/ODT only.')
+
     args = parser.parse_args()
 
     master_file = Path(args.master_file).expanduser()
@@ -3471,6 +3536,13 @@ def main():
               f"footnotes {'global' if use_global else 'per-chapter'}")
         compiled = master_file
 
+    if args.prepare_convert:
+        # Plugin path: hand the (compiled) markdown path back so the plugin can
+        # convert citations in-process, then exit. The plugin re-invokes with
+        # --export --citations-input. Print the path as the LAST line.
+        print(str(compiled))
+        return
+
     if args.export:
         active_mappings = load_mappings(args.templates_dir, args.mappings)
         _common = dict(
@@ -3484,15 +3556,19 @@ def main():
             page1_starts_with=args.page1_starts_with,
             csl_style_override=args.csl_style,
             csl_from_template=args.csl_from_template,
-            output_name=args.output_name)
+            output_name=args.output_name,
+            citations_input=args.citations_input)
         if args.export_format == 'pdf':
             export_pdf(compiled, keep_intermediate=args.keep_intermediate, **_common)
         elif args.export_format == 'odt':
-            export_odt(compiled, **_common)
+            export_odt(compiled, raw_citations=args.raw_citations,
+                       static_bibliography=args.static_bibliography, **_common)
         elif args.export_format == 'latex':
             export_latex(compiled, default_author=args.default_author, **_common)
         else:
-            export_docx(compiled, default_author=args.default_author, **_common)
+            export_docx(compiled, raw_citations=args.raw_citations,
+                        static_bibliography=args.static_bibliography,
+                        default_author=args.default_author, **_common)
 
         # The compiled markdown is a throwaway intermediate once it's been
         # exported — delete it unless the user asked to keep it. Never touch

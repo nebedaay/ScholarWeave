@@ -1,122 +1,46 @@
 # Setup
 
-## Install
+## 1. Install the plugin
 
 Install via [BRAT](https://github.com/TfTHacker/obsidian42-brat):
 
-1. Install BRAT from the Obsidian community plugin list
-2. In BRAT settings → "Add Beta Plugin", enter: `112345brian/linked-citations`
-3. Enable the plugin in Obsidian settings
+1. Disable Restricted Mode, then install and enable **BRAT** from the Community Plugins list.
+2. In BRAT's settings, add `nebedaay/ScholarWeave` to the **Beta plugin list**.
+3. Enable **ScholarWeave** in Obsidian's Community Plugins. BRAT keeps it updated.
 
-## Bibliography files
+## 2. Install what you need
 
-In **Settings → Linked Citations → Bibliography files**, add one or more bibliography files. Use the **Add file** button to add entries; each has a browse button and a trash icon to remove it.
+ScholarWeave's citation features work with no external tools. Document import/export needs a few programs — the short version:
 
-**Supported formats:**
-- `.bib` — BibTeX / BibLaTeX
-- `.json` — CSL-JSON
-- `.yaml` / `.yml` — CSL-YAML
+- Compile/export/import documents → **Python 3** and **Pandoc**
+- PDF via an ODT/DOCX template → also **LibreOffice**
+- PDF via a `.tex` template → also a **LaTeX** distribution with LuaLaTeX
+- Live, refreshable Zotero citations → **Zotero** (plus **Better BibTeX** for automatic citekeys)
 
-**Path formats:**
-- **Vault-relative** (recommended, works everywhere): `references.bib`, `assets/refs.bib`
-- **Absolute** (desktop only): `/Users/you/references.bib`
+See **[Dependencies](./dependencies.md)** for exactly what needs what and where to download it. The plugin detects what is installed and greys out options that can't run, so you can explore safely.
 
-If you enter an absolute path that lives inside the vault, it is automatically shortened to vault-relative when you leave the field. All configured files are merged into one library; Zotero wins on conflict between any source.
+## 3. Connect your references
 
-Parsed `.bib` files are cached in `.pandoc/bib-parsed.json` and only re-parsed when the source file changes, so startup stays fast even with large bibliographies.
+Use Zotero, a bibliography file, or both:
 
-## Citation style
+- **Zotero** — see [Zotero](./zotero.md).
+- **Bibliography files** (`.bib`, CSL-JSON, CSL-YAML) — add them in Settings → Bibliography. See [Bibliography](./bibliography.md).
 
-Set a CSL style in **Settings → Citation style**. You can:
-- Pick from the built-in list (downloaded automatically and cached in `.pandoc/` in your vault)
-- Enter a path to a local `.csl` file (vault-relative or absolute)
+## 4. Start writing
 
-## Per-note overrides
+Citations are Obsidian wikilinks with the pandoc citation after a `|`: `[[@smith1992|see @, p. 6]]` renders as *(see Smith 1992, 6)* **and** links to the literature note. Plain pandoc citations (`[@key]`) work too, and commands convert between the two. See [Linked Citations](./linked-citations.md) and [Citations](./citations.md).
 
-Any setting can be overridden in a note's YAML frontmatter:
+## 5. Import and export
 
-```yaml
----
-bibliography: ./references.bib        # path relative to this note, or vault-relative
-csl: ./chicago-author-date.csl        # local path or URL
-lang: fr-FR                           # citation language
----
-```
+Compile a single note or a bullet-list outline of notes into markdown, DOCX, ODT, or PDF, and import Word/ODT documents. See [Document Import and Export](./import-export.md).
 
-Multiple bibliography files:
+## Settings
 
-```yaml
----
-bibliography:
-  - ./primary.bib
-  - ./secondary.bib
----
-```
+Settings are reached from **Settings → ScholarWeave** and organised into four pages:
 
-Paths resolve relative to the note file first, then fall back to vault root.
+- **Bibliography** — where your sources come from. See [Bibliography](./bibliography.md) and [Zotero](./zotero.md).
+- **Citation and reference formatting** — how citations and the reference list look in Obsidian. See [Citations](./citations.md).
+- **Literature note import** — where literature notes live and how they are created. See [Literature Notes](./literature-notes.md).
+- **Document import/export and compilation** — the tools, templates, and defaults for compiling and exporting. See [Document Import and Export](./import-export.md).
 
-## Pandoc (optional)
-
-Pandoc is not required. The built-in pure-JS parser handles `.bib`, `.json`, and `.yaml` files on all platforms including mobile.
-
-If you have Pandoc installed and prefer it for edge cases, set its path in **Settings → Path to Pandoc**. The plugin will auto-detect common install locations (Homebrew, winget, Scoop, Chocolatey) if you leave the field blank and click Auto-detect.
-
-## Book Compiler (desktop only)
-
-The **Compile and export a book (outline or markdown)** command runs the
-bundled `scripts/BookCompiler.py` with Python 3. It needs three external
-tools, which the plugin resolves itself (Obsidian's Electron process doesn't
-inherit your shell PATH, so it probes known install locations and passes the
-resolved paths to the script):
-
-- **Python 3** with `lxml` and `python-docx` — set **Path to Python 3** if
-  auto-detection picks a build without those modules (e.g. macOS's CLT
-  python). Install with `pip install lxml python-docx`.
-- **Node.js** — for the citation converter script
-- **Pandoc** — for markdown → docx
-
-Settings:
-- **Path to Python 3 (for Book Compiler)** — blank auto-detects (verifying
-  `lxml`/`python-docx` import)
-- **Docx export templates directory** — optional; blank uses
-  `<vault>/Export Templates/`, then the plugin's bundled `templates/`
-- **Default output folder** — pre-fills the modal's output-folder field;
-  blank defaults to the source file's own folder
-
-See the README's [Book Compiler section](../README.md#book-compiler-outline--markdown--word) for the outline grammar, YAML properties, and template resolution order.
-
-## Citekey autocomplete
-
-Typing `@` in a note opens a fuzzy autocomplete popup biased toward citekeys. Typing `@@` opens a full-text search biased toward titles and authors (spaces allowed; a period closes the popup). When ZotLit is installed, `@@` searches via ZotLit's database directly.
-
-Search behaviour for a single `@` (PRL-style, citekey-first):
-
-1. Citekeys that **start with** what you typed — `pickus` → `pickusImmigrationCitizenship1998`
-2. Citekeys **containing** it
-3. Fuse fuzzy on title/author as a last resort
-
-This keeps results predictable and surfaces references that haven't been imported into Obsidian yet (no literature note exists for them). The same search works inside `[[@key…` wikilinks — the plugin claims the `@`-trigger before Obsidian's link search, so you see library results rather than only already-linked notes.
-
-`⌘↵` (or `ctrl↵`) wraps the selected key in brackets: `[@citekey]`. It detects bracket context automatically — if you're already inside `[@...]`, it appends without double-wrapping.
-
-Searches are diacritic-insensitive: "Muller" matches "Müller".
-
-## Bibliography snapshot
-
-The **Save bibliography snapshot** command (also available as a camera icon in the reference panel header) exports all citations in the current note to a `.bib` file. A dialog lets you set the filename; it defaults to `{note-name}-bibliography.bib` in the same folder.
-
-The saved path is added to the note's `bibliography` frontmatter key, which Pandoc and other tools can use directly.
-
-After a snapshot, the plugin colour-codes each citekey in the editor:
-
-| Colour | Meaning |
-|---|---|
-| Blue | In your global library and in the snapshot (synced) |
-| Yellow / dashed | In your global library but not yet in the snapshot |
-| Red | Not found anywhere |
-
-Run the snapshot command again at any time to update the `.bib` with any new citations.
-
-## Showing the reference sidebar
-
-Run **Linked Citations: Show reference list** from the command palette (`Cmd/Ctrl+P`). The sidebar updates automatically as you edit.
+Each option notes anything it needs, with a link to [Dependencies](./dependencies.md).

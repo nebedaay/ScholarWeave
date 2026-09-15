@@ -2,6 +2,10 @@ import { App, Modal, Notice, Platform, TFile } from 'obsidian';
 import type ReferenceList from './main';
 import type { StyleMapping } from './settings';
 import { runDocumentCompiler } from './exportCompiler';
+import { probeTools } from './tools';
+import type { ToolProbe } from './tools';
+import { DEPENDENCIES, renderDependencyNote } from './dependencies';
+import type { DepKey } from './dependencies';
 import {
   listZoteroInstalledStyles,
   resolveZoteroStylePath,
@@ -45,6 +49,12 @@ export interface ExportOptions {
   /** Style applied when overrideCslStyle is true: a Zotero style name, a
    *  .csl path, or a URL. */
   cslStyle: string;
+  /** Set at run time when the user proceeds without Zotero: DOCX/ODT leave
+   *  citations as literal text instead of live Zotero fields. */
+  rawCitations?: boolean;
+  /** Set at run time when Zotero is unavailable: a CSL-JSON file (the loaded
+   *  library) to render citations statically from. DOCX/ODT only. */
+  staticBibliography?: string;
 }
 
 /** Per-file export history stored in plugin settings. */
@@ -114,6 +124,60 @@ function listTemplates(dir: string, format: ExportFormat): string[] {
  * selector is disabled for MD output since that mode compiles to markdown
  * only and uses no template.
  */
+type ZoteroChoice = 'retry' | 'proceed' | 'cancel';
+
+/** Shown when Zotero is not running and the document cites works that can't
+ *  be resolved from bibliography files. */
+class ZoteroWarningModal extends Modal {
+  constructor(
+    app: App,
+    private needCount: number,
+    private liveFields: boolean,
+    private decide: (choice: ZoteroChoice) => void
+  ) {
+    super(app);
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.createEl('h3', { text: 'Zotero is not running' });
+    const n = this.needCount;
+    const message = this.liveFields
+      ? 'This export creates live Zotero citation fields, so it needs Zotero ' +
+        'while exporting. Start Zotero and try again, or proceed — the ' +
+        'citations are then written out as static plain text instead.'
+      : `${n} citation${n === 1 ? '' : 's'} in this document can't be resolved ` +
+        `from your bibliography files and need Zotero. Start Zotero and try ` +
+        `again, or proceed.`;
+    contentEl.createEl('p', { text: message });
+    const row = contentEl.createDiv();
+    row.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:14px';
+    const cancel = row.createEl('button', { text: 'Cancel' });
+    const proceed = row.createEl('button', { text: 'Proceed without Zotero' });
+    const retry = row.createEl('button', {
+      text: 'Try connecting again',
+      cls: 'mod-cta',
+    });
+    cancel.onclick = () => { this.close(); this.decide('cancel'); };
+    proceed.onclick = () => { this.close(); this.decide('proceed'); };
+    retry.onclick = () => { this.close(); this.decide('retry'); };
+  }
+
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+
+function askZotero(
+  app: App,
+  needCount: number,
+  liveFields: boolean
+): Promise<ZoteroChoice> {
+  return new Promise((resolve) =>
+    new ZoteroWarningModal(app, needCount, liveFields, resolve).open()
+  );
+}
+
 export class ExportModal extends Modal {
   private plugin: ReferenceList;
   private file: TFile;
@@ -147,6 +211,8 @@ export class ExportModal extends Modal {
   /** Map from StyleMapping.id → checkbox, for reading enabled state in options(). */
   private mappingCheckboxes: Map<string, HTMLInputElement> = new Map();
   private runButton!: HTMLButtonElement;
+  private probe: ToolProbe | null = null;
+  private depNote!: HTMLElement;
 
   /** Absolute paths to template directories (set in onOpen, used when rebuilding). */
   private pluginTplDir = '';
@@ -223,6 +289,9 @@ export class ExportModal extends Modal {
       cls: 'lc-mapping-modal-note',
     });
     this.pdfNote.style.marginTop = '4px';
+
+    // Requirement / missing-tool note, filled in by applyToolGating().
+    this.depNote = contentEl.createDiv({ cls: 'lc-export-depnote' });
 
     // ── Template dropdown (SECOND, filtered by format) ────────────────────
     const tplWrap = contentEl.createDiv({ cls: 'lc-export-row' });
@@ -446,6 +515,69 @@ export class ExportModal extends Modal {
     });
 
     setTimeout(() => this.runButton.focus(), 50);
+
+    // Probe installed tools and grey out formats/templates that can't run yet.
+    void this.applyToolGating();
+  }
+
+  // ── Dependency gating ──────────────────────────────────────────────────────
+
+  /** Dependencies a given output format needs that were NOT found. */
+  private formatMissing(fmt: ExportFormat): DepKey[] {
+    const p = this.probe;
+    if (!p) return [];
+    const missing: DepKey[] = [];
+    if (!p.python) missing.push('python');
+    if (fmt === 'md') return missing;
+    if (!p.pandoc) missing.push('pandoc');
+    if (fmt === 'latex') {
+      if (!p.latex) missing.push('latex');
+    } else if (fmt === 'pdf') {
+      // PDF goes through ODT/DOCX (LibreOffice) or .tex (LaTeX) — either works.
+      if (!p.soffice && !p.latex) missing.push('libreoffice', 'latex');
+    }
+    return missing;
+  }
+
+  private async applyToolGating(): Promise<void> {
+    this.probe = await probeTools(this.plugin);
+
+    for (const opt of Array.from(this.formatSelect.options)) {
+      const missing = this.formatMissing(opt.value as ExportFormat);
+      opt.disabled = missing.length > 0;
+      opt.title = missing.length
+        ? `Requires ${missing.map((k) => DEPENDENCIES[k].label).join(', ')}`
+        : '';
+    }
+    if ((this.formatSelect.selectedOptions[0] as HTMLOptionElement | undefined)?.disabled) {
+      const firstOk = Array.from(this.formatSelect.options).find((o) => !o.disabled);
+      if (firstOk) this.formatSelect.value = firstOk.value;
+    }
+
+    const fmt = this.formatSelect.value as ExportFormat;
+    this.buildTemplateDropdown(
+      fmt,
+      this.templateSelect.value || this.templateFromFrontmatter()
+    );
+    this.applyDocSettings();
+    this.refreshFilename();
+    this.syncFormatState(fmt);
+  }
+
+  /** Show which dependencies the selected format still needs (if any). */
+  private refreshDepNote(): void {
+    if (!this.depNote) return;
+    this.depNote.empty();
+    const fmt = this.formatSelect.value as ExportFormat;
+    const missing = this.formatMissing(fmt);
+    if (missing.length > 0) {
+      renderDependencyNote(
+        this.depNote,
+        missing,
+        'This output format needs the following, which was not found on this computer:'
+      );
+    }
+    if (this.runButton) this.runButton.disabled = missing.length > 0;
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────
@@ -623,6 +755,7 @@ export class ExportModal extends Modal {
     this.cslOverrideCb.parentElement!.style.display = isMd ? 'none' : '';
     this.cslStyleRow.style.display =
       !isMd && this.cslOverrideCb.checked ? '' : 'none';
+    this.refreshDepNote();
   }
 
   /**
@@ -683,6 +816,25 @@ export class ExportModal extends Modal {
 
     if (!trySelect(preferredValue)) {
       trySelect(this.templateFromFrontmatter());
+    }
+
+    // PDF only: a template's engine must be installed (ODT/DOCX → LibreOffice,
+    // .tex → LaTeX). Disable options whose engine is missing.
+    if (format === 'pdf' && this.probe) {
+      for (const opt of Array.from(this.templateSelect.options)) {
+        const ext = (opt.value.match(/\.(docx|odt|tex)$/i)?.[1] ?? '').toLowerCase();
+        if ((ext === 'docx' || ext === 'odt') && !this.probe.soffice) {
+          opt.disabled = true;
+          opt.title = 'Requires LibreOffice';
+        } else if (ext === 'tex' && !this.probe.latex) {
+          opt.disabled = true;
+          opt.title = 'Requires a LaTeX distribution (LuaLaTeX)';
+        }
+      }
+      if ((this.templateSelect.selectedOptions[0] as HTMLOptionElement | undefined)?.disabled) {
+        const firstOk = Array.from(this.templateSelect.options).find((o) => !o.disabled);
+        if (firstOk) this.templateSelect.value = firstOk.value;
+      }
     }
   }
 
@@ -860,6 +1012,54 @@ export class ExportModal extends Modal {
     }
     const opts = this.options();
 
+    const missing = this.formatMissing(opts.format);
+    if (missing.length > 0) {
+      new Notice(
+        `This export needs ${missing.map((k) => DEPENDENCIES[k].label).join(', ')}. ` +
+          `Install it, then reopen this dialogue.`,
+        8000
+      );
+      return;
+    }
+
+    // Zotero pre-check. Probe FRESH so a Zotero stopped after the dialogue
+    // opened is caught. A cited key resolves "without Zotero" only when it comes
+    // from a bibliography file (`bibCache._source === 'bib'`); keys sourced from
+    // (or missing from) Zotero need it. Only the latter trigger the prompt.
+    let tempBiblio: string | null = null;
+    if (opts.format !== 'md') {
+      const probe = await probeTools(this.plugin, true);
+      if (!probe.zotero) {
+        const cache = this.plugin.bibManager.fileCache.get(this.file);
+        const keys = cache?.keys
+          ? Array.from(cache.keys)
+          : await this.citedKeysFromText();
+        const usesLiveFields = opts.format === 'docx' || opts.format === 'odt';
+        let needsZotero = 0;
+        for (const k of keys) {
+          if (this.plugin.bibManager.bibCache.get(k)?._source !== 'bib') needsZotero++;
+        }
+        if (needsZotero > 0) {
+          let choice: ZoteroChoice = 'cancel';
+          for (;;) {
+            choice = await askZotero(this.app, needsZotero, usesLiveFields);
+            if (choice !== 'retry') break;
+            if ((await probeTools(this.plugin, true)).zotero) break;
+            // still not running — ask again
+          }
+          if (choice === 'cancel') return;
+        }
+        // Without Zotero, DOCX/ODT can't build live fields — render citations
+        // statically from the loaded library (.bib entries, plus any cached
+        // Zotero data); fall back to literal citations if there are none.
+        if (usesLiveFields) {
+          tempBiblio = await this.writeStaticBibliography(keys);
+          if (tempBiblio) opts.staticBibliography = tempBiblio;
+          else opts.rawCitations = true;
+        }
+      }
+    }
+
     // Persist settings: per-file history (keyed by vault path) plus
     // global lastExportFormat for files with no history yet.
     const entry: FileExportHistory = {
@@ -903,7 +1103,13 @@ export class ExportModal extends Modal {
                                 'Compiling + exporting to DOCX…';
     const progress = new Notice(label, 0);
 
-    const res = await runDocumentCompiler(this.plugin, this.file, opts);
+    const res = await runDocumentCompiler(this.plugin, this.file, opts).finally(() => {
+      if (tempBiblio) {
+        try {
+          (require('fs') as typeof import('fs')).unlinkSync(tempBiblio);
+        } catch { /* ignore */ }
+      }
+    });
     progress.hide();
 
     if (!res.ok) {
@@ -917,6 +1123,44 @@ export class ExportModal extends Modal {
     const doneLabel =
       opts.format === 'md' ? `Compiled: ${outPath}` : `Exported: ${outPath}`;
     new Notice(doneLabel, 6000);
+  }
+
+  /**
+   * CSL-JSON for the cited keys, taken from the plugin's loaded bibliography
+   * (private `_`-prefixed fields stripped), written to a temp file. Returns
+   * null when no entries are available. Used for the static fallback when
+   * Zotero is unavailable.
+   */
+  private async writeStaticBibliography(keys: string[]): Promise<string | null> {
+    const entries: Record<string, unknown>[] = [];
+    for (const k of keys) {
+      const e = this.plugin.bibManager.bibCache.get(k) as unknown as
+        | Record<string, unknown>
+        | undefined;
+      if (!e) continue;
+      const copy: Record<string, unknown> = {};
+      for (const [key, val] of Object.entries(e)) {
+        if (!key.startsWith('_')) copy[key] = val;
+      }
+      entries.push(copy);
+    }
+    if (entries.length === 0) return null;
+    const fs = require('fs') as typeof import('fs');
+    const os = require('os') as typeof import('os');
+    const nodePath = require('path') as typeof import('path');
+    const p = nodePath.join(os.tmpdir(), `sw-static-${Date.now()}.json`);
+    fs.writeFileSync(p, JSON.stringify(entries), 'utf-8');
+    return p;
+  }
+
+  /** Cited keys scanned from the note text (fallback when never rendered). */
+  private async citedKeysFromText(): Promise<string[]> {
+    const text = await this.app.vault.cachedRead(this.file);
+    const keys = new Set<string>();
+    const re = /\[\[@([^|\]\s]+)|(?:^|[^\w@])@([A-Za-z][\w:.#$%&+?<>~/-]*)/gm;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text))) keys.add(m[1] ?? m[2]);
+    return Array.from(keys);
   }
 
   onClose() {

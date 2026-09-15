@@ -53,6 +53,13 @@ export async function setupAssets(plugin: ReferenceList): Promise<void> {
       if (relativePath.startsWith('zotlit-templates/')) {
         continue; // opt-in only — written into the vault by the settings button
       }
+      if (relativePath.startsWith('docs/')) {
+        continue; // rendered in-app from the bundle (src/docs.ts), never extracted
+      }
+      if (relativePath.startsWith('images/') || relativePath === 'README.md'
+          || relativePath === 'NOTICE.md') {
+        continue; // docs-only assets (README overview, notice, images), never extracted
+      }
       if (binary) {
         const raw = atob(content);
         const buf = new Uint8Array(raw.length);
