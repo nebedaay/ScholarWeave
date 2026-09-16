@@ -1,6 +1,6 @@
 # Citations and References in Obsidian
 
-How ScholarWeave renders citations and the reference list inside Obsidian, and the settings that control it. For the citation *syntax*, see [Linked Citations](./linked-citations.md). For the style used in *exported* documents, see [Document Import and Export](./import-export.md).
+How ScholarWeft renders citations and the reference list inside Obsidian, and the settings that control it. For the citation *syntax*, see [Linked Citations](./linked-citations.md). For the style used in *exported* documents, see [Document Import and Export](./import-export.md).
 
 No external tools are needed for anything on this page — Pandoc is not required to format citations.
 

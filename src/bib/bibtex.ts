@@ -141,7 +141,7 @@ export function parseBibTeX(raw: string): PartialCSLEntry[] {
   try {
     parsed = BibTeXParser.parse(raw) as BibTeXParser.Library;
   } catch (err) {
-    console.error('scholar-weave: BibTeX parser threw — file may be severely malformed:', err);
+    console.error('scholar-weft: BibTeX parser threw — file may be severely malformed:', err);
     return [];
   }
 
@@ -153,7 +153,7 @@ export function parseBibTeX(raw: string): PartialCSLEntry[] {
         : typeof e === 'object' && e !== null
         ? JSON.stringify(e)
         : String(e);
-    console.warn('scholar-weave: BibTeX parse error:', detail);
+    console.warn('scholar-weft: BibTeX parse error:', detail);
   });
 
   const entries = parsed?.entries;
@@ -315,7 +315,7 @@ export function parseBibTeX(raw: string): PartialCSLEntry[] {
       results.push(csl as unknown as PartialCSLEntry);
     } catch (err) {
       // A single bad entry must not abort the rest of the bibliography.
-      console.warn(`scholar-weave: skipping entry '${key}' due to unexpected error:`, err);
+      console.warn(`scholar-weft: skipping entry '${key}' due to unexpected error:`, err);
     }
   }
 

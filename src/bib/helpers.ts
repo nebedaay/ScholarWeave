@@ -89,7 +89,7 @@ export async function getBibPath(bibPath: string): Promise<string> {
   }
 
   throw new Error(
-    `scholar-weave: cannot find bibliography file "${bibPath}". ` +
+    `scholar-weft: cannot find bibliography file "${bibPath}". ` +
       'Provide an absolute path or a path relative to the vault root.'
   );
 }
@@ -121,7 +121,7 @@ export async function bibToCSL(
       return await bibToCSLViaPandoc(pandocPath, pathToPandoc);
     } catch (e) {
       console.warn(
-        'scholar-weave: Pandoc failed, falling back to JS parser:',
+        'scholar-weft: Pandoc failed, falling back to JS parser:',
         e
       );
     }
@@ -486,7 +486,7 @@ export async function getZUserGroupsNative(
       }
     }
   } catch (e) {
-    console.error('scholar-weave: error fetching Zotero groups:', e);
+    console.error('scholar-weft: error fetching Zotero groups:', e);
   }
 
   return groups;

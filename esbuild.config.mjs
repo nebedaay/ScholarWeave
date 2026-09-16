@@ -74,7 +74,7 @@ const bundleAssetsPlugin = {
 			await readFile('README.md');
 			await readFile('NOTICE.md');
 			await readDir('images');
-			// ZotLit import templates — bundled so the "Install ScholarWeave's
+			// ZotLit import templates — bundled so the "Install ScholarWeft's
 			// ZotLit templates" button in settings can write them into the
 			// vault. NOT auto-extracted to the plugin dir (see assetSetup.ts).
 			await readDir('zotlit-templates');

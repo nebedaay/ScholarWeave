@@ -1,4 +1,4 @@
-% ScholarWeave LaTeX export — "book" doc type.
+% ScholarWeft LaTeX export — "book" doc type.
 % See document.tex for the full explanation of how this file is used
 % (--include-in-header, available substitutions/hooks/markers).
 %
@@ -142,10 +142,15 @@
 \titlecontents{section}[1.5em]{}{}{}{\hfill\thecontentspage}
 
 \usepackage{fancyhdr}
+% Running heads match book.docx/book.odt: LEFT (even) page = "Author Name –
+% Short Title"; RIGHT (odd) page = the current chapter title. \leftmark holds
+% the last \markboth's first argument; book.cls's own \chaptermark would make it
+% the uppercased, numbered "CHAPTER N. TITLE", so redefine it to the bare title.
+\renewcommand{\chaptermark}[1]{\markboth{#1}{}}
 \pagestyle{fancy}
 \fancyhf{}
-\fancyhead[LE]{SWTOKAUTHOR}
-\fancyhead[RO]{SWTOKSHORTTITLE}
+\fancyhead[LE]{SWTOKAUTHOR{} -- SWTOKSHORTTITLE}
+\fancyhead[RO]{\leftmark}
 \fancyfoot[C]{\thepage}
 \renewcommand{\headrulewidth}{0.4pt}
 % Book class + twoside forces a blank left-hand page whenever \chapter (or

@@ -1,6 +1,6 @@
 -- sw-poetry.lua
 --
--- Optional ScholarWeave Lua filter: converts Obsidian poetry callouts to
+-- Optional ScholarWeft Lua filter: converts Obsidian poetry callouts to
 -- paragraph styles in the exported Word/ODT document.
 --
 -- Supported callout types:
@@ -25,10 +25,10 @@
 -- into one combined inline stream before calling parse_poetry, so multi-line
 -- verse assembly works correctly regardless of how pandoc structures the AST.
 --
--- Usage (ScholarWeave export pipeline or CLI):
+-- Usage (ScholarWeft export pipeline or CLI):
 --   --lua-filter=sw-poetry.lua
 --
--- Place this file in the same directory as sw-export.lua. In ScholarWeave,
+-- Place this file in the same directory as sw-export.lua. In ScholarWeft,
 -- enable it via the "Lua filters" checkbox in Settings or the Export modal.
 
 -- ── helpers ─────────────────────────────────────────────────────────────────

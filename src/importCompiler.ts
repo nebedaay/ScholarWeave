@@ -57,7 +57,7 @@ export async function runImportScript(
       stderr:
         'Python 3 with lxml and requests is required for document import.\n' +
         'Install them with:  pip install lxml requests\n' +
-        'Or set a Python path under ScholarWeave settings → Document Compiler.',
+        'Or set a Python path under ScholarWeft settings → Document Compiler.',
     };
   }
 

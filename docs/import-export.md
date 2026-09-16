@@ -21,7 +21,7 @@ Both call external tools. The plugin probes for them when the dialogue opens and
 
 Command: **Import a Word or ODT document with Zotero citations**.
 
-Converts a Word/ODT document — including its Zotero citation fields — into a markdown note, turning the citations into linked (or plain pandoc) citations and optionally creating literature notes for cited works that lack them. Citations inside **footnotes and endnotes** are converted too (Word stores those in separate parts of the file, which ScholarWeave processes alongside the body).
+Converts a Word/ODT document — including its Zotero citation fields — into a markdown note, turning the citations into linked (or plain pandoc) citations and optionally creating literature notes for cited works that lack them. Citations inside **footnotes and endnotes** are converted too (Word stores those in separate parts of the file, which ScholarWeft processes alongside the body).
 
 Requires **Python 3, Pandoc, and Zotero** (running).
 
@@ -100,6 +100,8 @@ Highest priority first: the dialogue's style override → the note's `csl:`/`cit
 
 Lookup order: your configured templates directory → `<vault>/Export Templates/` → the templates bundled with the plugin (extracted automatically on load). Bundled templates are a starting point you can override by placing your own copy earlier in that order.
 
+**Running heads** (even/odd pages) are consistent across DOCX, ODT, and LaTeX: `book` shows *Author – Short Title* on the left and the current **chapter title** on the right; `article` and `document` show the **author** on the left and the **short title** on the right. The author shown in a running head is only the first line of a multi-line `author:` property (the title block still prints the whole block).
+
 ### YAML frontmatter properties
 
 | Key | Purpose |
@@ -110,9 +112,11 @@ Lookup order: your configured templates directory → `<vault>/Export Templates/
 | `shorttitle` | Even-page header (falls back to `title` before `:`, then the filename) |
 | `abstract` | Cover/near-cover abstract block |
 | `note` | Cover/near-cover note block |
-| `author` | Cover author (a string, or a `- Name` list) |
+| `author` | Author — a string, a `- Name` list (joined with `, `), or a `\|-` block scalar. The title block prints the **whole block** (line breaks preserved: name / affiliation / date); the running header ("Author — Short Title") uses only its **first line** |
 | `csl` / `citation-style` | Citation style for this note (a Zotero style name, `.csl` path, or URL) |
 | `bibliography` | Override the bibliography source(s) for this note |
+
+All of these accept the usual YAML forms: an inline value, a `- item` list (joined with `, `), or a `|`/`>` **block scalar**. A `title` written over **two lines** is read as `Title: Subtitle` (so it fills both the title and subtitle slots); a `title:` containing a `:` is likewise split into title/subtitle unless you also set `subtitle:` explicitly.
 
 ### Images and figures
 
@@ -121,7 +125,7 @@ Lookup order: your configured templates directory → `<vault>/Export Templates/
 
 ### Automatic style conversion
 
-ScholarWeave converts Obsidian-specific markdown into DOCX/ODT styles rather than dropping it.
+ScholarWeft converts Obsidian-specific markdown into DOCX/ODT styles rather than dropping it.
 
 **Callouts** (`> [!note]`) can be mapped to named paragraph styles in Settings; poetry callouts (`[!poetry]`, `[!arabic-poetry]`) are handled automatically.
 
@@ -138,7 +142,7 @@ ScholarWeave converts Obsidian-specific markdown into DOCX/ODT styles rather tha
 
 Style names come from the CSS class or callout type (first letter capitalised, hyphens → spaces, so `.arabic-poetry` → "Arabic poetry"); override with an explicit mapping in Settings.
 
-**Undefined styles:** when the output references a style the template doesn't define, ScholarWeave injects a sentinel copy with a distinctive highlighted background (cycling colours) so you can spot it and define the style in your template; defining it removes the highlight on future exports.
+**Undefined styles:** when the output references a style the template doesn't define, ScholarWeft injects a sentinel copy with a distinctive highlighted background (cycling colours) so you can spot it and define the style in your template; defining it removes the highlight on future exports.
 
 ### PDF export
 

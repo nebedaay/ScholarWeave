@@ -2,7 +2,7 @@
 --
 -- SUPERSEDED — kept for reference only.
 --
--- This filter is no longer part of the active ScholarWeave export pipeline.
+-- This filter is no longer part of the active ScholarWeft export pipeline.
 -- The current pipeline uses scripts/convert-citations.mjs (the plugin's own
 -- TypeScript parser, compiled by esbuild) to convert citation wikilinks to
 -- native pandoc citations BEFORE pandoc runs — which gives a single source of
@@ -12,7 +12,7 @@
 -- so that Better BibTeX's sw-zotero.lua filter could turn them into native
 -- Zotero citations on export. This was used when "Enhancing Export" (a
 -- third-party Obsidian plugin) was driving single-note exports; that workflow
--- is now fully superseded by ScholarWeave's built-in export modal.
+-- is now fully superseded by ScholarWeft's built-in export modal.
 --
 -- Must run BEFORE sw-zotero.lua in the --lua-filter chain (historical).
 -- Links whose target does not start with '@' are left untouched.

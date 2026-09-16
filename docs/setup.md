@@ -5,12 +5,12 @@
 Install via [BRAT](https://github.com/TfTHacker/obsidian42-brat):
 
 1. Disable Restricted Mode, then install and enable **BRAT** from the Community Plugins list.
-2. In BRAT's settings, add `nebedaay/ScholarWeave` to the **Beta plugin list**.
-3. Enable **ScholarWeave** in Obsidian's Community Plugins. BRAT keeps it updated.
+2. In BRAT's settings, add `nebedaay/ScholarWeft` to the **Beta plugin list**.
+3. Enable **ScholarWeft** in Obsidian's Community Plugins. BRAT keeps it updated.
 
 ## 2. Install what you need
 
-ScholarWeave's citation features work with no external tools. Document import/export needs a few programs — the short version:
+ScholarWeft's citation features work with no external tools. Document import/export needs a few programs — the short version:
 
 - Compile/export/import documents → **Python 3** and **Pandoc**
 - PDF via an ODT/DOCX template → also **LibreOffice**
@@ -36,7 +36,7 @@ Compile a single note or a bullet-list outline of notes into markdown, DOCX, ODT
 
 ## Settings
 
-Settings are reached from **Settings → ScholarWeave** and organised into four pages:
+Settings are reached from **Settings → ScholarWeft** and organised into four pages:
 
 - **Bibliography** — where your sources come from. See [Bibliography](./bibliography.md) and [Zotero](./zotero.md).
 - **Citation and reference formatting** — how citations and the reference list look in Obsidian. See [Citations](./citations.md).

@@ -1,12 +1,12 @@
-# ScholarWeave
+# ScholarWeft
 
-<img src="./images/scholarweave-illustration.png" width="300" alt="ScholarWeave logo">
+<img src="./images/scholarweft-illustration.png" width="300" alt="ScholarWeft logo">
 
-An Obsidian plugin that weaves together your universe of interlinked Obsidian notes, your Zotero library, and your publication workflow.
+Weaving your ideas, Obsidian, Zotero, and word processor output into a connected scholarly workflow. 
 
-ScholarWeave's signature feature is **linked citations**: `[[@sanchez2009|see @, p. 25]]` is simultaneously a formatted inline citation — "(see Sanchez 2009, 25)" — *and* an Obsidian wikilink to the literature note for that source. Other citation plugins can either link to a literature note (`[[@sanchez2009]]`) or render pandoc-formatted citations (`[see @sanchez2009, p. 25]`), which makes it impossible to use citations reliably as nodes in Obsidian's note network, especially in notes intended to be incorporated into publications.
+ScholarWeft's unique **linked citations** format weaves every work you cite into your interconnected Obsidian thought universe. The citation `[[@sanchez2009|see @, p. 25]]` is simultaneously a formatted inline citation — "(see Sanchez 2009, 25)" — *and* an Obsidian wikilink to that source’s literature note. Other citation plugins can either link to a literature note (`[[@sanchez2009]]`) or render pandoc-formatted citations (`[see @sanchez2009, p. 25]`), preventing you from integrating publication-ready citations as nodes in Obsidian's note network visualized in backlinks and graphs.
 
-Beyond linking your scholarly notes and references, ScholarWeave links your writing inside Obsidian to the world beyond Obsidian. Import DOCX and ODT documents as Obsidian notes, converting their Zotero citations to linked citations and importing a literature note for each cited work. Export an Obsidian note or compile a series of notes as a publication-ready DOCX, ODT, or PDF document with functioning citations — so you can do all your academic writing inside manageable, interlinked Obsidian notes, even long book projects.
+Beyond linking your scholarly notes and references, ScholarWeft links your writing inside Obsidian to the world beyond Obsidian. Import DOCX and ODT documents as Obsidian notes, converting their Zotero citations to linked citations and importing a literature note for each cited work. Export an Obsidian note or compile a series of notes as a publication-ready DOCX, ODT, or PDF document with functioning citations — so you can do all your academic writing inside manageable, interlinked Obsidian notes, even long book projects.
 
 This plugin started as a fork of [Bripey Citation Suite](https://github.com/112345brian/bripey-citation-suite), which itself descends from [Pandoc Reference List](https://github.com/community-archive/obsidian-pandoc-reference-list). It was renamed to reflect its distinctive and more comprehensive functionality.
 
@@ -60,21 +60,21 @@ Basic citation work needs nothing installed. Document import/export and live Zot
 ## Install via BRAT
 
 1. Disable Restricted Mode, then install and enable [BRAT](https://github.com/TfTHacker/obsidian42-brat) from the Community Plugins list.
-2. In BRAT's settings, add `nebedaay/ScholarWeave` to the **Beta plugin list**.
-3. Enable **ScholarWeave** in Community Plugins. BRAT keeps it updated.
+2. In BRAT's settings, add `nebedaay/ScholarWeft` to the **Beta plugin list**.
+3. Enable **ScholarWeft** in Community Plugins. BRAT keeps it updated.
 
 See [Setup](./docs/setup.md) for first steps.
 
 ## Companion plugins
 
-ScholarWeave works alongside [ZotLit](https://github.com/PKM-er/obsidian-zotlit): when ZotLit is present, literature note creation uses ZotLit's templates and `@@` autocomplete draws on ZotLit's full-text database. Neither plugin requires the other.
+ScholarWeft works alongside [ZotLit](https://github.com/PKM-er/obsidian-zotlit): when ZotLit is present, literature note creation uses ZotLit's templates and `@@` autocomplete draws on ZotLit's full-text database. Neither plugin requires the other.
 
-**One-click ZotLit templates:** *Settings → ScholarWeave → "Install and use ScholarWeave's ZotLit import templates"* copies a curated set of templates into `sw-zotlit-templates/` and points ZotLit's *Template folder* setting there (ZotLit reloads automatically), leaving your own templates untouched. See [ZotLit Import Templates](./docs/zotlit-import-templates.md).
+**One-click ZotLit templates:** *Settings → ScholarWeft → "Install and use ScholarWeft's ZotLit import templates"* copies a curated set of templates into `sw-zotlit-templates/` and points ZotLit's *Template folder* setting there (ZotLit reloads automatically), leaving your own templates untouched. See [ZotLit Import Templates](./docs/zotlit-import-templates.md).
 
 ## Plugin API
 
 ```ts
-const plugin = app.plugins.plugins["scholar-weave"] as { api?: ScholarWeaveApi } | undefined;
+const plugin = app.plugins.plugins["scholar-weft"] as { api?: ScholarWeftApi } | undefined;
 if (plugin?.api?.version === 1) {
   await plugin.api.focusReferenceListView();
   const citekeys = await plugin.api.getCitekeysForFile(app.workspace.getActiveFile() ?? undefined);

@@ -8,7 +8,7 @@ import { App, Component, MarkdownRenderer, Modal } from 'obsidian';
 import { BUNDLED_ASSETS } from 'bundled:assets';
 
 export const GITHUB_DOCS_BASE =
-  'https://github.com/nebedaay/ScholarWeave/blob/main/docs/';
+  'https://github.com/nebedaay/ScholarWeft/blob/main/docs/';
 
 export interface DocEntry {
   /** Filename within docs/, e.g. "setup.md". */
@@ -113,7 +113,7 @@ export class DocsModal extends Modal {
     this.modalEl.addClass('sw-docs-modal');
     const { contentEl } = this;
     contentEl.addClass('sw-docs-modal');
-    contentEl.createEl('h3', { text: 'ScholarWeave documentation' });
+    contentEl.createEl('h3', { text: 'ScholarWeft documentation' });
     const wrap = contentEl.createDiv({ cls: 'sw-docs-wrap' });
     const nav = wrap.createDiv({ cls: 'sw-docs-nav' });
     this.body = wrap.createDiv({ cls: 'sw-docs-body' });

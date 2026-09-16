@@ -1,10 +1,10 @@
 # Literature Notes
 
-ScholarWeave treats each source's literature note (normally `@citekey.md`) as the graph node its citations link to. This page covers where those notes live and how they are created.
+ScholarWeft treats each source's literature note (normally `@citekey.md`) as the graph node its citations link to. This page covers where those notes live and how they are created.
 
 ## Folder
 
-**Settings → Literature note import → Literature notes folder** sets where notes are created and found (e.g. `Bibliographic notes`). ScholarWeave looks a note up by its citekey filename.
+**Settings → Literature note import → Literature notes folder** sets where notes are created and found (e.g. `Bibliographic notes`). ScholarWeft looks a note up by its citekey filename.
 
 Using a dedicated folder keeps citations resolvable and tidy, but any folder works as long as the filename is `@citekey`.
 
@@ -17,9 +17,9 @@ Creating notes needs **Zotero** for citekey and metadata lookup. No live Zotero 
 
 ## ZotLit
 
-If [ZotLit](https://github.com/PKM-er/obsidian-zotlit) is installed, ScholarWeave uses it to create literature notes and to format imported PDF annotations. Enable **Create literature notes with ZotLit**.
+If [ZotLit](https://github.com/PKM-er/obsidian-zotlit) is installed, ScholarWeft uses it to create literature notes and to format imported PDF annotations. Enable **Create literature notes with ZotLit**.
 
-ScholarWeave can also install a curated set of ZotLit templates: **Install and use ScholarWeave's ZotLit import templates** writes them to `sw-zotlit-templates/` and points ZotLit's template folder there, leaving your own templates untouched. See [ZotLit Import Templates](./zotlit-import-templates.md).
+ScholarWeft can also install a curated set of ZotLit templates: **Install and use ScholarWeft's ZotLit import templates** writes them to `sw-zotlit-templates/` and points ZotLit's template folder there, leaving your own templates untouched. See [ZotLit Import Templates](./zotlit-import-templates.md).
 
 ## Updating citekeys
 

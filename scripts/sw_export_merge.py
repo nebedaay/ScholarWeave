@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-sw_export_merge.py — ScholarWeave export merge.
+sw_export_merge.py — ScholarWeft export merge.
 
 Takes the clean docx produced by pandoc (via the sw-*.lua filters) and the
 target export template (book/article/document under templates/), and copies
@@ -57,7 +57,7 @@ from sw_merge_helpers import (
     split_paragraphs, find_bibliography_range, strip_bibliography, ZOTERO_BIBL_INSTR,
     select_bibliography_matches_to_drop,
     resize_images, STYLE_REMAP, STYLE_ALIASES, resolve_style_alias,
-    resolve_cover, process_figures,
+    resolve_cover, first_line, cover_author_lines, process_figures,
     title_case as _title_case, strip_markdown as _strip_markdown,
     is_main_start, is_toc_heading, is_tof_heading, strip_chapter_prefix,
     find_page_reset_index, bundled_template, ensure_docx_styles,
@@ -185,7 +185,12 @@ def extract_template_layout(template_path):
     if has_section_breaks:
         title_block = [copy.deepcopy(c) for c in children[:first_sect_idx]]
     else:
-        _COVER_STYLES = {'Title', 'Subtitle', 'Author', 'Date',
+        # BodyText is included because article.docx's AUTHOR slot is a plain
+        # BodyText paragraph right after the Title (no Subtitle/Author style);
+        # without it the cover run stopped at the author and left it unfilled.
+        # The placeholder abstract/keywords/TOC paragraphs it now reaches are
+        # dropped by _fill_title_block's Abstractkeywordsheading branch.
+        _COVER_STYLES = {'Title', 'Subtitle', 'Author', 'Date', 'BodyText',
                          _ABSTRACTKEYWORDS_STYLE_ID, 'Abstract'}
         cover_end = 0
         for c in children:
@@ -1357,7 +1362,7 @@ def merge(template_path, input_path, output_path, title=None, author=None,
     # ordinary body content instead of being stripped and replaced with the
     # "Refresh Zotero" placeholder. But a source note can ALSO carry its own
     # pre-existing 'Bibliography' heading (e.g. hand-typed references
-    # predating ScholarWeave's citation system) — left untouched, that
+    # predating ScholarWeft's citation system) — left untouched, that
     # duplicates pandoc's own, real one. keep_last=True strips any such
     # earlier duplicate while leaving pandoc's own (always the last match)
     # alone; see _strip_bibliography_from_sections / select_bibliography_
@@ -1480,6 +1485,7 @@ def _fill_title_block(title_block, title, subtitle, author, date_val):
     author_done = not author
     date_done = not date_val
     after_subtitle = False
+    after_title = False
     i = 0
     while i < len(title_block):
         p = title_block[i]
@@ -1487,6 +1493,7 @@ def _fill_title_block(title_block, title, subtitle, author, date_val):
         cur = _para_text(p)
         if style == 'Title' and title:
             _fill_markdown_text(p, title)
+            after_title = True
             i += 1
         elif style == 'Subtitle':
             after_subtitle = True
@@ -1510,7 +1517,7 @@ def _fill_title_block(title_block, title, subtitle, author, date_val):
             else:
                 title_block.pop(i)     # no date → drop the Date paragraph
                 continue
-        elif style == 'BodyText' and after_subtitle:
+        elif style == 'BodyText' and (after_subtitle or after_title):
             if not author_done and cur != 'Date':
                 _replace_text(p, author)
                 author_done = True
@@ -1650,15 +1657,21 @@ def _ensure_abstractkeywords_style(data):
         root, xml_declaration=True, encoding='UTF-8', standalone=True)
 
 def _replace_text(p, text):
-    """Replace all content runs (including fldSimple fields) in a paragraph
-    with a single run containing text."""
+    """Replace all content runs (including fldSimple fields) in a paragraph with
+    the given text. A newline in `text` becomes a <w:br/>, so a multi-line
+    author block (name / affiliation / date) keeps its line breaks."""
     for r in list(p.findall(tag('r'))):
         p.remove(r)
     for f in list(p.findall(tag('fldSimple'))):
         p.remove(f)
     r = etree.SubElement(p, tag('r'))
-    t = etree.SubElement(r, tag('t'))
-    t.text = text
+    for i, line in enumerate(str(text or '').split('\n')):
+        if i:
+            etree.SubElement(r, tag('br'))
+        if line:
+            t = etree.SubElement(r, tag('t'))
+            t.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
+            t.text = line
 
 _MD_RE = re.compile(r'[*_]{1,2}([^*_]+)[*_]{1,2}|`([^`]+)`')
 
@@ -2044,7 +2057,7 @@ def _register_custom_xml_part(zipdata):
 def normalize_headers_footers(zipdata, short_title=None, author=None,
                               title=None, subtitle=None):
     """
-    Patch header/footer XML parts to match the ScholarWeave header/footer spec:
+    Patch header/footer XML parts to match the ScholarWeft header/footer spec:
       - any header whose DOCPROPERTY field(s) reference Author / Short Title:
         refresh the cached text to the real values, WITHOUT the vestigial
         STYLEREF "Heading 1 - frontmatter" field some templates carry
@@ -2059,7 +2072,7 @@ def normalize_headers_footers(zipdata, short_title=None, author=None,
     depends on the order headers were first referenced when that PARTICULAR
     template was authored, and differs between book/article/document — a fixed
     filename list silently stopped refreshing whichever template didn't match
-    book.docx's own numbering (see scholarweave-header-footer-agnostic memory).
+    book.docx's own numbering (see scholarweft-header-footer-agnostic memory).
     Also replace document-specific docProps: dc:title, dc:creator,
     TitlesOfParts, 'Short Title', 'Subtitle'.
     """
@@ -2522,7 +2535,7 @@ def _write_docx(template_path, output_path, new_document_xml, new_footnotes_xml=
                         ct_root, xml_declaration=True, encoding='UTF-8',
                         standalone=True)
 
-    normalize_headers_footers(data, short_title=short_title, author=author,
+    normalize_headers_footers(data, short_title=short_title, author=first_line(author),
                               title=title, subtitle=subtitle)
     if csl_style:
         _write_zotero_prefs_docx(data, csl_style)

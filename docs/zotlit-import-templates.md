@@ -1,8 +1,8 @@
 # ZotLit Import Templates
 
-In ScholarWeave's settings you can click **Install and use ScholarWeave's ZotLit import templates**. The templates are packaged in the plugin, so nothing is downloaded; they are written to `sw-zotlit-templates/` in your vault, which is set as your ZotLit template folder so your existing templates are left untouched.
+In ScholarWeft's settings you can click **Install and use ScholarWeft's ZotLit import templates**. The templates are packaged in the plugin, so nothing is downloaded; they are written to `sw-zotlit-templates/` in your vault, which is set as your ZotLit template folder so your existing templates are left untouched.
 
-The templates follow ScholarWeave's "link everything" philosophy and assume you curate your Zotero items and annotations with Obsidian in mind:
+The templates follow ScholarWeft's "link everything" philosophy and assume you curate your Zotero items and annotations with Obsidian in mind:
 
 - All annotations appear in their original colour in callout boxes, so you can colour-code annotation types; each colour is linked to a colour note where you can explain its use and link onward.
 - Zotero `tags` and `related` fields become links in the literature note's `related` property.

@@ -1,6 +1,6 @@
 # Bibliography
 
-ScholarWeave can read references from one or more bibliography files, from Zotero, or both at once. This page covers the file-based sources and how sources are merged; the Zotero connection has its own page ([Zotero](./zotero.md)). No external tools are needed to read a bibliography file.
+ScholarWeft can read references from one or more bibliography files, from Zotero, or both at once. This page covers the file-based sources and how sources are merged; the Zotero connection has its own page ([Zotero](./zotero.md)). No external tools are needed to read a bibliography file.
 
 ## Bibliography files
 

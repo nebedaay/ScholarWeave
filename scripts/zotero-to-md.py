@@ -73,6 +73,17 @@ def _parse_uri(uri: str):
     return (m.group(1), m.group(2), m.group(3)) if m else None
 
 
+def _canonical_item_uri(uri: str):
+    """Normalise a Zotero item URI to http://zotero.org/<type>/<id>/items/<key>,
+    or None. `_URI_RE` is digits-only, so it skips the `users/local/<8char>`
+    form Zotero often lists FIRST — canonicalising each URI lets us match
+    whichever form the API resolution used."""
+    m = _URI_RE.search(uri or '')
+    if m:
+        return f'http://zotero.org/{m.group(1)}/{m.group(2)}/items/{m.group(3)}'
+    return None
+
+
 def fetch_citekeys(uris: list) -> dict:
     """
     Given Zotero item URIs, return {uri: citationKey}.
@@ -137,10 +148,28 @@ def build_citation(zotero_json: dict, citekey_map: dict) -> str:
         if isinstance(uris, str):
             uris = [uris]
         uri  = uris[0] if uris else item.get('id', '')
-        key  = citekey_map.get(uri)
+
+        key = None
+        # 1. Zotero embeds the citekey in itemData — most reliable: it needs
+        #    neither the Zotero/BBT API nor a URI form we can index.
+        item_data = item.get('itemData') or {}
+        key = item_data.get('citation-key') or item_data.get('citationKey')
+        # 2. Resolve any of the item's URIs via the API. The first URI is often
+        #    `users/local/<8char>` (which _URI_RE skips), so try them all.
+        if not key:
+            for u in uris:
+                cu = _canonical_item_uri(u)
+                if cu and citekey_map.get(cu):
+                    key = citekey_map[cu]
+                    break
+        if not key and citekey_map.get(uri):
+            key = citekey_map[uri]
+        # 3. Fall back to the raw item key (last resort — NOT a citekey, so it
+        #    will not resolve in Obsidian; warn loudly).
         if not key:
             key = uri.rstrip('/').split('/')[-1]
-            print(f'  ⚠  No citekey found; using raw key: {key}', file=sys.stderr)
+            print(f'  ⚠  No citekey for item {uri or item.get("id")!r}; '
+                  f'using raw item key: {key}', file=sys.stderr)
 
         suppress = '-' if item.get('suppress-author') else ''
         ref      = f'{suppress}@{key}'

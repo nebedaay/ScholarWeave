@@ -16,7 +16,7 @@ What it scrubs in .docx (word/docx XML inside the zip):
     visible when the template is opened directly (Word replaces it on export).
 
 What it does NOT touch:
-  - Custom properties (docProps/custom.xml) — these contain ScholarWeave's
+  - Custom properties (docProps/custom.xml) — these contain ScholarWeft's
     "Short Title" placeholder and should stay as-is.
   - Any content in word/document.xml beyond field caches.
 

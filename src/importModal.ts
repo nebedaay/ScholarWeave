@@ -10,9 +10,9 @@ import type { DepKey } from './dependencies';
 
 declare const require: (id: string) => any;
 
-const LAST_DIR_KEY = 'scholar-weave:import-last-dir';
-const LAST_OUTDIR_KEY = 'scholar-weave:import-outdir';
-const IMPORT_HISTORY_KEY = 'scholar-weave:import-history';
+const LAST_DIR_KEY = 'scholar-weft:import-last-dir';
+const LAST_OUTDIR_KEY = 'scholar-weft:import-outdir';
+const IMPORT_HISTORY_KEY = 'scholar-weft:import-history';
 
 interface ImportHistoryEntry {
   folder: string;
@@ -213,12 +213,12 @@ export class ImportModal extends Modal {
       if (!file) return;
       const filePath: string | undefined = pathForDroppedFile(file);
       if (!filePath) {
-        new Notice('[ScholarWeave] Could not read the file path from the dropped file.');
+        new Notice('[ScholarWeft] Could not read the file path from the dropped file.');
         return;
       }
       const lower = filePath.toLowerCase();
       if (!lower.endsWith('.docx') && !lower.endsWith('.odt')) {
-        new Notice('[ScholarWeave] Please drop a .docx or .odt file.');
+        new Notice('[ScholarWeft] Please drop a .docx or .odt file.');
         return;
       }
       this.selectFile(filePath, file.name as string);
@@ -374,8 +374,8 @@ export class ImportModal extends Modal {
 
     if (!result.ok) {
       progress.hide();
-      new Notice(`[ScholarWeave] Import failed:\n${result.stderr}`, 10000);
-      console.error('[scholar-weave] Import failed:', result.stderr);
+      new Notice(`[ScholarWeft] Import failed:\n${result.stderr}`, 10000);
+      console.error('[scholar-weft] Import failed:', result.stderr);
       return;
     }
 
@@ -386,7 +386,7 @@ export class ImportModal extends Modal {
       try { fs.unlinkSync(tmpOutput); } catch { /* ignore */ }
     } catch (e) {
       progress.hide();
-      new Notice(`[ScholarWeave] Import failed: could not read converted file.\n${e}`, 8000);
+      new Notice(`[ScholarWeft] Import failed: could not read converted file.\n${e}`, 8000);
       return;
     }
 
@@ -439,7 +439,7 @@ export class ImportModal extends Modal {
       }
     } catch (e) {
       progress.hide();
-      new Notice(`[ScholarWeave] Import failed: could not create note in vault.\n${e}`, 8000);
+      new Notice(`[ScholarWeft] Import failed: could not create note in vault.\n${e}`, 8000);
       return;
     }
 
@@ -465,8 +465,8 @@ export class ImportModal extends Modal {
         }
       } catch (e) {
         litProgress.hide();
-        new Notice(`[ScholarWeave] Literature note creation failed: ${e}`, 6000);
-        console.error('[scholar-weave] lit note creation error:', e);
+        new Notice(`[ScholarWeft] Literature note creation failed: ${e}`, 6000);
+        console.error('[scholar-weft] lit note creation error:', e);
       }
     }
 

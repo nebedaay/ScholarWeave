@@ -2,7 +2,7 @@
 --
 -- Document title for docx/odt exports: use the note's YAML frontmatter
 -- "title" property when present; otherwise fall back to the note's file name,
--- which ScholarWeave passes in as --metadata source-note="${currentFileName}".
+-- which ScholarWeft passes in as --metadata source-note="${currentFileName}".
 --
 -- Example command line:
 --   --metadata source-note="My Note" --lua-filter=sw-doc-title.lua

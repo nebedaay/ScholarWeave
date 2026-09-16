@@ -280,7 +280,7 @@ export async function convertVault(
 
       if (report.skipped.length) {
         console.warn(
-          `[scholar-weave] skipped in ${file.path}:`,
+          `[scholar-weft] skipped in ${file.path}:`,
           report.skipped.map((s) => `${s.text} (${s.reason})`)
         );
       }
@@ -354,7 +354,7 @@ export async function convertActiveNote(
   );
   if (report.skipped.length) {
     console.warn(
-      '[scholar-weave] skipped pandoc citations:',
+      '[scholar-weft] skipped pandoc citations:',
       report.skipped.map((s) => `${s.text} (${s.reason})`)
     );
   }

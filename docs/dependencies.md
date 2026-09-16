@@ -1,6 +1,6 @@
 # Dependencies
 
-ScholarWeave reads and formats citations, shows the reference sidebar, and manages literature notes **with no external tools at all**. Only *document import, compilation, and export* require external programs. This page lists every dependency, what needs it, and where to get it.
+ScholarWeft reads and formats citations, shows the reference sidebar, and manages literature notes **with no external tools at all**. Only *document import, compilation, and export* require external programs. This page lists every dependency, what needs it, and where to get it.
 
 Install a dependency only when you need the feature it enables. The plugin detects what is installed and greys out options that need something missing, with an explanation and a link back here.
 
@@ -70,10 +70,10 @@ Required only for **PDF export through a `.tex` template**. The engine used is *
 
 ## ZotLit (optional)
 
-An Obsidian plugin that creates literature notes from Zotero with rich annotation formatting and powers the `@@` full-text title/author search. ScholarWeave works without it.
+An Obsidian plugin that creates literature notes from Zotero with rich annotation formatting and powers the `@@` full-text title/author search. ScholarWeft works without it.
 
 Download: <https://github.com/PKM-er/obsidian-zotlit>
 
 ## What the plugin does when something is missing
 
-ScholarWeave probes for the tools above when you open the export or import dialogue. Options that need a missing tool are greyed out with an explanation, rather than failing part-way through. If Zotero is not running but the note cites works that can't be resolved from a bibliography file, you are warned and offered **Try connecting again**, **Proceed**, or **Cancel** before anything is exported.
+ScholarWeft probes for the tools above when you open the export or import dialogue. Options that need a missing tool are greyed out with an explanation, rather than failing part-way through. If Zotero is not running but the note cites works that can't be resolved from a bibliography file, you are warned and offered **Try connecting again**, **Proceed**, or **Cancel** before anything is exported.

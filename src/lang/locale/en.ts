@@ -109,7 +109,7 @@ export default {
     'Make rendered [@citekey] citations clickable links to their literature note. Only applies when a note with the matching citekey name exists — dead-link citations are not linked.',
   // src/view.ts
   'Please provide the path to Pandoc in the Linked Citations plugin settings.':
-    'Please provide the path to Pandoc in the ScholarWeave plugin settings.',
+    'Please provide the path to Pandoc in the ScholarWeft plugin settings.',
   'Click to copy': 'Click to copy',
   'Click to jump to citation': 'Click to jump to citation',
   'Copy citekey': 'Copy citekey',
@@ -128,9 +128,9 @@ export default {
   'Libraries to include in bibliography':
     'Libraries to include in bibliography',
   'Please provide the path to your bibliography file in the Linked Citations plugin settings.':
-    'Please provide the path to your bibliography file in the ScholarWeave plugin settings.',
+    'Please provide the path to your bibliography file in the ScholarWeft plugin settings.',
   'Refresh bibliography': 'Refresh bibliography',
-  'Linked Citations settings': 'ScholarWeave settings',
+  'Linked Citations settings': 'ScholarWeft settings',
   'Insert bibliography at cursor': 'Insert bibliography at cursor',
   // src/main.ts commands
   'Sync literature note filenames to citekeys': 'Sync literature note filenames to citekeys',
@@ -171,11 +171,11 @@ export default {
     'Folder where the plugin\'s own literature notes are created (vault-relative). Leave blank to create at the vault root. Used for the "Create literature note" button when ZotLit is not handling creation. ZotLit uses its own configured folder.',
   'Create literature notes with ZotLit':
     'Create literature notes with ZotLit',
-  "Install and use ScholarWeave's ZotLit import templates":
-    "Install and use ScholarWeave's ZotLit import templates",
+  "Install and use ScholarWeft's ZotLit import templates":
+    "Install and use ScholarWeft's ZotLit import templates",
   'Install templates': 'Install templates',
-  'Copies ScholarWeave\'s ZotLit templates into "sw-zotlit-templates/" and points ZotLit\'s "Template folder" setting there. Your own ZotLit templates (in "Templates/") are left untouched.':
-    'Copies ScholarWeave\'s ZotLit templates into "sw-zotlit-templates/" and points ZotLit\'s "Template folder" setting there. Your own ZotLit templates (in "Templates/") are left untouched.',
+  'Copies ScholarWeft\'s ZotLit templates into "sw-zotlit-templates/" and points ZotLit\'s "Template folder" setting there. Your own ZotLit templates (in "Templates/") are left untouched.':
+    'Copies ScholarWeft\'s ZotLit templates into "sw-zotlit-templates/" and points ZotLit\'s "Template folder" setting there. Your own ZotLit templates (in "Templates/") are left untouched.',
   'When ZotLit is available, the tooltip\'s "Create literature note" button creates the note with ZotLit\'s templates instead of the plugin\'s basic template. Falls back to the plugin template when ZotLit is absent or this is off.':
     'When ZotLit is available, the tooltip\'s "Create literature note" button creates the note with ZotLit\'s templates instead of the plugin\'s basic template. Falls back to the plugin template when ZotLit is absent or this is off.',
   'Open in Zotero': 'Open in Zotero',

@@ -225,7 +225,7 @@ export default class ReferenceList extends Plugin {
           (settings.bibliographyPaths?.length ?? 0) > 0 || settings.pullFromZotero;
         const engineNotice = hasSources
           ? new Notice(
-              'ScholarWeave: building citation engine… autocomplete and citation formatting will be ready shortly.',
+              'ScholarWeft: building citation engine… autocomplete and citation formatting will be ready shortly.',
               0
             )
           : null;
@@ -860,7 +860,7 @@ export default class ReferenceList extends Plugin {
       await this.bibManager.getReferenceList(target, content);
       return Array.from(this.bibManager.fileCache.get(target)?.keys ?? []);
     } catch (error) {
-      console.error('ScholarWeave: failed to read citekeys for API consumer', error);
+      console.error('ScholarWeft: failed to read citekeys for API consumer', error);
       return [];
     }
   }

@@ -263,7 +263,7 @@ export class ReferenceListSettingsTab extends PluginSettingTab {
   // ── Navigation ────────────────────────────────────────────────────────────
 
   private renderHome(containerEl: HTMLElement): void {
-    containerEl.createEl('h2', { text: t('ScholarWeave') });
+    containerEl.createEl('h2', { text: t('ScholarWeft') });
 
     const items: { page: SettingsPage; name: string; desc: string }[] = [
       {
@@ -953,10 +953,10 @@ export class ReferenceListSettingsTab extends PluginSettingTab {
 
     if (Platform.isDesktop) {
       new Setting(containerEl)
-        .setName(t("Install and use ScholarWeave's ZotLit import templates"))
+        .setName(t("Install and use ScholarWeft's ZotLit import templates"))
         .setDesc(
           t(
-            'Copies ScholarWeave\'s ZotLit templates into "sw-zotlit-templates/" and points ZotLit\'s "Template folder" setting there. Your own ZotLit templates (in "Templates/") are left untouched.'
+            'Copies ScholarWeft\'s ZotLit templates into "sw-zotlit-templates/" and points ZotLit\'s "Template folder" setting there. Your own ZotLit templates (in "Templates/") are left untouched.'
           )
         )
         .addButton((btn) =>

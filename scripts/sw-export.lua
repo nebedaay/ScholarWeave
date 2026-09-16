@@ -1,6 +1,6 @@
 -- sw-export.lua
 --
--- ScholarWeave export filter. Runs in the --lua-filter chain and applies
+-- ScholarWeft export filter. Runs in the --lua-filter chain and applies
 -- the vault's document-formatting conventions before the docx/odt writer.
 --
 -- Reads YAML frontmatter and:
@@ -16,11 +16,11 @@
 -- Footnotes ([^1] ...) and headings (# / ##) are handled natively by pandoc's
 -- docx writer (Footnote Text, Heading 1/2 styles) — no lua needed.
 --
--- Usage (ScholarWeave export pipeline or CLI):
+-- Usage (ScholarWeft export pipeline or CLI):
 --   --lua-filter=sw-export.lua
 --
 -- The vault root comes from the SW_VAULT env var (set by the plugin / by the
--- ScholarWeave export pipeline). For a bare `pandoc --lua-filter` run outside
+-- ScholarWeft export pipeline). For a bare `pandoc --lua-filter` run outside
 -- that pipeline, set SW_VAULT yourself. When it is unset, template resolution
 -- here is skipped and `reference-doc` is left for the caller (the merge step,
 -- or an explicit `--reference-doc`) to supply.

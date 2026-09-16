@@ -1,6 +1,6 @@
 # Mobile
 
-ScholarWeave works on iOS and Android. The citation features need no external tools; document import/export is desktop-only.
+ScholarWeft works on iOS and Android. The citation features need no external tools; document import/export is desktop-only.
 
 ## Bibliography files
 

@@ -3,9 +3,9 @@ import type ReferenceList from './main';
 import { BUNDLED_ASSETS } from 'bundled:assets';
 
 /**
- * Folder (vault-relative) where ScholarWeave's ZotLit import templates are
+ * Folder (vault-relative) where ScholarWeft's ZotLit import templates are
  * installed. Deliberately NOT "Templates" so a one-click install can't clobber
- * a user's own ZotLit templates — this folder is ScholarWeave-managed.
+ * a user's own ZotLit templates — this folder is ScholarWeft-managed.
  */
 export const SW_ZOTLIT_FOLDER = 'sw-zotlit-templates';
 
@@ -105,7 +105,7 @@ export async function installZotlitTemplatesWithNotice(
 ): Promise<void> {
   const r = await installZotlitTemplates(plugin);
   if (r.error && r.written.length === 0) {
-    new Notice(`ScholarWeave: ${r.error}`, 8000);
+    new Notice(`ScholarWeft: ${r.error}`, 8000);
     return;
   }
   const lines = [`Installed ${r.written.length} ZotLit template(s) to ${r.folder}/`];
@@ -123,5 +123,5 @@ export async function installZotlitTemplatesWithNotice(
       `ZotLit not detected — set its "Template folder" to ${r.folder} manually.`
     );
   }
-  new Notice(`ScholarWeave: ${lines.join('\n')}`, 9000);
+  new Notice(`ScholarWeft: ${lines.join('\n')}`, 9000);
 }

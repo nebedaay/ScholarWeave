@@ -1,6 +1,6 @@
 # Commands
 
-Open the command palette with `Cmd/Ctrl+P` and type "ScholarWeave". The names below are the command names; Obsidian shows them grouped under the plugin name.
+Open the command palette with `Cmd/Ctrl+P` and type "ScholarWeft". The names below are the command names; Obsidian shows them grouped under the plugin name.
 
 ## Citations and references
 

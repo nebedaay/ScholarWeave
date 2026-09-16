@@ -1,5 +1,5 @@
 /**
- * Canonical metadata about ScholarWeave's external dependencies, shared by the
+ * Canonical metadata about ScholarWeft's external dependencies, shared by the
  * settings sub-pages (requirement notes) and the export/import modals.
  *
  * Keep in sync with docs/dependencies.md.
@@ -56,7 +56,7 @@ export const DEPENDENCIES = {
 export type DepKey = keyof typeof DEPENDENCIES;
 
 export const DEPENDENCIES_DOC_URL =
-  'https://github.com/nebedaay/ScholarWeave/blob/main/docs/dependencies.md';
+  'https://github.com/nebedaay/ScholarWeft/blob/main/docs/dependencies.md';
 
 /**
  * Render a bordered note under a settings section explaining what it needs.

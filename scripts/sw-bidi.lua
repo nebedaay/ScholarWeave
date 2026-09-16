@@ -1,6 +1,6 @@
 -- sw-bidi.lua
 --
--- ScholarWeave Lua filter: give block-level Arabic content an explicit
+-- ScholarWeft Lua filter: give block-level Arabic content an explicit
 -- right-to-left direction (LaTeX language container / docx-odt dir=rtl).
 --
 -- babel's `onchar=ids fonts` (see the templates' "Arabic / non-Latin RTL

@@ -1,6 +1,6 @@
 # Zotero Integration
 
-ScholarWeave can use Zotero as a reference source, resolve and refresh citations, and read citation fields on import. It can also blend Zotero with one or more bibliography files (see [Bibliography](./bibliography.md)).
+ScholarWeft can use Zotero as a reference source, resolve and refresh citations, and read citation fields on import. It can also blend Zotero with one or more bibliography files (see [Bibliography](./bibliography.md)).
 
 Zotero is optional if you keep your references in a bibliography file: those citations are rendered statically and need nothing running. Live, refreshable citation fields in exported DOCX/ODT do require Zotero.
 

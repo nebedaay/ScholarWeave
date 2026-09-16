@@ -1114,7 +1114,7 @@ export class ExportModal extends Modal {
 
     if (!res.ok) {
       new Notice(`Document compiler failed:\n${res.stderr}`, 8000);
-      console.error('[scholar-weave] DocumentCompiler failed:', res.stderr);
+      console.error('[scholar-weft] DocumentCompiler failed:', res.stderr);
       return;
     }
 

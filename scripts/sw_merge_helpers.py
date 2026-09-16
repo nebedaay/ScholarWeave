@@ -1,4 +1,4 @@
-"""sw_merge_helpers.py — shared helpers for the ScholarWeave export merge.
+"""sw_merge_helpers.py — shared helpers for the ScholarWeft export merge.
 
 Contains both OOXML-level helpers (used by sw_export_merge.py) and
 format-agnostic helpers used by both merge scripts.
@@ -302,6 +302,25 @@ def is_tof_heading(text):
     return text.strip().lower() == 'table of figures'
 
 
+def first_line(text):
+    """First non-empty line of a multi-line value, else the value itself.
+
+    Used for the running header author ("Author — Short Title"): a note's
+    author may be a whole block (name + affiliation/address/date, kept intact
+    in the YAML and printed in full in the title block), but only the NAME
+    belongs in the header, which would otherwise overflow or truncate."""
+    for line in str(text or '').splitlines():
+        if line.strip():
+            return line.strip()
+    return str(text or '').strip()
+
+
+def cover_author_lines(author):
+    """The author block as clean, non-empty lines (for a multi-line title
+    block slot); [] when there is no author."""
+    return [l.strip() for l in str(author or '').splitlines() if l.strip()]
+
+
 def resolve_cover(title, subtitle, author, date_val, basename, generate_date=True):
     """Resolve cover values per spec, identically for DOCX and ODT:
       Title    = whole 'title' property when a 'subtitle' property is given
@@ -475,7 +494,7 @@ def find_all_bibliography_ranges(elements, heading_text_fn, is_bibl_entry_fn):
     instead of stopping at the first.
 
     A source note can carry its own pre-existing 'Bibliography' heading (e.g.
-    hand-typed references predating ScholarWeave's citation system) in
+    hand-typed references predating ScholarWeft's citation system) in
     addition to pandoc's own auto-generated one — see
     strip_duplicate_bibliographies, which uses this to tell the two apart.
 
@@ -556,7 +575,7 @@ def strip_bibliography_heading_from_markdown(text, level=1):
     strip_duplicate_bibliographies, there is no keep_last ambiguity: any
     'Bibliography' heading found here is necessarily a stale duplicate from
     the source note's own prior content (e.g. hand-typed references predating
-    ScholarWeave's citation system), so it is always removed unconditionally.
+    ScholarWeft's citation system), so it is always removed unconditionally.
 
     `level` is the Markdown heading depth (number of '#') that DocumentCompiler
     .py's compiled output uses for a top-level section — 1 for book's chapters

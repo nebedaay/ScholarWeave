@@ -589,13 +589,13 @@ export class BibManager {
       try {
         resolved = await getBibPath(rawPath);
       } catch (e) {
-        console.error(`scholar-weave: cannot resolve .bib path "${rawPath}":`, e);
+        console.error(`scholar-weft: cannot resolve .bib path "${rawPath}":`, e);
         continue;
       }
 
       // Persist normalised path back to settings if it changed.
       if (resolved !== rawPath) {
-        console.info(`scholar-weave: normalised bib path "${rawPath}" → "${resolved}"`);
+        console.info(`scholar-weft: normalised bib path "${rawPath}" → "${resolved}"`);
         settings.bibliographyPaths[i] = resolved;
         settingsModified = true;
       }
@@ -623,7 +623,7 @@ export class BibManager {
           bib = await bibToCSL(resolved, settings.pathToPandoc);
           debugLog(`[lc:bib] parsed "${resolved}" — ${bib?.length ?? 0} entries`);
         } catch (e) {
-          console.error(`scholar-weave: failed to load "${resolved}":`, e);
+          console.error(`scholar-weft: failed to load "${resolved}":`, e);
           continue;
         }
 
@@ -716,7 +716,7 @@ export class BibManager {
           this.mergeZoteroEntry(entry);
         }
       } catch (e) {
-        console.error('scholar-weave: Zotero load failed:', e);
+        console.error('scholar-weft: Zotero load failed:', e);
       }
     }
 
@@ -817,7 +817,7 @@ export class BibManager {
             modifiedEntries.set(k, this.bibCache.get(k)!);
           }
         } catch (e) {
-          console.error('scholar-weave: Zotero refresh failed:', e);
+          console.error('scholar-weft: Zotero refresh failed:', e);
         }
       }
 

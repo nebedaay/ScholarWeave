@@ -27,7 +27,7 @@ import { BUNDLED_ASSETS } from 'bundled:assets';
  */
 export async function setupAssets(plugin: ReferenceList): Promise<void> {
   const { app, manifest } = plugin;
-  const pluginDir = manifest.dir; // e.g. ".obsidian/plugins/scholar-weave"
+  const pluginDir = manifest.dir; // e.g. ".obsidian/plugins/scholar-weft"
 
   // Create the subdirectories we need.
   const dirs = new Set<string>();
@@ -71,11 +71,11 @@ export async function setupAssets(plugin: ReferenceList): Promise<void> {
       written++;
     } catch (e) {
       failed++;
-      console.warn(`ScholarWeave: failed to write bundled asset "${relativePath}":`, e);
+      console.warn(`ScholarWeft: failed to write bundled asset "${relativePath}":`, e);
     }
   }
   console.log(
-    `ScholarWeave ${manifest.version}: extracted ${written} bundled asset(s)`
+    `ScholarWeft ${manifest.version}: extracted ${written} bundled asset(s)`
       + (failed ? `, ${failed} failed` : ''),
   );
 

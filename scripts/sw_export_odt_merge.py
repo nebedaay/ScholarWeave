@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-sw_export_odt_merge.py — ScholarWeave ODT export merge.
+sw_export_odt_merge.py — ScholarWeft ODT export merge.
 
 Parallel to sw_export_merge.py (which handles DOCX). Takes the clean ODT
 produced by pandoc (via the sw-*.lua filters) and the target Export Template
@@ -44,7 +44,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sw_merge_helpers import (split_paragraphs, find_bibliography_range,
     strip_duplicate_bibliographies, ZOTERO_BIBL_INSTR, resize_images, STYLE_REMAP,
     STYLE_ALIASES, resolve_style_alias,
-    resolve_cover, title_case as _title_case, strip_markdown as _strip_markdown,
+    resolve_cover, first_line, cover_author_lines, title_case as _title_case, strip_markdown as _strip_markdown,
     is_toc_heading, process_figures, bundled_template, ensure_odt_styles,
     strip_chapter_prefix, parse_chapter_number, append_extra_sections,
     resolve_note_sections,
@@ -117,9 +117,14 @@ def _clear_runs(el):
     el.text = None
 
 def _set_plain_text(el, text):
-    """Replace element content with a single plain-text string."""
+    """Replace element content with plain text. A newline becomes a
+    <text:line-break/>, so a multi-line author block keeps its line breaks."""
     _clear_runs(el)
-    el.text = text or ''
+    lines = str(text or '').split('\n')
+    el.text = lines[0]
+    for line in lines[1:]:
+        br = etree.SubElement(el, T('line-break'))
+        br.tail = line
 
 _MD_RE = re.compile(r'\*\*([^*]+)\*\*|__([^_]+)__|(?<!\*)\*([^*]+)\*(?!\*)|_([^_]+)_|`([^`]+)`')
 
@@ -676,12 +681,22 @@ def _fill_title_block(title_block, title, subtitle, author, date_val):
                 j += 1
             i = j - 1
 
-        # ── article.odt: first Text_20_body before any AKH = author ─────────
-        elif sn == _BODY_STYLE and before_akh and not first_para_done:
+        # ── article.odt: first Text_20_body after the Title = author ────────
+        elif sn == _BODY_STYLE and before_akh and first_para_done and not author_done:
+            # That template has no dedicated Author style, so the author slot
+            # is the first body-style paragraph AFTER the Title. (Gating on
+            # first_para_done — not "first body paragraph overall" — is what
+            # makes this fire when the Title already used the Title style.)
             _set_plain_text(el, author or '')
             out.append(el)
-            first_para_done = True
             author_done = True
+
+        elif sn == _BODY_STYLE and before_akh and not first_para_done:
+            # A template whose TITLE is a plain body-style paragraph (no Title
+            # style present): the first such paragraph holds the title.
+            _set_markdown_text(el, title or '')
+            out.append(el)
+            first_para_done = True
 
         elif sn == _BODY_STYLE and before_akh:
             # Additional body-style paragraphs in the title area (e.g. keywords
@@ -1988,7 +2003,7 @@ def merge_odt(template_path, input_path, output_path,
     #    heading-remapping/chapter-exclusion logic below exactly like a normal
     #    section. But a source note can ALSO carry its own pre-existing
     #    'Bibliography' heading (e.g. hand-typed references predating
-    #    ScholarWeave's citation system) — left untouched, that duplicates
+    #    ScholarWeft's citation system) — left untouched, that duplicates
     #    pandoc's own, real one. keep_last=True (below) strips any such
     #    earlier duplicate while leaving pandoc's own (always the last match)
     #    alone.
@@ -2122,7 +2137,7 @@ def merge_odt(template_path, input_path, output_path,
 
     # ── Update document metadata ───────────────────────────────────────────
     _update_meta(z_data, title, author, short_title=short_title, subtitle=subtitle)
-    _update_odt_field_placeholders(z_data, author, short_title)
+    _update_odt_field_placeholders(z_data, first_line(author), short_title)
     if csl_style:
         _write_zotero_prefs_odt(z_data, csl_style)
 
