@@ -61,6 +61,9 @@ export const DEFAULT_SETTINGS: ReferenceListSettings = {
   styleMappings: [],
   styleMappingsEnabled: true,
   zoteroDataDir: '',
+  /** Conflicting reference-list plugin ids the user chose to keep ("Keep both
+   *  and don't ask again"). Only that explicit choice silences the prompt. */
+  conflictKeepPlugins: [],
 };
 
 export interface ZoteroGroup {
@@ -103,6 +106,7 @@ export interface ReferenceListSettings {
    * frontmatter and to list installed styles in the export dialog.
    */
   zoteroDataDir?: string;
+  conflictKeepPlugins?: string[];
 
   hideLinks?: boolean;
   showCitekeyTooltips?: boolean;
@@ -961,16 +965,37 @@ export class ReferenceListSettingsTab extends PluginSettingTab {
       );
 
     if (Platform.isDesktop) {
-      new Setting(containerEl)
-        .setName(t("Install and use ScholarWeft's ZotLit import templates"))
-        .setDesc(
+      // Only offer this when ZotLit is present. Pointing ZotLit's settings at
+      // our folder requires ZotLit to exist (and be able to read its own
+      // file); doing it for a missing plugin is what can leave ZotLit unable
+      // to load. So we grey the button out until ZotLit is installed.
+      const pm = (this.app as any).plugins;
+      const zotlitInstalled = !!pm?.manifests?.['zotlit'];
+      const zotlitEnabled = !!pm?.plugins?.['zotlit'];
+      const zotlitSetting = new Setting(containerEl).setName(
+        t("Install and use ScholarWeft's ZotLit import templates")
+      );
+      if (!zotlitInstalled) {
+        zotlitSetting.setDesc(
           t(
-            'Copies ScholarWeft\'s ZotLit templates into "sw-zotlit-templates/" and points ZotLit\'s "Template folder" setting there. Your own ZotLit templates (in "Templates/") are left untouched.'
+            'Install and enable the ZotLit plugin first — Settings → Community plugins → Browse → search "ZotLit" — then come back here to install these templates.'
           )
-        )
-        .addButton((btn) =>
+        );
+        zotlitSetting.addButton((btn) =>
+          btn.setButtonText(t('Install templates')).setDisabled(true)
+        );
+      } else {
+        zotlitSetting.setDesc(
+          t(
+            zotlitEnabled
+              ? 'Copies ScholarWeft\'s ZotLit templates into "sw-zotlit-templates/" and points ZotLit\'s "Template folder" setting there. Your own ZotLit templates (in "Templates/") are left untouched.'
+              : 'ZotLit is installed but not enabled. Enable it in Settings → Community plugins, then come back here.'
+          )
+        );
+        zotlitSetting.addButton((btn) =>
           btn
             .setButtonText(t('Install templates'))
+            .setDisabled(!zotlitEnabled)
             .onClick(async () => {
               btn.setDisabled(true);
               try {
@@ -980,6 +1005,7 @@ export class ReferenceListSettingsTab extends PluginSettingTab {
               }
             })
         );
+      }
     }
   }
 

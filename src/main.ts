@@ -43,6 +43,25 @@ import { CiteSuggest } from './citeSuggest/citeSuggest';
 import { ExportModal } from './exportModal';
 import { ImportModal } from './importModal';
 import { CitekeyRenameModal } from './modals/citekeyRenameModal';
+import { ConflictModal } from './modals/conflictModal';
+
+/**
+ * Heuristic: is this plugin another reference-list provider of the same
+ * lineage? Matched on id + display name so we don't need to enumerate every
+ * sibling's id (the ancestral "Pandoc Reference List", Bripey/Briley Citation
+ * Suite, Alias/Linked Citations, earlier ScholarWeave, …). Kept deliberately
+ * narrow — "reference list" or a known family name — so unrelated citation
+ * plugins (e.g. ZotLit) are never flagged.
+ */
+function looksLikeReferenceListPlugin(id: string, name: string): boolean {
+  const s = `${id} ${name}`.toLowerCase();
+  return (
+    /reference[\s_-]*list/.test(s) ||
+    /(bripey|briley)/.test(s) ||
+    /(alias|linked)[\s_-]*citations/.test(s) ||
+    /scholar[\s_-]*weave/.test(s)
+  );
+}
 import { convertActiveNote, convertVault } from './pandocToLinked';
 import { convertNoteToPandoc, convertVaultToPandoc } from './linkedToPandoc';
 import { setupAssets } from './assetSetup';
@@ -160,10 +179,23 @@ export default class ReferenceList extends Plugin {
     // users who installed via BRAT get everything they need automatically.
     await setupAssets(this);
 
-    this.registerView(
-      viewType,
-      (leaf: WorkspaceLeaf) => new ReferenceListView(leaf, this)
-    );
+    // Register the sidebar view, but tolerate the view type already existing —
+    // e.g. the OLD "scholar-weave" plugin (same code, same view type) is still
+    // enabled alongside this one. Without this guard, registerView throws and
+    // Obsidian marks the plugin as failed (toggle disabled, settings
+    // unavailable). Whichever copy loads first owns the view; this one still
+    // loads and works.
+    const viewRegistry = (this.app as any).viewRegistry;
+    if (viewRegistry?.viewByType && viewType in viewRegistry.viewByType) {
+      console.warn(
+        `ScholarWeft: view type "${viewType}" is already registered — the ancestral "Pandoc Reference List" plugin (or an earlier ScholarWeft) is enabled. Disable it and restart Obsidian to restore ScholarWeft's reference sidebar.`
+      );
+    } else {
+      this.registerView(
+        viewType,
+        (leaf: WorkspaceLeaf) => new ReferenceListView(leaf, this)
+      );
+    }
 
     this.emitter = new Events();
     this.bibManager = new BibManager(this);
@@ -307,6 +339,7 @@ export default class ReferenceList extends Plugin {
       if (!hasLeaf) {
         this.initLeaf();
       }
+      this.checkConflictingPlugins();
     });
 
     this.addCommand({
@@ -659,14 +692,54 @@ export default class ReferenceList extends Plugin {
     })();
   }
 
+  /**
+   * On every startup: if another plugin of the reference-list lineage is
+   * enabled (Pandoc Reference List, Bripey/Briley Citation Suite, Alias/Linked
+   * Citations, an earlier ScholarWeave), tell the user and offer to disable it.
+   * Detected by the plugin's id/name, not a fixed id list, so it catches
+   * siblings we don't know about. Shown again each startup while the conflict
+   * remains — the user asked to be reminded rather than have it silenced.
+   */
+  private checkConflictingPlugins(): void {
+    const pm = (this.app as any).plugins;
+    if (!pm) return;
+    const acked = new Set(this.settings.conflictKeepPlugins ?? []);
+    const enabled: string[] = Array.from(pm.enabledPlugins ?? []);
+    const conflicts = enabled
+      .filter((id) => id !== this.manifest.id && !acked.has(id))
+      .filter((id) => looksLikeReferenceListPlugin(id, pm.manifests?.[id]?.name ?? ''))
+      .map((id) => ({ id, name: pm.manifests?.[id]?.name ?? id }));
+    if (conflicts.length === 0) return;
+    new ConflictModal(this.app, conflicts, async (disableIds, dontAskAgain) => {
+      if (dontAskAgain) {
+        this.settings.conflictKeepPlugins = Array.from(new Set([
+          ...(this.settings.conflictKeepPlugins ?? []),
+          ...conflicts.map((c) => c.id),
+        ]));
+        await this.saveSettings();
+      }
+      for (const id of disableIds) {
+        try {
+          await pm.disablePlugin(id);
+        } catch (e) {
+          console.error('ScholarWeft: could not disable conflicting plugin', id, e);
+        }
+      }
+    }).open();
+  }
+
   onunload() {
     document.body.removeClass('lc-tooltips');
     this.app.workspace
       .getLeavesOfType(viewType)
       .forEach((leaf) => leaf.detach());
-    void this.bibManager.saveRenderedCache();
-    void this.bibManager.saveZLinks();
-    this.bibManager.destroy();
+    // Guard: onload may have failed before bibManager existed, and unload must
+    // not throw on top of that.
+    if (this.bibManager) {
+      void this.bibManager.saveRenderedCache();
+      void this.bibManager.saveZLinks();
+      this.bibManager.destroy();
+    }
   }
 
   async updateBibliographyFrontmatter(oldPath: string, newPath: string) {

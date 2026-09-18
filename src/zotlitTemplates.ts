@@ -63,36 +63,66 @@ export async function installZotlitTemplates(
     return result;
   }
 
-  // Point ZotLit's "Template folder" at our folder, if ZotLit is present.
+  // Point ZotLit's "Template folder" at our folder, but only when ZotLit is
+  // actually loaded. We never create or clobber ZotLit's settings file when
+  // ZotLit isn't there to read it — writing a settings file for a plugin that
+  // doesn't exist (or that has its own file) is how you brick it.
   const anyApp = app as any;
   const zotlit = anyApp.plugins?.plugins?.[ZOTLIT_PLUGIN_ID];
   result.zotlitDetected = !!zotlit;
   if (zotlit) {
+    const dataPath = normalizePath(
+      `${app.vault.configDir}/plugins/${ZOTLIT_PLUGIN_ID}/data.json`
+    );
+    // Quiesce ZotLit FIRST: disabling it makes it flush its own settings to
+    // data.json, so our write happens last and cannot interleave with its save.
+    // (Writing while it is live — or right before a disable — races two writers
+    // and can corrupt the file, after which ZotLit fails to load.)
+    let disabled = false;
     try {
-      const dataPath = normalizePath(
-        `${app.vault.configDir}/plugins/${ZOTLIT_PLUGIN_ID}/data.json`
-      );
-      let data: Record<string, unknown> = {};
-      try {
-        data = JSON.parse(await adapter.read(dataPath));
-      } catch {
-        /* no existing data.json — start fresh */
+      await anyApp.plugins.disablePlugin(ZOTLIT_PLUGIN_ID);
+      disabled = true;
+    } catch {
+      /* couldn't disable — we'll still write, but won't reload at the end */
+    }
+    try {
+      const existing = (await adapter.exists(dataPath))
+        ? await adapter.read(dataPath)
+        : null;
+      let data: Record<string, unknown>;
+      if (existing && existing.trim()) {
+        try {
+          data = JSON.parse(existing);
+        } catch {
+          // Never overwrite an unreadable settings file — that turns a bad file
+          // into a bricked plugin. Leave it alone and tell the user.
+          result.error =
+            "ZotLit's settings file couldn't be parsed, so it was left " +
+            `untouched — set ZotLit's "Template folder" to ${SW_ZOTLIT_FOLDER} manually.`;
+          return result;
+        }
+      } else {
+        data = {};
+      }
+      if (existing !== null) {
+        await adapter.write(`${dataPath}.scholarweft.bak`, existing);
       }
       // ZotLit stores settings as flat dot-keys.
       data['template.folder'] = SW_ZOTLIT_FOLDER;
       await adapter.write(dataPath, JSON.stringify(data, null, 2));
       result.folderConfigured = true;
-
-      // Reload ZotLit so it re-reads data.json now rather than on next launch.
-      try {
-        await anyApp.plugins.disablePlugin(ZOTLIT_PLUGIN_ID);
-        await anyApp.plugins.enablePlugin(ZOTLIT_PLUGIN_ID);
-        result.reloadedZotlit = true;
-      } catch {
-        /* reload failed — the written setting still applies after a restart */
-      }
     } catch (e) {
       result.error = `Templates installed, but could not update ZotLit's setting: ${(e as Error).message}`;
+    } finally {
+      if (disabled) {
+        try {
+          // Re-enable so ZotLit re-reads data.json now rather than on next launch.
+          await anyApp.plugins.enablePlugin(ZOTLIT_PLUGIN_ID);
+          result.reloadedZotlit = true;
+        } catch {
+          /* the written setting still applies after a restart */
+        }
+      }
     }
   }
 

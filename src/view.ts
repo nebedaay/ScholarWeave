@@ -4,7 +4,12 @@ import { copyElToClipboard } from './helpers';
 import { t } from './lang/helpers';
 import ReferenceList from './main';
 
-export const viewType = 'ReferenceListView';
+// Unique per plugin, NOT the ancestral "ReferenceListView" — the upstream
+// "Pandoc Reference List" plugin (and the fork's earlier names) registers that
+// same view type, and Obsidian throws "Attempting to register an existing view
+// type" for whichever loads second. A distinct id lets both coexist (users who
+// want only one can disable the other).
+export const viewType = 'scholar-weft-reference-list';
 
 export class ReferenceListView extends ItemView {
   plugin: ReferenceList;
