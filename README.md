@@ -63,7 +63,8 @@ Basic citation work needs nothing installed. Document import/export and live Zot
 2. In BRAT's settings, add `nebedaay/ScholarWeft` to the **Beta plugin list**.
 3. Enable **ScholarWeft** in Community Plugins. BRAT keeps it updated.
 
-See [Setup](./docs/setup.md) for first steps.
+**New to all of this?** **[Setup](./docs/setup.md)** is a complete, click-by-click walkthrough, and it opens with a **setup script** that can do the whole thing for you — install/update the Obsidian and Zotero apps, add ScholarWeft and ZotLit to Obsidian and Better BibTeX and ZotLit to Zotero, switch on Zotero's local connection, and install the document tools (Python, Pandoc, LibreOffice, LaTeX, fonts). It is interactive (asks before each step), safe to re-run, and prints a summary of what succeeded/failed/was skipped. Copy the one-line command for your OS from the top of [Setup](./docs/setup.md#the-easy-way-run-the-setup-script).
+
 
 ## Companion plugins
 

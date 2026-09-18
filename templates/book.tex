@@ -48,7 +48,35 @@
 % a .tex is compiled by hand with xelatex.) Width=/Slant=/RawAxis= work the
 % same way if you ever need them.
 \ifluatex
-  \setmainfont{Noto Serif}[BoldFont={Noto Serif},BoldFeatures={Weight=700}]
+  % ── Unicode GLYPH FALLBACK ──────────────────────────────────────────────
+  % LuaLaTeX draws only glyphs the current font HAS. Noto Serif lacks
+  % many symbols (→ U+2192, ⚙ U+2699, ✓ U+2713 …) and all EMOJI, which then
+  % show as tofu boxes. Build a fallback chain from whichever fonts are
+  % installed (each guarded by \IfFontExistsTF) and hand it to luaotfload: a
+  % glyph the main font lacks is drawn from the first listed font that has
+  % it. Ordered Serif-style symbols first (matched to Noto Serif),
+  % then monochrome emoji, CJK, and broad catch-alls for other scripts.
+  % NOTE: symbols fonts differ in vertical position — Apple Symbols draws →
+  % near the BASELINE, STIX Two Math / Noto Sans Math centre it — so a math/
+  % symbols font precedes Apple Symbols. Colour emoji fonts (Apple Color
+  % Emoji, Segoe UI Emoji) CANNOT be used (no colour-bitmap support);
+  % install monochrome "Noto Emoji" (listed below) or use twemojis.
+  \def\swfallbacklist{}
+  \IfFontExistsTF{STIX Two Math}{\xdef\swfallbacklist{\swfallbacklist "STIX Two Math:mode=node;",}}{}
+  \IfFontExistsTF{Symbola}{\xdef\swfallbacklist{\swfallbacklist "Symbola:mode=node;",}}{}
+  \IfFontExistsTF{Apple Symbols}{\xdef\swfallbacklist{\swfallbacklist "Apple Symbols:mode=node;",}}{}
+  \IfFontExistsTF{Noto Sans Symbols 2}{\xdef\swfallbacklist{\swfallbacklist "Noto Sans Symbols 2:mode=node;",}}{}
+  \IfFontExistsTF{Noto Emoji}{\xdef\swfallbacklist{\swfallbacklist "Noto Emoji:mode=node;",}}{}
+  \IfFontExistsTF{Noto Serif CJK SC}{\xdef\swfallbacklist{\swfallbacklist "Noto Serif CJK SC:mode=node;",}}{}
+  \IfFontExistsTF{Songti SC}{\xdef\swfallbacklist{\swfallbacklist "Songti SC:mode=node;",}}{}
+  \IfFontExistsTF{Hiragino Sans GB}{\xdef\swfallbacklist{\swfallbacklist "Hiragino Sans GB:mode=node;",}}{}
+  \IfFontExistsTF{WenQuanYi Zen Hei}{\xdef\swfallbacklist{\swfallbacklist "WenQuanYi Zen Hei:mode=node;",}}{}
+  \IfFontExistsTF{Arial Unicode MS}{\xdef\swfallbacklist{\swfallbacklist "Arial Unicode MS:mode=node;",}}{}
+  \IfFontExistsTF{DejaVu Serif}{\xdef\swfallbacklist{\swfallbacklist "DejaVu Serif:mode=node;",}}{}
+  \directlua{luaotfload.add_fallback("swfallback", {\swfallbacklist})}
+  % ────────────────────────────────────────────────────────────────────────
+  \setmainfont{Noto Serif}[BoldFont={Noto Serif},BoldFeatures={Weight=700},
+    RawFeature={fallback=swfallback}]
 \else
   \setmainfont{Noto Serif}[BoldFont={Noto Serif},BoldFeatures={FakeBold=3.5}]
 \fi

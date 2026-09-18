@@ -99,7 +99,7 @@ export function ZoteroPullSetting({ plugin }: { plugin: ReferenceList }) {
         <div className="lc-setting-item setting-item">
           <SettingItem
             name={t('Cannot connect to Zotero')}
-            description={t('Start Zotero and try again.')}
+            description={t('ZoteroConnectionHelp')}
           >
             <button onClick={() => pullUserGroups()} className="mod-cta">
               Retry

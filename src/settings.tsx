@@ -26,7 +26,16 @@ export const DEFAULT_SETTINGS: ReferenceListSettings = {
   pathToPandoc: '',
   bibliographyPaths: [],
   tooltipDelay: 400,
-  zoteroGroups: [],
+  /** Most users want Zotero, so it is ON by default with "My Library"
+   *  pre-selected. The native API (Zotero 7/8) is the documented default and
+   *  needs no Better BibTeX. If Zotero isn't reachable the settings page shows
+   *  a notice explaining Zotero's "Allow other applications … to connect to
+   *  Zotero" option, and users who prefer a .bib file can just switch Zotero
+   *  off. */
+  pullFromZotero: true,
+  useNativeZoteroAPI: true,
+  zoteroPort: '23119',
+  zoteroGroups: [{ id: 1, name: 'My Library' }],
   renderCitations: true,
   renderCitationsReadingMode: true,
   renderLinkCitations: true,

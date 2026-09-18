@@ -27,7 +27,12 @@ async function execProbe(file: string, args: string[]): Promise<boolean> {
 /**
  * Resolve a Python 3 interpreter that can import `modules` (default: the
  * export pipeline's `lxml` + `python-docx`). An explicit configured path wins
- * without probing. Returns the first candidate that imports cleanly.
+ * without probing. Each candidate is probed by actually importing the modules,
+ * so a Python that exists but lacks them is skipped rather than chosen.
+ *
+ * Candidates include the private virtual environment our installer script
+ * creates (`~/ScholarWeft/venv`), conda/anaconda, pyenv, Homebrew and the
+ * distro interpreters — so users normally don't have to paste a path at all.
  */
 export async function findPython3(
   configured: string,
@@ -35,17 +40,49 @@ export async function findPython3(
 ): Promise<string | null> {
   if (configured.trim()) return configured.trim();
   const platform = globalThis.process?.platform;
+  const win = platform === 'win32';
+  let home = '';
+  try {
+    home = (require('os').homedir() as string) ?? '';
+  } catch {
+    home = '';
+  }
   const probe = (p: string) =>
     execProbe(p, ['-c', `import ${modules.join(', ')}; import sys; sys.exit(0)`]);
 
-  const candidates: string[] = platform === 'win32' ? ['py', 'python', 'python3'] : ['python3'];
-  candidates.push(
-    ...(platform === 'win32'
-      ? ['C:\\Python313\\python.exe', 'C:\\Python312\\python.exe', 'C:\\Python311\\python.exe']
-      : ['/opt/homebrew/bin/python3', '/usr/local/bin/python3', '/usr/bin/python3'])
-  );
+  const candidates: string[] = [];
+  // 1. Whatever is on PATH — the user's own working interpreter if they have one.
+  candidates.push(...(win ? ['py', 'python', 'python3'] : ['python3', 'python']));
+  // 2. The virtual environment created by install/install-*.sh — this is what
+  //    lets the installer finish without the user copying a path around.
+  if (home) {
+    candidates.push(
+      win
+        ? `${home}\\ScholarWeft\\venv\\Scripts\\python.exe`
+        : `${home}/ScholarWeft/venv/bin/python3`
+    );
+  }
+  // 3. Well-known per-user and system locations.
+  if (win) {
+    const local = process.env.LOCALAPPDATA ?? '';
+    candidates.push(
+      'C:\\Python313\\python.exe', 'C:\\Python312\\python.exe', 'C:\\Python311\\python.exe',
+      `${home}\\miniconda3\\python.exe`, `${home}\\anaconda3\\python.exe`,
+      `${local}\\Programs\\Python\\Python313\\python.exe`,
+      `${local}\\Programs\\Python\\Python312\\python.exe`
+    );
+  } else {
+    candidates.push(
+      'python3.13', 'python3.12', 'python3.11',
+      '/opt/homebrew/bin/python3', '/usr/local/bin/python3', '/usr/bin/python3',
+      `${home}/miniconda3/bin/python3`, `${home}/anaconda3/bin/python3`,
+      '/opt/miniconda3/bin/python3', '/opt/anaconda3/bin/python3',
+      `${home}/opt/anaconda3/bin/python3`, `${home}/.pyenv/shims/python3`,
+      '/opt/homebrew/opt/python/libexec/bin/python'
+    );
+  }
   for (const p of candidates) {
-    if (await probe(p)) return p;
+    if (p && (await probe(p))) return p;
   }
   return null;
 }

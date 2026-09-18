@@ -8,13 +8,18 @@ import { convertCitationsInText } from '../convertCitations';
 describe('convertCitationsInText', () => {
   const cases: [string, string][] = [
     ['[[@smith2020]]', '[@smith2020]'],
+    ['[[@key|@]]', '[@key]'],
     ['[[@smith2020|see @, p. 6]]', '[see @smith2020, p. 6]'],
+    ['[[@key|-@, p. 6]]', '[-@key, p. 6]'],
     ["[[@smith2020|Smith's work]]", "Smith's work [@smith2020]"],
     ['[ [[@a]]; [[@b]] ]', '[@a; @b]'],
     ['[ see also [[@a]]; [[@b]] ]', '[@a; @b]'],
     ['[ [[@a]]; [@b, p. 5] ]', '[@a; @b, p. 5]'],
-    ['[[@key|@ -]]', '[@key -]'],
+    ['[[@key|@ -]]', '@key'],
+    ['[[@key|see @ -]]', 'see @key'],
     ['[[@key|-@]]', '[-@key]'],
+    ['[ [[@a|@ -]]; [[@b]] ]', '@a [@b]'],
+    ['[ [[@a]]; [[@b|@ -]] ]', '[@a; @b]'],
     ['[[@a|@, vol. I, p. 113]]', '[@a, 1:113]'],
     ['plain [[note name]] link', 'plain [[note name]] link'],
   ];

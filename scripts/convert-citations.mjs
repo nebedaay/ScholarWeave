@@ -22,7 +22,7 @@
  *   [ [[@a]]; [[@b]] ]          -> [@a; @b]          (container, 1+ wiki)
  *   [ see also [[@a]]; [[@b]] ] -> [see also @a; @b]
  *   [ [[@a]]; [@b, p. 5] ]      -> [@a; @b, p. 5]    (mixed members)
- *   [[@key|@key -]]             -> [@key -]          (narrative)
+ *   [[@key|@key -]]             -> @key              (narrative / author-in-text)
  *   [[@key|-@key]]              -> [-@key]           (suppress author)
  *
  * Non-citation wikilinks [[note name]] are left untouched.
@@ -47,6 +47,22 @@ const SPECIAL_RE = new RegExp(
 // Container member: [[@key|alias]] OR plain [@key, suffix] (plugin linkRe).
 const LINK_RE =
   /\[\[@([^|\]\s]+)(?:\|([\s\S]*?))?\]\]|\[@([^\]\s,;]+)([^\]]*)\]/g;
+
+/**
+ * The plugin's author-in-text flag: a trailing whitespace-separated '-' in an
+ * alias means "narrative" (author in text). Live preview drops the dash and
+ * renders it as narrative — `[[@key|@ -]]` shows "Ahrens (2022)". Pandoc
+ * expresses narrative as `@key` OUTSIDE the brackets (AuthorInText), so the
+ * dash must be consumed and the brackets dropped; emitting it literally as
+ * `[@key -]` renders the dash as a suffix ("(Ahrens 2022 -)").
+ * Returns the text without the flag, plus whether the flag was present.
+ */
+function splitAuthorInText(expanded) {
+  const m = /\s+-\s*$/.exec(expanded);
+  return m
+    ? { text: expanded.slice(0, m.index).trimEnd(), narrative: true }
+    : { text: expanded, narrative: false };
+}
 
 // ── container merge (mirrors parser.ts bracketContainers scan) ───────────────
 
@@ -109,15 +125,20 @@ function rewriteContainers(str) {
     }
     if (links.length >= 1) {
       const mergedParts = [];
+      let firstNarrative = false;
       for (const link of links) {
         const aliasText = link.alias ?? '@' + link.key;
-        mergedParts.push(expandAlias(aliasText, link.key));
+        const a = splitAuthorInText(expandAlias(aliasText, link.key));
+        if (mergedParts.length === 0 && a.narrative) firstNarrative = true;
+        mergedParts.push(a.text);
       }
-      containers.push({
-        open,
-        close,
-        merged: '[' + mergedParts.join('; ') + ']',
-      });
+      // Only the FIRST member can be narrative (the plugin drops a mid-group
+      // '-' flag); pandoc expresses that as `@first [rest…]`.
+      const merged = firstNarrative
+        ? mergedParts[0] +
+          (mergedParts.length > 1 ? ' [' + mergedParts.slice(1).join('; ') + ']' : '')
+        : '[' + mergedParts.join('; ') + ']';
+      containers.push({ open, close, merged });
       scan = close + 1;
       continue;
     }
@@ -161,8 +182,12 @@ function rewriteContainers(str) {
       // be attached: "Smith’s work [@key]" → renders "Smith’s work (2021)".
       out += alias + ' [@' + key + ']';
     } else {
-      // Citation material (or plain [[@key]]): emit the expanded citation.
-      out += '[' + expandAlias(aliasText, key) + ']';
+      // Citation material (or plain [[@key]]): emit the expanded citation. A
+      // trailing whitespace-separated '-' is the plugin's author-in-text
+      // (narrative) flag — pandoc expresses narrative as `@key` outside the
+      // brackets, so the dash is consumed and the brackets dropped.
+      const a = splitAuthorInText(expandAlias(aliasText, key));
+      out += a.narrative ? a.text : '[' + a.text + ']';
     }
     last = m.index + full.length;
   }

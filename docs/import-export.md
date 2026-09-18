@@ -153,6 +153,17 @@ PDF goes through an intermediate chosen by the selected template:
 
 Because a PDF is final, citations, the bibliography, the TOC/ToF, figure numbers, and captions are all rendered to fixed values at export time — no "update fields" pass is needed. TOC/ToF entries are clickable links.
 
+### Fonts and unusual characters (LaTeX)
+
+LuaLaTeX renders a character only if the current font has a glyph for it, so anything the main font (Noto Serif/Sans) lacks — arrows (`→`), symbols (`⚙ ✓ ∞`), emoji, or non-Latin scripts — would otherwise appear as a tofu box (`□`). The `.tex` templates therefore define a **glyph fallback chain** (`luaotfload.add_fallback`): for any glyph the main font lacks, the first installed font in the chain that has it is used. The chain is ordered serif-first for the serif templates (`article`, `book`) and sans-first for the sans template (`document`), then monochrome emoji, CJK, and broad script catch-alls (Arial Unicode MS, Noto Sans, …). All entries are optional — each is guarded by `\IfFontExistsTF`, so compile is unaffected by what isn't installed.
+
+To add coverage, install fonts and the chain picks them up automatically. In particular:
+
+- **Emoji:** install the **monochrome** *Noto Emoji* (`brew install --cask font-noto-emoji`, or the font from <https://github.com/googlefonts/noto-emoji>). Colour emoji fonts (Apple Color Emoji, Segoe UI Emoji) **cannot** be used — LaTeX has no colour-bitmap support — so raw emoji render only with a monochrome emoji font; for *colour* emoji use the CTAN `twemojis` package (image-based, per-emoji commands).
+- **Other scripts** (CJK, Hebrew, Devanagari, …): install the relevant Noto font; already installed scripts (e.g. the macOS CJK and Arial Unicode MS fonts) are covered out of the box.
+
+DOCX/ODT output has no such limitation — Word and LibreOffice do their own font fallback and handle colour emoji.
+
 ### How paths and tools are resolved
 
 All scripts and templates are bundled in the plugin and extracted automatically on load — nothing is downloaded from GitHub by hand. The plugin resolves each external tool's path itself and passes it to the script via environment variables, so it works even though Obsidian's Electron process doesn't inherit your shell `PATH`.

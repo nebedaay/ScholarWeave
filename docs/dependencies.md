@@ -4,11 +4,19 @@ ScholarWeft reads and formats citations, shows the reference sidebar, and manage
 
 Install a dependency only when you need the feature it enables. The plugin detects what is installed and greys out options that need something missing, with an explanation and a link back here.
 
+**The easiest way to install everything under “Python 3”/“Pandoc”/“LibreOffice”/“LaTeX” below is the bundled installer script** — see [Setup](./setup.md#6-optional-document-importexport-tools). On macOS:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nebedaay/ScholarWeft/main/install/install-mac.sh | bash
+```
+
+(`install-linux.sh` and `install-windows.ps1` are in the same `install/` folder.)
+
 ## Summary
 
 | Dependency                             | Needed for                                                                                                                                                                                       |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Python 3** (+ `lxml`, `python-docx`) | Compiling/exporting documents (every format); importing DOCX/ODT                                                                                                                                 |
+| **Python 3** (+ `lxml`, `python-docx`, `requests`) | Compiling/exporting documents (every format); importing DOCX/ODT                                                                                                 |
 | **Pandoc**                             | Exporting to DOCX / ODT / LaTeX / PDF; importing DOCX / ODT                                                                                                                                      |
 | **Zotero**                             | Live, refreshable citation fields; citekey lookup; importing citation fields — *unless* you use a bibliography file instead                                                                      |
 | **Better BibTeX** (Zotero add-on)      | Only needed for Zotero 6: The BBT endpoint needed for exporting live Zotero citations. Not required for export using Zotero 7/8, but still needed inside Zotero for automatic citekey generation |
@@ -18,10 +26,17 @@ Install a dependency only when you need the feature it enables. The plugin detec
 
 ## Python 3
 
-The compiler, exporter, and importer are Python scripts, used for **any** document compilation/export or import. They need `lxml` and `python-docx`:
+The compiler, exporter, and importer are Python scripts, used for **any** document compilation/export or import. They need `lxml`, `python-docx` and `requests`:
 
 ```bash
-pip install lxml python-docx
+pip install lxml python-docx requests
+```
+
+If `pip` refuses with “externally-managed-environment” (common with recent Python builds), install into a private virtual environment instead and point **Path to Python 3** at it:
+
+```bash
+python3 -m venv ~/ScholarWeft/venv
+~/ScholarWeft/venv/bin/pip install lxml python-docx requests
 ```
 
 If Obsidian resolves the wrong Python (for example macOS's Command Line Tools build, which lacks those packages), set **Path to Python 3** in Settings.
