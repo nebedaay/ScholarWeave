@@ -21,11 +21,11 @@ from lxml import etree
 
 
 def bundled_template(name):
-    """Absolute path to a bundled Export Template (…/scripts/../templates/<name>).
+    """Absolute path to a bundled Export Template (…/scripts/../sw-export-templates/<name>).
     Used as the canonical source when the user's template lacks a structure we
     need to synthesize (e.g. a Table of Figures)."""
     return os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                        '..', 'templates', name)
+                        '..', 'sw-export-templates', name)
 
 
 # ── Zotero document-preferences (ZOTERO_PREF) blob ───────────────────────────

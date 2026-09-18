@@ -3,7 +3,7 @@
 sw_export_merge.py — ScholarWeft export merge.
 
 Takes the clean docx produced by pandoc (via the sw-*.lua filters) and the
-target export template (book/article/document under templates/), and copies
+target export template (book/article/document under sw-export-templates/), and copies
 the pandoc body into the template's XML, RETAINING the template's frontmatter
 structure:
   - title block (Title/Subtitle/Author/Date/Abstract/Note) filled from YAML
@@ -35,7 +35,7 @@ OOXML mechanics. Do not re-fork logic that sw_export_odt_merge.py also needs.
 
 Usage:
     python3 scripts/sw_export_merge.py \
-        --template "templates/book.docx" \
+        --template "sw-export-templates/book.docx" \
         --input "path/to/clean.docx" \
         --output "path/to/final.docx" \
         [--title "Title"] [--subtitle "Subtitle"] [--author "Name"]

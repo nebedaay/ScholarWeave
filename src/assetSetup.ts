@@ -5,16 +5,16 @@ import { BUNDLED_ASSETS } from 'bundled:assets';
 /**
  * Extract bundled scripts and templates into the plugin's own directory.
  *
- * Files live at  <vault>/<plugin.manifest.dir>/scripts/  and  .../templates/
+ * Files live at  <vault>/<plugin.manifest.dir>/scripts/  and  .../sw-export-templates/
  * — the same relative locations they occupy in the source repo — so all
  * existing paths in the Python scripts and plugin settings continue to work
  * without modification.
  *
- * `scripts/` and `templates/` are BOTH rewritten on every load, to always
+ * `scripts/` and `sw-export-templates/` are BOTH rewritten on every load, to always
  * match this exact main.js — the previous "skip when .asset-version matches
  * manifest.version" optimisation silently left stale scripts (and, later,
  * stale templates) on disk after a BRAT update whose extraction didn't fire.
- * `templates/` used to be "only written when missing", on the theory that
+ * `sw-export-templates/` used to be "only written when missing", on the theory that
  * users hand-edit the installed copies directly — but that meant a plugin
  * update could never ship a template fix to anyone who'd ever had that file
  * on disk (which is everyone, since it's written on first install). The
@@ -50,7 +50,10 @@ export async function setupAssets(plugin: ReferenceList): Promise<void> {
   for (const [relativePath, { content, binary }] of Object.entries(BUNDLED_ASSETS)) {
     const fullPath = normalizePath(`${pluginDir}/${relativePath}`);
     try {
-      if (relativePath.startsWith('zotlit-templates/')) {
+      if (relativePath.startsWith('sw-markdown-templates/')) {
+        continue; // opt-in only — written into the vault by the settings button
+      }
+      if (relativePath.startsWith('sw-zotlit-templates/')) {
         continue; // opt-in only — written into the vault by the settings button
       }
       if (relativePath.startsWith('docs/')) {

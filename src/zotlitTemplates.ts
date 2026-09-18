@@ -39,7 +39,7 @@ export async function installZotlitTemplates(
   };
 
   const entries = Object.entries(BUNDLED_ASSETS).filter(([p]) =>
-    p.startsWith('zotlit-templates/')
+    p.startsWith('sw-zotlit-templates/')
   );
   if (entries.length === 0) {
     result.error = 'No bundled ZotLit templates found in this build.';
@@ -51,7 +51,7 @@ export async function installZotlitTemplates(
       await adapter.mkdir(SW_ZOTLIT_FOLDER);
     }
     for (const [relativePath, asset] of entries) {
-      const name = relativePath.slice('zotlit-templates/'.length);
+      const name = relativePath.slice('sw-zotlit-templates/'.length);
       await adapter.write(
         normalizePath(`${SW_ZOTLIT_FOLDER}/${name}`),
         asset.content

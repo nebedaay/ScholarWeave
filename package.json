@@ -1,6 +1,6 @@
 {
   "name": "scholar-weft",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "ScholarWeft for Obsidian — weaves Zotero references into Obsidian's linked-note universe with linked citations, a live reference sidebar, and a book compiler that exports to Word.",
   "main": "main.js",
   "scripts": {

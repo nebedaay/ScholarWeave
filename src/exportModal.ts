@@ -244,7 +244,7 @@ export class ExportModal extends Modal {
     // Resolve template directories once; stored for rebuilding on format change.
     this.pluginTplDir =
       vaultBase && this.plugin.manifest.dir
-        ? `${vaultBase}/${this.plugin.manifest.dir}/templates`
+        ? `${vaultBase}/${this.plugin.manifest.dir}/sw-export-templates`
         : '';
     const userTplDirRaw =
       this.plugin.settings.exportTemplatesDir || 'Export Templates';

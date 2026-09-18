@@ -16,20 +16,21 @@ fail() { printf '  \033[31m✗\033[0m %s%s\n' "$1" "${2:+ — $2}"; FAILED+=("$1
 skip() { SKIPPED+=("$*"); }
 have() { command -v "$1" >/dev/null 2>&1; }
 
-SCRIPT_REV="2026-09-18l"
+SCRIPT_REV="2026-09-18r"
 
 DONE=(); FAILED=(); SKIPPED=()
 
-ask() {
+ask() { # <question> [label-for-summary]  → single keypress: y / n / q
   local a
   while :; do
-    printf '%s (y/n/esc) ' "$1"
-    IFS= read -r a || exit 0
+    printf '%s [y/n/q] ' "$1"
+    IFS= read -r -n 1 a || exit 0
+    printf '\n'
     case "${a:-}" in
-      [yY]*) return 0 ;;
-      [nN]*) [ -n "${2:-}" ] && skip "$2"; return 1 ;;
-      [qQ]|esc|ESC|$'\e') echo '  Cancelled — nothing more will be changed.'; exit 0 ;;
-      *) printf '  Please answer y or n (or esc/q to quit).\n' ;;
+      [yY]) return 0 ;;
+      [nN]) [ -n "${2:-}" ] && skip "$2"; return 1 ;;
+      [qQ]|$'\e') echo '  Cancelled — nothing more will be changed.'; exit 0 ;;
+      *) printf '  Please press y, n, or q.\n' ;;
     esac
   done
 }
@@ -62,27 +63,6 @@ PYEOF
     return $?
   fi
   if [ ! -s "$f" ]; then printf '{\n  "%s": ["%s"]\n}\n' "$k" "$v" > "$f"; return 0; fi
-  return 2
-}
-json_set_key() { # <file> <key> <json-literal>
-  local f="$1" k="$2" v="$3" py; py="$(_pyjson)"
-  if [ -n "$py" ]; then
-    "$py" - "$f" "$k" "$v" <<'PYEOF'
-import json, sys
-path, key, val = sys.argv[1], sys.argv[2], sys.argv[3]
-try:
-    d = json.load(open(path))
-    if not isinstance(d, dict): d = {}
-except FileNotFoundError:
-    d = {}
-except Exception:
-    sys.exit(3)
-d[key] = json.loads(val)
-json.dump(d, open(path, 'w'), indent=2)
-PYEOF
-    return $?
-  fi
-  if [ ! -s "$f" ]; then printf '{\n  "%s": %s\n}\n' "$k" "$v" > "$f"; return 0; fi
   return 2
 }
 
@@ -170,10 +150,19 @@ install_obsidian_plugin() {
   latest="${tag#v}"
   if [ -f "$dir/manifest.json" ]; then
     inst="$(grep -o '"version"[[:space:]]*:[[:space:]]*"[^"]*"' "$dir/manifest.json" | head -1 | sed 's/.*"\([^"]*\)"$/\1/')"
-    if [ -n "$inst" ] && [ -n "$latest" ] && [ "$(printf '%s\n%s\n' "$latest" "$inst" | sort -V | tail -1)" = "$inst" ]; then
+    case "$inst" in *-*) inst_pre=1 ;; *) inst_pre=0 ;; esac
+    case "$latest" in *-*) latest_pre=1 ;; *) latest_pre=0 ;; esac
+    if [ -n "$inst" ] && [ -n "$latest" ] && [ "$inst_pre" = 0 ] \
+       && [ "$(printf '%s\n%s\n' "$latest" "$inst" | sort -V | tail -1)" = "$inst" ]; then
       pass "$id already installed (v$inst, latest)"; return 0
     fi
-    [ -n "$inst" ] && [ -n "$latest" ] && step "Updating $id v$inst → v$latest"
+    if [ -n "$inst" ] && [ -n "$latest" ]; then
+      if [ "$inst_pre" = 1 ] && [ "$latest_pre" = 0 ]; then
+        step "Replacing pre-release $id v$inst with the stable v$latest"
+      else
+        step "Updating $id v$inst → v$latest"
+      fi
+    fi
   fi
   mkdir -p "$dir"
   for a in main.js manifest.json styles.css; do
@@ -185,41 +174,31 @@ install_obsidian_plugin() {
   pass "Installed the $id Obsidian plugin${latest:+ (v$latest)}"
 }
 
-install_zotlit_templates() {
-  local vault="$1"
-  local dir="$vault/sw-zotlit-templates" name u
-  if [ -z "$vault" ] || [ ! -d "$vault" ]; then
-    fail "Copy ZotLit templates" "no valid vault folder was chosen"; return 1
-  fi
-  mkdir -p "$dir"
-  for name in zotlit-annotation.eta.md zotlit-content.eta.md zotlit-filename.liquid.md zotlit-note.eta.md; do
-    u="https://raw.githubusercontent.com/nebedaay/ScholarWeft/main/zotlit-templates/$name"
-    download "$u" "$dir/$name" "$name" || return 1
-  done
-  pass "Copied ScholarWeft's ZotLit templates to sw-zotlit-templates/"
-}
 
 brat_register() {
   local vault="$1"
   local data="$vault/.obsidian/plugins/obsidian42-brat/data.json" ok=1 r
   [ -f "$vault/.obsidian/plugins/obsidian42-brat/manifest.json" ] || { fail "Register with BRAT" "BRAT isn't installed"; return 1; }
   [ -s "$data" ] && cp "$data" "$data.scholarweft.bak"
-  for r in "nebedaay/ScholarWeft" "PKM-er/obsidian-zotlit"; do
+  for r in "nebedaay/ScholarWeft"; do
     json_append_list "$data" "pluginList" "$r" || ok=0
   done
-  if [ "$ok" = 1 ]; then pass "Registered ScholarWeft and ZotLit with BRAT for automatic updates"
+  if [ "$ok" = 1 ]; then pass "Registered ScholarWeft with BRAT for automatic updates"
   else fail "Register with BRAT" "couldn't write BRAT's settings (a backup was kept) — add the repos in BRAT's settings"; fi
 }
 
-set_zotlit_folder() {
-  local vault="$1"
-  local data="$vault/.obsidian/plugins/zotlit/data.json"
-  [ -f "$vault/.obsidian/plugins/zotlit/manifest.json" ] || return 0
-  [ -s "$data" ] && cp "$data" "$data.scholarweft.bak"
-  if json_set_key "$data" "template.folder" '"sw-zotlit-templates"'
-  then pass "Set ZotLit's Template folder to sw-zotlit-templates/"
-  else fail "Set ZotLit template folder" "couldn't write ZotLit's settings — set its Template folder to sw-zotlit-templates/ manually"; fi
+
+# The installer can't safely edit another plugin's settings from outside, so
+# record what ScholarWeft should finish (through the same routines its settings
+# buttons use) the next time Obsidian opens.
+queue_pending_setup() { # <vault> <item...>
+  local vault="$1"; shift
+  local data="$vault/.obsidian/plugins/scholar-weft/data.json" item ok=1
+  mkdir -p "$vault/.obsidian/plugins/scholar-weft"
+  for item in "$@"; do json_append_list "$data" "pendingSetup" "$item" || ok=0; done
+  [ "$ok" = 1 ] && pass "Queued in-Obsidian setup: $* (runs when you next open Obsidian)"
 }
+
 
 disable_conflicting_plugins() {
   local vault="$1"
@@ -279,6 +258,16 @@ set_pref() {
   else printf 'user_pref("%s", %s);\n' "$k" "$v" >> "$f"; fi
 }
 
+# See install-mac.sh: make Zotero pick up xpis we placed in extensions/.
+enable_zotero_sideload() { # <prefs.js>
+  local f="$1"
+  cp "$f" "$f.scholarweft.bak.$(date +%s)" 2>/dev/null || true
+  set_pref "$f" "extensions.autoDisableScopes" "0"
+  set_pref "$f" "extensions.enabledScopes" "15"
+  set_pref "$f" "xpinstall.signatures.required" "false"
+  sed -i '/^user_pref("extensions\.lastAppBuildID"/d; /^user_pref("extensions\.lastAppBuildId"/d; /^user_pref("extensions\.lastAppVersion"/d' "$f"
+}
+
 PY=""
 for c in python3 "$HOME/miniconda3/bin/python3" "$HOME/anaconda3/bin/python3" \
          /opt/miniconda3/bin/python3 /opt/anaconda3/bin/python3 \
@@ -309,7 +298,7 @@ ensure_python() {
 # ═════════════════════════════════════════════════════════════════════════════
 say "ScholarWeft setup (script $SCRIPT_REV)"
 echo "  Running: $0"
-echo "  I'll ask before each step — y to install/configure, n to skip, esc to quit."
+echo "  I'll ask before each step — single keypress: y to install/configure, n to skip, q to quit."
 echo "  Safe to re-run; nothing is changed without a yes."
 [ -z "$PKG" ] && printf '  \033[33m!\033[0m Neither apt nor dnf found — package installs will be skipped.\n'
 
@@ -333,9 +322,34 @@ if ask "Set up the Obsidian plugins (ScholarWeft, ZotLit, BRAT) and their settin
     install_obsidian_plugin "nebedaay/ScholarWeft" "scholar-weft" "$VAULT"
     install_obsidian_plugin "PKM-er/obsidian-zotlit" "zotlit" "$VAULT"
     install_obsidian_plugin "TfTHacker/obsidian42-brat" "obsidian42-brat" "$VAULT"
-    install_zotlit_templates "$VAULT"
-    set_zotlit_folder "$VAULT"
     brat_register "$VAULT"
+    queue_pending_setup "$VAULT" zotlit
+  fi
+fi
+
+# Queued work runs inside Obsidian, where the plugins are loaded and their
+# settings can be changed safely.
+if [ -n "$VAULT" ]; then
+  echo "  Note: ScholarWeft will install and set its ZotLit templates the next time"
+  echo "  you open Obsidian (it does this from inside Obsidian, where it's safe to"
+  echo "  change another plugin's settings)."
+fi
+
+# Optional and separate from the plugin step, so one can be declined without the other.
+echo
+echo "  Recommended: weave all your notes together."
+echo "  ScholarWeft works best when every note carries a few properties. Based on Nick"
+echo "  Milo's \"Linking Your Thinking\" philosophy, my \"Basic note template\" inserts"
+echo "  four properties at the top of each new note: the 'created' date, the note's"
+echo "  category ('up'), 'related' notes, and alternative names ('aliases'). It lives in"
+echo "  its own folder (sw-markdown-templates/) so it never interferes with your own"
+echo "  templates."
+if ask "Install that template and configure Templater to apply it to every new note? (Close Obsidian first.)" "Install note template"; then
+  if pgrep -x Obsidian >/dev/null 2>&1; then
+    fail "Install note template" "Obsidian was running — quit Obsidian and re-run (the settings write needs it closed)"
+  elif pick_vault; then
+    install_obsidian_plugin "SilentVoid13/Templater" "templater-obsidian" "$VAULT"
+    queue_pending_setup "$VAULT" templater
   fi
 fi
 
@@ -347,23 +361,28 @@ if ask "Install the Better BibTeX and ZotLit extensions into Zotero? (Close Zote
     else install_zotero_addon "retorquere/zotero-better-bibtex" "better-bibtex@iris-advies.com" && pass "Installed Better BibTeX"; fi
     if [ -f "$ZPROFILE/extensions/zotlit@aidenlx.site.xpi" ]; then pass "ZotLit Zotero add-on already installed"
     else install_zotero_addon "zotlit" "zotlit@aidenlx.site" && pass "Installed the ZotLit Zotero add-on"; fi
+    enable_zotero_sideload "$ZPROFILE/prefs.js" && pass "Told Zotero to load the add-ons on next start (start Zotero now)"
   fi
 fi
 
-if ask "Set Zotero to allow other applications (like Obsidian) to connect? (Close Zotero first.)" "Enable Zotero local connection"; then
-  if zotero_running; then fail "Enable Zotero local connection" "Zotero was running — quit Zotero and re-run"
-  elif [ -z "$ZPROFILE" ]; then fail "Enable Zotero local connection" "Zotero profile not found — open Zotero once, then re-run"
-  elif grep -q 'extensions.zotero.httpServer.localAPI.enabled", true' "$ZPROFILE/prefs.js"; then pass "Zotero local connection already enabled"
+if ask "Set Zotero's local connection and the Better BibTeX citekey formula? (Close Zotero first.)" "Set Zotero preferences"; then
+  if zotero_running; then fail "Set Zotero preferences" "Zotero was running — quit Zotero and re-run"
+  elif [ -z "$ZPROFILE" ]; then fail "Set Zotero preferences" "Zotero profile not found — open Zotero once, then re-run"
   else
     step "Editing Zotero's preferences (a backup is saved)…"
     cp "$ZPROFILE/prefs.js" "$ZPROFILE/prefs.js.scholarweft.bak.$(date +%s)"
-    set_pref "$ZPROFILE/prefs.js" "extensions.zotero.httpServer.enabled" "true"
-    set_pref "$ZPROFILE/prefs.js" "extensions.zotero.httpServer.localAPI.enabled" "true"
+    if grep -q 'extensions.zotero.httpServer.localAPI.enabled", true' "$ZPROFILE/prefs.js"; then
+      pass "Zotero local connection already enabled"
+    else
+      set_pref "$ZPROFILE/prefs.js" "extensions.zotero.httpServer.enabled" "true"
+      set_pref "$ZPROFILE/prefs.js" "extensions.zotero.httpServer.localAPI.enabled" "true"
+      pass "Enabled Zotero's local connection (start Zotero again to apply)"
+    fi
     if grep -q 'better-bibtex.citekeyFormat"' "$ZPROFILE/prefs.js"; then
       set_pref "$ZPROFILE/prefs.js" "extensions.zotero.translators.better-bibtex.citekeyFormat" '"auth(15).lower.alphanum.nopunct + shorttitle(2,2).nopunct.alphanum + year.alphanum.nopunct"'
       set_pref "$ZPROFILE/prefs.js" "extensions.zotero.translators.better-bibtex.citekeyFormatEditing" '"auth(15).lower.alphanum.nopunct + shorttitle(2,2).nopunct.alphanum + year.alphanum.nopunct"'
+      pass "Set the Better BibTeX citekey formula"
     fi
-    pass "Enabled Zotero's local connection (start Zotero again to apply)"
   fi
 fi
 
@@ -415,9 +434,11 @@ if [ "${#FAILED[@]}" -gt 0 ]; then
 fi
 [ -n "$PY" ] && echo "  Python ScholarWeft can use: $PY"
 echo
+echo "  If Obsidian shows \"Restricted mode\", turn it off (Settings → Community"
+echo "  plugins): the plugins are already installed and listed, so they'll load then."
 echo "  Then: start Zotero if it was closed; restart Obsidian and enable any plugins"
 echo "  in Settings → Community plugins; click Retry in ScholarWeft's settings if it"
 echo "  says \"Cannot connect to Zotero\"."
-echo "  If you installed ZotLit: the templates are in sw-zotlit-templates/. Point"
-echo "  ZotLit's \"Template folder\" there, or click ScholarWeft's \"Install and use"
-echo "  ScholarWeft's ZotLit import templates\" button, which sets it for you."
+echo "  If you installed ZotLit: ScholarWeft installs its import templates and"
+echo "  points ZotLit's \"Template folder\" at sw-zotlit-templates/ the next time you"
+echo "  open Obsidian — no manual step needed."

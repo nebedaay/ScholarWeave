@@ -1,10 +1,12 @@
-import { FuzzySuggestModal, Platform, PluginSettingTab, Setting, TFile } from 'obsidian';
+import { FuzzySuggestModal, Notice, Platform, PluginSettingTab, Setting, TFile } from 'obsidian';
 
 import { t } from './lang/helpers';
 import { findPandoc } from './bib/pandoc';
 import { getBibPath } from './bib/helpers';
 import { isZotLitSuggestActive } from './zotlit';
 import { installZotlitTemplatesWithNotice } from './zotlitTemplates';
+import { installTemplaterTemplatesWithNotice } from './templaterTemplates';
+import { installCompanionPluginWithNotice, enableCompanionPlugin } from './companionPlugins';
 import ReferenceList from './main';
 import ReactDOM from 'react-dom';
 import React from 'react';
@@ -64,6 +66,9 @@ export const DEFAULT_SETTINGS: ReferenceListSettings = {
   /** Conflicting reference-list plugin ids the user chose to keep ("Keep both
    *  and don't ask again"). Only that explicit choice silences the prompt. */
   conflictKeepPlugins: [],
+  /** Setup the installer deferred to run inside Obsidian on next launch
+   *  ("zotlit" / "templater"). Cleared once handled. */
+  pendingSetup: [],
 };
 
 export interface ZoteroGroup {
@@ -107,6 +112,8 @@ export interface ReferenceListSettings {
    */
   zoteroDataDir?: string;
   conflictKeepPlugins?: string[];
+  /** Setup the installer deferred to run inside Obsidian on next launch. */
+  pendingSetup?: string[];
 
   hideLinks?: boolean;
   showCitekeyTooltips?: boolean;
@@ -965,47 +972,122 @@ export class ReferenceListSettingsTab extends PluginSettingTab {
       );
 
     if (Platform.isDesktop) {
-      // Only offer this when ZotLit is present. Pointing ZotLit's settings at
-      // our folder requires ZotLit to exist (and be able to read its own
-      // file); doing it for a missing plugin is what can leave ZotLit unable
-      // to load. So we grey the button out until ZotLit is installed.
-      const pm = (this.app as any).plugins;
-      const zotlitInstalled = !!pm?.manifests?.['zotlit'];
-      const zotlitEnabled = !!pm?.plugins?.['zotlit'];
-      const zotlitSetting = new Setting(containerEl).setName(
-        t("Install and use ScholarWeft's ZotLit import templates")
-      );
-      if (!zotlitInstalled) {
-        zotlitSetting.setDesc(
-          t(
-            'Install and enable the ZotLit plugin first — Settings → Community plugins → Browse → search "ZotLit" — then come back here to install these templates.'
-          )
-        );
-        zotlitSetting.addButton((btn) =>
-          btn.setButtonText(t('Install templates')).setDisabled(true)
-        );
-      } else {
-        zotlitSetting.setDesc(
-          t(
-            zotlitEnabled
-              ? 'Copies ScholarWeft\'s ZotLit templates into "sw-zotlit-templates/" and points ZotLit\'s "Template folder" setting there. Your own ZotLit templates (in "Templates/") are left untouched.'
-              : 'ZotLit is installed but not enabled. Enable it in Settings → Community plugins, then come back here.'
-          )
-        );
-        zotlitSetting.addButton((btn) =>
-          btn
-            .setButtonText(t('Install templates'))
-            .setDisabled(!zotlitEnabled)
-            .onClick(async () => {
-              btn.setDisabled(true);
-              try {
-                await installZotlitTemplatesWithNotice(this.plugin);
-              } finally {
-                btn.setDisabled(false);
-              }
-            })
-        );
+      this.renderCompanionSetting(containerEl, {
+        pluginId: 'zotlit',
+        companionKey: 'zotlit',
+        name: "Install and use ScholarWeft's ZotLit import templates",
+        readyDesc:
+          'Copies ScholarWeft\'s ZotLit templates into "sw-zotlit-templates/" and points ZotLit\'s "Template folder" setting there. Your own ZotLit templates (in "Templates/") are left untouched.',
+        actionLabel: 'Install templates',
+        run: async () => {
+          await installZotlitTemplatesWithNotice(this.plugin);
+        },
+      });
+      this.renderCompanionSetting(containerEl, {
+        pluginId: 'templater-obsidian',
+        companionKey: 'templater',
+        name: 'Install the Basic note template and apply it to new notes',
+        readyDesc:
+          'Copies the Basic note template into "sw-markdown-templates/" and sets Templater to apply it to every new note created in "/". Your own templates and other Templater rules are left untouched.',
+        actionLabel: 'Install and set up',
+        run: async () => {
+          await installTemplaterTemplatesWithNotice(this.plugin);
+        },
+      });
+    }
+  }
+
+  /**
+   * One companion-plugin setting with three states: not installed (offer to
+   * fetch + enable it), installed but disabled (offer to enable), and ready
+   * (run the ScholarWeft action). Installing fetches the plugin's stable
+   * GitHub release; Obsidian then treats it as a normal community plugin.
+   */
+  private renderCompanionSetting(
+    containerEl: HTMLElement,
+    cfg: {
+      pluginId: string;
+      companionKey: string;
+      name: string;
+      readyDesc: string;
+      actionLabel: string;
+      run: () => Promise<void>;
+    }
+  ): void {
+    const pm = (this.app as any).plugins;
+    const installed = !!pm?.manifests?.[cfg.pluginId];
+    const enabled = !!pm?.plugins?.[cfg.pluginId];
+    const setting = new Setting(containerEl).setName(t(cfg.name));
+    const rerender = () => {
+      try {
+        this.display();
+      } catch {
+        /* ignore */
       }
+    };
+    if (!installed) {
+      setting.setDesc(
+        t(
+          'Not installed. Install it here, or via Settings → Community plugins (Browse).'
+        )
+      );
+      setting.addButton((btn) =>
+        btn
+          .setButtonText(t('Install for me'))
+          .onClick(async () => {
+            btn.setDisabled(true);
+            try {
+              if (
+                await installCompanionPluginWithNotice(this.plugin, cfg.companionKey)
+              ) {
+                rerender();
+              }
+            } finally {
+              btn.setDisabled(false);
+            }
+          })
+      );
+    } else if (!enabled) {
+      setting.setDesc(
+        t(
+          'Installed but not enabled. Enable it here, or in Settings → Community plugins.'
+        )
+      );
+      setting.addButton((btn) =>
+        btn
+          .setButtonText(t('Enable and continue'))
+          .onClick(async () => {
+            btn.setDisabled(true);
+            try {
+              if (await enableCompanionPlugin(this.plugin, cfg.companionKey)) {
+                rerender();
+              } else {
+                new Notice(
+                  t(
+                    "Couldn't enable it — turn off Restricted mode and enable it in Settings → Community plugins."
+                  ),
+                  10000
+                );
+              }
+            } finally {
+              btn.setDisabled(false);
+            }
+          })
+      );
+    } else {
+      setting.setDesc(t(cfg.readyDesc));
+      setting.addButton((btn) =>
+        btn
+          .setButtonText(t(cfg.actionLabel))
+          .onClick(async () => {
+            btn.setDisabled(true);
+            try {
+              await cfg.run();
+            } finally {
+              btn.setDisabled(false);
+            }
+          })
+      );
     }
   }
 

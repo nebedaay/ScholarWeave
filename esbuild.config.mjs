@@ -18,7 +18,8 @@ const prod = (process.argv[2] === "production");
 
 // Resolve "src/..." imports as if the project root contains a "src" directory.
 // Mirrors TypeScript "paths": { "src/*": ["./src/*"] } without tsconfig.
-// Reads every file in scripts/ and templates/ at build time and exposes them
+// Reads every file in scripts/, sw-export-templates/, docs/, images/ and the
+// opt-in template folders at build time and exposes them
 // as a virtual module `bundled:assets`. Text files are stored as UTF-8
 // strings; binary files (docx, odt) are stored as base64 strings. The plugin
 // runtime (src/assetSetup.ts) decodes and writes them to the plugin directory
@@ -65,7 +66,7 @@ const bundleAssetsPlugin = {
 			};
 
 			await readDir('scripts');
-			await readDir('templates');
+			await readDir('sw-export-templates');
 			// User-facing docs — bundled as UTF-8 strings so the settings modal
 			// can render them in-app (src/docs.ts). NOT extracted to the plugin
 			// dir (see assetSetup.ts).
@@ -77,7 +78,11 @@ const bundleAssetsPlugin = {
 			// ZotLit import templates — bundled so the "Install ScholarWeft's
 			// ZotLit templates" button in settings can write them into the
 			// vault. NOT auto-extracted to the plugin dir (see assetSetup.ts).
-			await readDir('zotlit-templates');
+			await readDir('sw-zotlit-templates');
+			// Basic note template — bundled so the "Install the Basic note
+			// template and set up Templater" button in settings can write it
+			// into the vault. NOT auto-extracted to the plugin dir.
+			await readDir('sw-markdown-templates');
 
 			return {
 				contents: `export const BUNDLED_ASSETS = ${JSON.stringify(assets)};`,

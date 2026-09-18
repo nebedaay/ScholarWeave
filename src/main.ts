@@ -44,6 +44,12 @@ import { ExportModal } from './exportModal';
 import { ImportModal } from './importModal';
 import { CitekeyRenameModal } from './modals/citekeyRenameModal';
 import { ConflictModal } from './modals/conflictModal';
+import {
+  SW_ZOTLIT_FOLDER,
+  installZotlitTemplates,
+  installZotlitTemplatesWithNotice,
+} from './zotlitTemplates';
+import { installTemplaterTemplatesWithNotice } from './templaterTemplates';
 
 /**
  * Heuristic: is this plugin another reference-list provider of the same
@@ -340,6 +346,8 @@ export default class ReferenceList extends Plugin {
         this.initLeaf();
       }
       this.checkConflictingPlugins();
+      void this.applyPendingSetup();
+      void this.autoConfigureZotlitTemplates();
     });
 
     this.addCommand({
@@ -720,12 +728,88 @@ export default class ReferenceList extends Plugin {
       }
       for (const id of disableIds) {
         try {
-          await pm.disablePlugin(id);
+          // `disablePlugin` only stops the plugin for this session — Obsidian
+          // re-enables it on the next launch because community-plugins.json
+          // still lists it. `disablePluginAndSave` also records the change.
+          const disable =
+            pm.disablePluginAndSave?.bind(pm) ?? pm.disablePlugin.bind(pm);
+          await disable(id);
         } catch (e) {
           console.error('ScholarWeft: could not disable conflicting plugin', id, e);
         }
       }
     }).open();
+  }
+
+  /**
+   * The installer writes plugins to disk (with Obsidian closed) but can't
+   * safely touch their settings from outside. So it records what it deferred in
+   * `pendingSetup`; here — inside Obsidian, once the plugins are loaded — we run
+   * the same routines the settings buttons run. Items whose plugin hasn't
+   * loaded yet are retried briefly, then left for the next launch.
+   */
+  private async applyPendingSetup(attempt = 0): Promise<void> {
+    const pending = this.settings.pendingSetup ?? [];
+    if (pending.length === 0) return;
+    const loaded = (this.app as any).plugins?.plugins ?? {};
+    const ready: string[] = [];
+    const waiting: string[] = [];
+    for (const item of pending) {
+      const id =
+        item === 'zotlit'
+          ? 'zotlit'
+          : item === 'templater'
+            ? 'templater-obsidian'
+            : null;
+      if (id === null) continue;
+      (loaded[id] ? ready : waiting).push(item);
+    }
+    if (ready.includes('zotlit')) {
+      try {
+        await installZotlitTemplatesWithNotice(this);
+      } catch {
+        /* leave for the next launch */
+      }
+    }
+    if (ready.includes('templater')) {
+      try {
+        await installTemplaterTemplatesWithNotice(this);
+      } catch {
+        /* leave for the next launch */
+      }
+    }
+    if (waiting.length > 0 && attempt < 5) {
+      this.settings.pendingSetup = waiting;
+      await this.saveSettings();
+      setTimeout(() => void this.applyPendingSetup(attempt + 1), 2000);
+      return;
+    }
+    this.settings.pendingSetup = [];
+    await this.saveSettings();
+  }
+
+  /**
+   * If ZotLit is installed and its "Template folder" is still the default
+   * ("templates"), and our `sw-zotlit-templates/` folder exists, point ZotLit
+   * at ours automatically. Uses the same safe routine as the settings button
+   * (disable ZotLit → back up → write → re-enable), so we never race ZotLit's
+   * own settings save. Never overrides a non-default choice the user made.
+   * ZotLit may not be loaded yet when the layout is ready, so retry briefly.
+   */
+  private async autoConfigureZotlitTemplates(attempt = 0): Promise<void> {
+    const zotlit = (this.app as any).plugins?.plugins?.['zotlit'];
+    const folder = zotlit?.settings?.current?.['template.folder'];
+    if (!zotlit || folder === undefined) {
+      if (attempt < 5) setTimeout(() => void this.autoConfigureZotlitTemplates(attempt + 1), 2000);
+      return;
+    }
+    if (folder === SW_ZOTLIT_FOLDER) return;
+    if (folder && folder !== 'templates') return; // respect a custom choice
+    if (!(await this.app.vault.adapter.exists(SW_ZOTLIT_FOLDER))) return;
+    const res = await installZotlitTemplates(this);
+    if (res.folderConfigured) {
+      new Notice(`ScholarWeft: pointed ZotLit's “Template folder” at ${SW_ZOTLIT_FOLDER}/`);
+    }
   }
 
   onunload() {

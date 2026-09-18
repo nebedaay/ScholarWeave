@@ -105,12 +105,12 @@ def plugin_script_path(*parts):
     return str(Path(_PLUGIN_SCRIPTS_DIR, *parts))
 
 def plugin_template_path(name):
-    """An Export Template inside the plugin's templates dir (fallback)."""
-    return str(Path(_PLUGIN_DIR, 'templates', name))
+    """An Export Template inside the plugin's sw-export-templates dir (fallback)."""
+    return str(Path(_PLUGIN_DIR, 'sw-export-templates', name))
 
 def _resolve_template_path(tpl, ext, template_dir):
     """Template file candidate chain, shared by every export format: the
-    user's own templates dir (if any) → the plugin's bundled templates/ →
+    user's own templates dir (if any) → the plugin's bundled sw-export-templates/ →
     same two locations for 'document<ext>' as a final fallback. Returns the
     first candidate that exists, else the last candidate (so callers can
     still report a clear "not found" using the same path they tried)."""
@@ -3463,7 +3463,7 @@ def main():
                        help='Fallback author name when the document has no author property')
     parser.add_argument('--templates-dir', default=None,
                        help='Directory of user .docx/.odt export templates (default: <vault>/Export Templates/, '
-                            'then the plugin\'s bundled templates/)')
+                            'then the plugin\'s bundled sw-export-templates/)')
     parser.add_argument('--output-dir', default=None,
                        help='Directory for the compiled markdown and exported file (default: the source '
                             'file\'s own folder)')

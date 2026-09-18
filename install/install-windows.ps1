@@ -1,6 +1,6 @@
 # ScholarWeft setup helper — Windows (PowerShell).
 #
-# Asks before each step (y / n / esc to quit), reports progress, reuses what
+# Asks before each step (y / n / q to quit), reports progress, reuses what
 # you already have, and ends with a summary of what succeeded / failed / was
 # skipped. Nothing is changed without a yes; safe to re-run.
 #
@@ -22,11 +22,13 @@ function Have($c) { [bool](Get-Command $c -ErrorAction SilentlyContinue) }
 
 function Ask($q, $label) {
   while ($true) {
-    $a = Read-Host "$q (y/n/esc)"
-    if ($a -match '^[yY]') { return $true }
-    if ($a -match '^[nN]') { Skip $label; return $false }
-    if ($a -match '^(esc|q)$') { Write-Host '  Cancelled — nothing more will be changed.'; exit 0 }
-    Write-Host '  Please answer y or n (or esc/q to quit).'
+    Write-Host -NoNewline "$q [y/n/q] "
+    $k = [Console]::ReadKey($true).KeyChar
+    Write-Host ''
+    if ("$k" -match '^[yY]') { return $true }
+    if ("$k" -match '^[nN]') { Skip $label; return $false }
+    if ("$k" -match '^[qQ]' -or [int]$k -eq 27) { Write-Host '  Cancelled — nothing more will be changed.'; exit 0 }
+    Write-Host '  Please press y, n, or q.'
   }
 }
 
@@ -108,8 +110,13 @@ function Install-ObsidianPlugin($repo, $id, $vault) {
   if (Test-Path $manifestPath) {
     $inst = $null
     try { $inst = (Get-Content $manifestPath -Raw | ConvertFrom-Json).version } catch {}
-    if ($inst -and $latest -and $inst -eq $latest) { Pass "$id already installed (v$inst, latest)"; return }
-    if ($inst -and $latest) { Step "Updating $id v$inst -> v$latest" }
+    $instPre = $inst -match '-'
+    $latestPre = $latest -match '-'
+    if ($inst -and $latest -and -not $instPre -and $inst -eq $latest) { Pass "$id already installed (v$inst, latest)"; return }
+    if ($inst -and $latest) {
+      if ($instPre -and -not $latestPre) { Step "Replacing pre-release $id v$inst with the stable v$latest" }
+      else { Step "Updating $id v$inst -> v$latest" }
+    }
   }
   foreach ($a in 'main.js', 'manifest.json', 'styles.css') {
     $u = ($rel.assets | Where-Object { $_.name -eq $a } | Select-Object -First 1).browser_download_url
@@ -131,25 +138,29 @@ function Register-Brat($vault) {
   if (-not $cfg) { $cfg = New-Object psobject }
   $list = @()
   if ($cfg.PSObject.Properties.Name -contains 'pluginList') { $list = @($cfg.pluginList) }
-  foreach ($r in 'nebedaay/ScholarWeft', 'PKM-er/obsidian-zotlit') { if ($list -notcontains $r) { $list += $r } }
+  foreach ($r in 'nebedaay/ScholarWeft') { if ($list -notcontains $r) { $list += $r } }
   $cfg | Add-Member -NotePropertyName pluginList -NotePropertyValue $list -Force
   ($cfg | ConvertTo-Json -Depth 10) | Set-Content -Path $data
-  Pass 'Registered ScholarWeft and ZotLit with BRAT for automatic updates'
+  Pass 'Registered ScholarWeft with BRAT for automatic updates'
 }
 
-function Set-ZotlitFolder($vault) {
-  $zdir = Join-Path $vault '.obsidian\plugins\zotlit'
-  if (-not (Test-Path (Join-Path $zdir 'manifest.json'))) { return }
-  $data = Join-Path $zdir 'data.json'
+
+function Queue-PendingSetup($vault, $items) {
+  $dir = Join-Path $vault '.obsidian\plugins\scholar-weft'
+  New-Item -ItemType Directory -Force -Path $dir | Out-Null
+  $data = Join-Path $dir 'data.json'
   $cfg = $null
   if (Test-Path $data) {
     Copy-Item $data "$data.scholarweft.bak" -Force
-    try { $cfg = Get-Content $data -Raw | ConvertFrom-Json } catch { Fail 'Set ZotLit template folder' "ZotLit's settings couldn't be parsed — set its Template folder manually"; return }
+    try { $cfg = Get-Content $data -Raw | ConvertFrom-Json } catch { Fail 'Queue in-Obsidian setup' "ScholarWeft's settings couldn't be parsed"; return }
   }
   if (-not $cfg) { $cfg = New-Object psobject }
-  $cfg | Add-Member -NotePropertyName 'template.folder' -NotePropertyValue 'sw-zotlit-templates' -Force
+  $list = @()
+  if ($cfg.PSObject.Properties.Name -contains 'pendingSetup') { $list = @($cfg.pendingSetup) }
+  foreach ($i in $items) { if ($list -notcontains $i) { $list += $i } }
+  $cfg | Add-Member -NotePropertyName pendingSetup -NotePropertyValue $list -Force
   ($cfg | ConvertTo-Json -Depth 10) | Set-Content -Path $data
-  Pass "Set ZotLit's Template folder to sw-zotlit-templates/"
+  Pass "Queued in-Obsidian setup: $($items -join ', ') (runs when you next open Obsidian)"
 }
 
 function Disable-ConflictingPlugins($vault) {
@@ -166,15 +177,16 @@ function Disable-ConflictingPlugins($vault) {
   ($arr | ConvertTo-Json) | Set-Content -Path $cfg
 }
 
-function Install-ZotlitTemplates($vault) {
-  if (-not $vault -or -not (Test-Path $vault)) { Fail 'Copy ZotLit templates' 'no valid vault folder was chosen'; return }
-  $dir = Join-Path $vault 'sw-zotlit-templates'
-  New-Item -ItemType Directory -Force -Path $dir | Out-Null
-  foreach ($n in 'zotlit-annotation.eta.md', 'zotlit-content.eta.md', 'zotlit-filename.liquid.md', 'zotlit-note.eta.md') {
-    $u = "https://raw.githubusercontent.com/nebedaay/ScholarWeft/main/zotlit-templates/$n"
-    if (-not (Download $u (Join-Path $dir $n) $n)) { return }
-  }
-  Pass "Copied ScholarWeft's ZotLit templates to sw-zotlit-templates/"
+
+function Enable-ZoteroSideload {
+  # Zotero 7 won't register a dropped .xpi; allow sideloading and force a
+  # re-scan of extensions/ by dropping the lastApp* prefs.
+  Copy-Item $ZPrefs.FullName "$($ZPrefs.FullName).scholarweft.bak" -Force -ErrorAction SilentlyContinue
+  Set-Pref 'extensions.autoDisableScopes' '0'
+  Set-Pref 'extensions.enabledScopes' '15'
+  Set-Pref 'xpinstall.signatures.required' 'false'
+  $t = Get-Content $ZPrefs.FullName | Where-Object { $_ -notmatch 'extensions\.lastAppBuildID|extensions\.lastAppBuildId|extensions\.lastAppVersion' }
+  Set-Content -Path $ZPrefs.FullName -Value $t
 }
 
 $ZPrefs = Get-ChildItem "$env:APPDATA\Zotero\Zotero\Profiles\*\prefs.js" -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -228,9 +240,9 @@ function Ensure-Python {
 function Winget($id) { Step "Installing $id..."; winget install --id $id -e --accept-source-agreements --accept-package-agreements }
 
 # ═════════════════════════════════════════════════════════════════════════════
-Say "ScholarWeft setup (script 2026-09-18l)"
+Say "ScholarWeft setup (script 2026-09-18r)"
 Write-Host "  Running: $PSCommandPath"
-Write-Host "  I'll ask before each step — y to install/configure, n to skip, esc to quit."
+Write-Host "  I'll ask before each step — y to install/configure, n to skip, q to quit."
 Write-Host "  Safe to re-run; nothing is changed without a yes."
 if (-not (Have winget)) { Write-Host "  [!] 'winget' is missing; app/package installs will be skipped (install 'App Installer')." -ForegroundColor Yellow }
 
@@ -254,9 +266,34 @@ if (Ask 'Set up the Obsidian plugins (ScholarWeft, ZotLit, BRAT) and their setti
     Install-ObsidianPlugin 'nebedaay/ScholarWeft' 'scholar-weft' $script:Vault
     Install-ObsidianPlugin 'PKM-er/obsidian-zotlit' 'zotlit' $script:Vault
     Install-ObsidianPlugin 'TfTHacker/obsidian42-brat' 'obsidian42-brat' $script:Vault
-    Install-ZotlitTemplates $script:Vault
-    Set-ZotlitFolder $script:Vault
     Register-Brat $script:Vault
+    Queue-PendingSetup $script:Vault @('zotlit')
+  }
+}
+
+# Queued work runs inside Obsidian, where the plugins are loaded and their
+# settings can be changed safely.
+if ($script:Vault) {
+  Write-Host '  Note: ScholarWeft will install and set its ZotLit templates the next time'
+  Write-Host '  you open Obsidian (it does this from inside Obsidian, where it is safe to'
+  Write-Host "  change another plugin's settings)."
+}
+
+# Optional and separate from the plugin step, so one can be declined without the other.
+Write-Host ''
+Write-Host '  Recommended: weave all your notes together.'
+Write-Host '  ScholarWeft works best when every note carries a few properties. Based on Nick'
+Write-Host "  Milo's \"Linking Your Thinking\" philosophy, my \"Basic note template\" inserts"
+Write-Host "  four properties at the top of each new note: the 'created' date, the note's"
+Write-Host "  category ('up'), 'related' notes, and alternative names ('aliases'). It lives in"
+Write-Host '  its own folder (sw-markdown-templates/) so it never interferes with your own'
+Write-Host '  templates.'
+if (Ask 'Install that template and configure Templater to apply it to every new note? (Close Obsidian first.)' 'Install note template') {
+  if (Get-Process Obsidian -ErrorAction SilentlyContinue) {
+    Fail 'Install note template' 'Obsidian was running — quit Obsidian and re-run (the settings write needs it closed)'
+  } elseif (Pick-Vault) {
+    Install-ObsidianPlugin 'SilentVoid13/Templater' 'templater-obsidian' $script:Vault
+    Queue-PendingSetup $script:Vault @('templater')
   }
 }
 
@@ -268,23 +305,29 @@ if (Ask 'Install the Better BibTeX and ZotLit extensions into Zotero? (Close Zot
     elseif (Install-ZoteroAddon 'retorquere/zotero-better-bibtex' 'better-bibtex@iris-advies.com') { Pass 'Installed Better BibTeX' }
     if (Test-Path (Join-Path $ZDir 'extensions\zotlit@aidenlx.site.xpi')) { Pass 'ZotLit Zotero add-on already installed' }
     elseif (Install-ZoteroAddon 'zotlit' 'zotlit@aidenlx.site') { Pass 'Installed the ZotLit Zotero add-on' }
+    Enable-ZoteroSideload
+    Pass 'Told Zotero to load the add-ons on next start (start Zotero now)'
   }
 }
 
-if (Ask 'Set Zotero to allow other applications (like Obsidian) to connect? (Close Zotero first.)' 'Enable Zotero local connection') {
-  if (Zotero-Running) { Fail 'Enable Zotero local connection' 'Zotero was running — quit Zotero and re-run' }
-  elseif (-not $ZPrefs) { Fail 'Enable Zotero local connection' 'Zotero profile not found — open Zotero once, then re-run' }
-  elseif ((Get-Content $ZPrefs.FullName -Raw) -match 'extensions\.zotero\.httpServer\.localAPI\.enabled",\s*true') { Pass 'Zotero local connection already enabled' }
+if (Ask "Set Zotero's local connection and the Better BibTeX citekey formula? (Close Zotero first.)" 'Set Zotero preferences') {
+  if (Zotero-Running) { Fail 'Set Zotero preferences' 'Zotero was running — quit Zotero and re-run' }
+  elseif (-not $ZPrefs) { Fail 'Set Zotero preferences' 'Zotero profile not found — open Zotero once, then re-run' }
   else {
     Step "Editing Zotero's preferences (a backup is saved)..."
     Copy-Item $ZPrefs.FullName "$($ZPrefs.FullName).scholarweft.bak" -Force
-    Set-Pref 'extensions.zotero.httpServer.enabled' 'true'
-    Set-Pref 'extensions.zotero.httpServer.localAPI.enabled' 'true'
+    if ((Get-Content $ZPrefs.FullName -Raw) -match 'extensions\.zotero\.httpServer\.localAPI\.enabled",\s*true') {
+      Pass 'Zotero local connection already enabled'
+    } else {
+      Set-Pref 'extensions.zotero.httpServer.enabled' 'true'
+      Set-Pref 'extensions.zotero.httpServer.localAPI.enabled' 'true'
+      Pass "Enabled Zotero's local connection (start Zotero again to apply)"
+    }
     if ((Get-Content $ZPrefs.FullName -Raw) -match 'better-bibtex\.citekeyFormat"') {
       Set-Pref 'extensions.zotero.translators.better-bibtex.citekeyFormat' '"auth(15).lower.alphanum.nopunct + shorttitle(2,2).nopunct.alphanum + year.alphanum.nopunct"'
       Set-Pref 'extensions.zotero.translators.better-bibtex.citekeyFormatEditing' '"auth(15).lower.alphanum.nopunct + shorttitle(2,2).nopunct.alphanum + year.alphanum.nopunct"'
+      Pass 'Set the Better BibTeX citekey formula'
     }
-    Pass "Enabled Zotero's local connection (start Zotero again to apply)"
   }
 }
 
@@ -322,9 +365,11 @@ if ($script:Failed.Count) {
   Write-Host '  the Zotero steps) and run this script again. If a failure has no clear reason,'
   Write-Host '  follow the matching step in the manual instructions: docs/setup.md.'
 }
+Write-Host "  If Obsidian shows 'Restricted mode', turn it off (Settings -> Community"
+Write-Host "  plugins): the plugins are already installed and listed, so they will load then."
 Write-Host "`n  Then: start Zotero if it was closed; restart Obsidian and enable any plugins"
 Write-Host "  in Settings → Community plugins; click Retry in ScholarWeft's settings if it"
 Write-Host '  says "Cannot connect to Zotero".'
-Write-Host "  If you installed ZotLit: the templates are in sw-zotlit-templates/. Point"
-Write-Host "  ZotLit's 'Template folder' there, or click ScholarWeft's 'Install and use"
-Write-Host "  ScholarWeft's ZotLit import templates' button, which sets it for you."
+Write-Host "  If you installed ZotLit: ScholarWeft installs its import templates and"
+Write-Host "  points ZotLit's 'Template folder' at sw-zotlit-templates/ the next time you"
+Write-Host '  open Obsidian - no manual step needed.'
