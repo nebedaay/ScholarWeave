@@ -240,7 +240,7 @@ function Ensure-Python {
 function Winget($id) { Step "Installing $id..."; winget install --id $id -e --accept-source-agreements --accept-package-agreements }
 
 # ═════════════════════════════════════════════════════════════════════════════
-Say "ScholarWeft setup (script 2026-09-18r)"
+Say "ScholarWeft setup (script 2026-09-18s)"
 Write-Host "  Running: $PSCommandPath"
 Write-Host "  I'll ask before each step — y to install/configure, n to skip, q to quit."
 Write-Host "  Safe to re-run; nothing is changed without a yes."
@@ -288,6 +288,9 @@ Write-Host "  four properties at the top of each new note: the 'created' date, t
 Write-Host "  category ('up'), 'related' notes, and alternative names ('aliases'). It lives in"
 Write-Host '  its own folder (sw-markdown-templates/) so it never interferes with your own'
 Write-Host '  templates.'
+Write-Host "  If you already have a rule applying another template to new notes in '/',"
+Write-Host '  nothing is replaced now: the next time you open Obsidian, ScholarWeft asks'
+Write-Host '  whether to keep that rule or replace it with its own.'
 if (Ask 'Install that template and configure Templater to apply it to every new note? (Close Obsidian first.)' 'Install note template') {
   if (Get-Process Obsidian -ErrorAction SilentlyContinue) {
     Fail 'Install note template' 'Obsidian was running — quit Obsidian and re-run (the settings write needs it closed)'

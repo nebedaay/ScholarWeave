@@ -38,7 +38,7 @@ FONT_SPECS=(
 
 # Bump when the script changes, and print it at start-up so it's obvious which
 # copy is running (a stale download has caused confusion).
-SCRIPT_REV="2026-09-18r"
+SCRIPT_REV="2026-09-18s"
 
 DONE=(); FAILED=(); SKIPPED=()
 
@@ -395,6 +395,9 @@ echo "  four properties at the top of each new note: the 'created' date, the not
 echo "  category ('up'), 'related' notes, and alternative names ('aliases'). It lives in"
 echo "  its own folder (sw-markdown-templates/) so it never interferes with your own"
 echo "  templates."
+echo "  If you already have a rule applying another template to new notes in \"/\","
+echo "  nothing is replaced now: the next time you open Obsidian, ScholarWeft asks"
+echo "  whether to keep that rule or replace it with its own."
 if ask "Install that template and configure Templater to apply it to every new note? (Close Obsidian first.)" "Install note template"; then
   if pgrep -x Obsidian >/dev/null 2>&1; then
     fail "Install note template" "Obsidian was running — quit Obsidian and re-run (the settings write needs it closed)"

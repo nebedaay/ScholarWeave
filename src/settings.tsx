@@ -988,8 +988,10 @@ export class ReferenceListSettingsTab extends PluginSettingTab {
         companionKey: 'templater',
         name: 'Install the Basic note template and apply it to new notes',
         readyDesc:
-          'Copies the Basic note template into "sw-markdown-templates/" and sets Templater to apply it to every new note created in "/". Your own templates and other Templater rules are left untouched.',
+          'Copies the Basic note template into "sw-markdown-templates/" and sets Templater to apply it to every new note created in "/". Your own templates and other Templater rules are left untouched. If new notes still start empty, open Templater\'s settings, turn on "Trigger Templater on new file creation", and confirm its warning.',
         actionLabel: 'Install and set up',
+        openSettingsId: 'templater-obsidian',
+        openSettingsLabel: 'Open Templater settings',
         run: async () => {
           await installTemplaterTemplatesWithNotice(this.plugin);
         },
@@ -1012,6 +1014,10 @@ export class ReferenceListSettingsTab extends PluginSettingTab {
       readyDesc: string;
       actionLabel: string;
       run: () => Promise<void>;
+      /** Optional: id of a settings tab to offer jumping to (e.g. a step the
+       *  companion plugin gates behind its own confirmation). */
+      openSettingsId?: string;
+      openSettingsLabel?: string;
     }
   ): void {
     const pm = (this.app as any).plugins;
@@ -1088,6 +1094,17 @@ export class ReferenceListSettingsTab extends PluginSettingTab {
             }
           })
       );
+      if (cfg.openSettingsId) {
+        setting.addButton((btn) =>
+          btn
+            .setButtonText(t(cfg.openSettingsLabel ?? 'Open plugin settings'))
+            .onClick(() => {
+              const s = (this.app as any).setting;
+              s?.open?.();
+              s?.openTabById?.(cfg.openSettingsId);
+            })
+        );
+      }
     }
   }
 
