@@ -151,8 +151,10 @@ export default {
 
   // src/main.ts
   'Show reference list': 'Show reference list',
-  'Compile and export a document (outline or markdown)':
-    'Compile and export a document (outline or markdown)',
+  'Compile and export the current document (DOCX, ODT, PDF, LaTeX)':
+    'Compile and export the current document (DOCX, ODT, PDF, LaTeX)',
+  'Open the note you want to export, then run this command again.':
+    'Open the note you want to export, then run this command again.',
   'Convert pandoc citations to linked citations (current note)':
     'Convert pandoc citations to linked citations (current note)',
   'Update stale citekeys and literature note filenames (vault)': 'Update stale citekeys and literature note filenames (vault)',
@@ -191,8 +193,8 @@ export default {
   'Directory of your .docx export templates. Vault-relative (e.g. Export Templates) or absolute. Leave blank to use <vault>/Export Templates/, then the templates bundled with the plugin.':
     'Directory of your .docx export templates. Vault-relative (e.g. Export Templates) or absolute. Leave blank to use <vault>/Export Templates/, then the templates bundled with the plugin.',
   'Default output folder for compiled/exported documents (optional)': 'Default output folder for compiled/exported documents (optional)',
-  'Vault-relative folder where "Compile and export a book" puts the compiled markdown and docx. Leave blank to use the source file\'s own folder. Can be changed per-export in the modal.':
-    'Vault-relative folder where "Compile and export a book" puts the compiled markdown and docx. Leave blank to use the source file\'s own folder. Can be changed per-export in the modal.',
+  'Vault-relative folder where "Compile and export the current document" puts the compiled markdown and export. Leave blank to use the source file\'s own folder. Can be changed per-export in the modal.':
+    'Vault-relative folder where "Compile and export the current document" puts the compiled markdown and export. Leave blank to use the source file\'s own folder. Can be changed per-export in the modal.',
 
   'This entry exists in both your .bib file and Zotero. Zotero data is shown.':
     'This entry exists in both your .bib file and Zotero. Zotero data is shown.',

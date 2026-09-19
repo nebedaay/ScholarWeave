@@ -499,14 +499,19 @@ export default class ReferenceList extends Plugin {
     if (Platform.isDesktop) {
       this.addCommand({
         id: 'compile-export-book',
-        name: t('Compile and export a book, article, or other document (outline or markdown)'),
-        checkCallback: (checking) => {
+        name: t('Compile and export the current document (DOCX, ODT, PDF, LaTeX)'),
+        // Always listed (no checkCallback gating) so it's discoverable; if no
+        // note is active when it runs, explain instead of doing nothing.
+        callback: () => {
           const file = app.workspace.getActiveViewOfType(MarkdownView)?.file;
-          if (!file) return false;
-          if (!checking) {
-            new ExportModal(app, this, file).open();
+          if (!file) {
+            new Notice(
+              t('Open the note you want to export, then run this command again.'),
+              6000
+            );
+            return;
           }
-          return true;
+          new ExportModal(app, this, file).open();
         },
       });
     }

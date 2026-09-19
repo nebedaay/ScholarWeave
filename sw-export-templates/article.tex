@@ -130,6 +130,13 @@
 \titlespacing*{\section}{0pt}{3.5ex}{2.3ex}
 \titleformat{\subsection}{\normalfont\large\bfseries}{}{0pt}{}
 \titlespacing*{\subsection}{0pt}{3.25ex}{1.5ex}
+% Levels 3 and 4 (Markdown ###/####) too: numbersections=true makes pandoc
+% number every heading level, and only levels with an explicit \titleformat
+% get the empty (unnumbered) label — see document.tex.
+\titleformat{\subsubsection}{\normalfont\normalsize\bfseries}{}{0pt}{}
+\titlespacing*{\subsubsection}{0pt}{3ex}{1.2ex}
+\titleformat{\paragraph}[runin]{\normalfont\normalsize\bfseries}{}{0pt}{}
+\titlespacing*{\paragraph}{0pt}{2.5ex}{1em}
 % Headings show no number (above), and the TOC entries below match — but
 % \thesection still increments normally (--metadata numbersections=true,
 % set in DocumentCompiler.py): SWTOKFIGURECOUNTER below needs a real,
@@ -139,6 +146,11 @@
 \usepackage{titletoc}
 \titlecontents{section}[0pt]{}{}{}{\hfill\thecontentspage}
 \titlecontents{subsection}[1.5em]{}{}{}{\hfill\thecontentspage}
+% Levels 3 and 4 in the TOC too — see document.tex: \titlecontents supplies
+% the empty (unnumbered) label, so without these the headings are unnumbered
+% but their TOC entries still show "4.1.1"-style numbers.
+\titlecontents{subsubsection}[3em]{}{}{}{\hfill\thecontentspage}
+\titlecontents{paragraph}[4.5em]{}{}{}{\hfill\thecontentspage}
 SWTOKFIGURECOUNTER
 
 \usepackage{fancyhdr}

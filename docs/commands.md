@@ -33,6 +33,6 @@ See [Literature Notes](./literature-notes.md).
 | Command | Notes |
 |---|---|
 | Import a Word or ODT document with Zotero citations | Opens the import dialogue — see [Document Import and Export](./import-export.md) |
-| Compile and export a book, article, or other document (outline or markdown) | Opens the export dialogue |
+| Compile and export the current document (DOCX, ODT, PDF, LaTeX) | Opens the export dialogue |
 
 These call external tools; see [Dependencies](./dependencies.md) for what each requires.

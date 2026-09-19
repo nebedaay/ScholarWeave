@@ -3,7 +3,7 @@
 Two desktop-only commands move documents between the outside world and your vault:
 
 - **Import a Word or ODT document with Zotero citations** — turn a `.docx`/`.odt` into a markdown note.
-- **Compile and export a book, article, or other document (outline or markdown)** — compile a note or a bullet-list outline of notes into markdown, DOCX, ODT, or PDF.
+- **Compile and export the current document (DOCX, ODT, PDF, LaTeX)** — compile a note or a bullet-list outline of notes into markdown, DOCX, ODT, or PDF.
 
 Both call external tools. The plugin probes for them when the dialogue opens and greys out options that can't run, with an explanation and a link to [Dependencies](./dependencies.md). The short version:
 
@@ -48,7 +48,7 @@ ODT and DOCX share this one flow (a format-specific walker supplies each paragra
 
 ## Document compiler and exporter
 
-Command: **Compile and export a book, article, or other document (outline or markdown)**.
+Command: **Compile and export the current document (DOCX, ODT, PDF, LaTeX)**.
 
 Accepts a single markdown note or a bullet-list *outline* of notes, and outputs:
 

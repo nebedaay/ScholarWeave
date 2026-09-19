@@ -158,6 +158,15 @@
 \titlespacing*{\chapter}{0pt}{0pt}{40pt}
 \titleformat{\section}{\normalfont\Large\bfseries}{}{0pt}{}
 \titlespacing*{\section}{0pt}{3.5ex}{2.3ex}
+% Levels 3 and 4 (Markdown ###/####) too: numbersections=true makes pandoc
+% number every heading level, and only levels given an explicit \titleformat
+% get the empty (unnumbered) label — see document.tex.
+\titleformat{\subsection}{\normalfont\large\bfseries}{}{0pt}{}
+\titlespacing*{\subsection}{0pt}{3.25ex}{1.5ex}
+\titleformat{\subsubsection}{\normalfont\normalsize\bfseries}{}{0pt}{}
+\titlespacing*{\subsubsection}{0pt}{3ex}{1.2ex}
+\titleformat{\paragraph}[runin]{\normalfont\normalsize\bfseries}{}{0pt}{}
+\titlespacing*{\paragraph}{0pt}{2.5ex}{1em}
 % Headings show no number (above), and the TOC entries below match — but
 % \thechapter/\thesection still increment normally (--metadata
 % numbersections=true, set in DocumentCompiler.py): the class's own native
@@ -168,6 +177,11 @@
 \usepackage{titletoc}
 \titlecontents{chapter}[0pt]{}{}{}{\hfill\thecontentspage}
 \titlecontents{section}[1.5em]{}{}{}{\hfill\thecontentspage}
+% Deeper levels in the TOC too — \titlecontents supplies the empty
+% (unnumbered) label; see document.tex.
+\titlecontents{subsection}[3em]{}{}{}{\hfill\thecontentspage}
+\titlecontents{subsubsection}[4.5em]{}{}{}{\hfill\thecontentspage}
+\titlecontents{paragraph}[6em]{}{}{}{\hfill\thecontentspage}
 
 \usepackage{fancyhdr}
 % Running heads match book.docx/book.odt: LEFT (even) page = "Author Name –

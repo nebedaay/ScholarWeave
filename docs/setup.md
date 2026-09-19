@@ -275,7 +275,7 @@ Open **Settings → ScholarWeft**.
 2. In Obsidian, make a new note and type `[[@` — you should see citekey suggestions from Zotero's **My Library**. Pick one and press Enter.
 3. Type `[[@` a few letters again and select a reference; the citation should turn into *(Author Year)* and link to a literature note.
 4. Open **Settings → ScholarWeft → Bibliography** — it should say connected, not “Cannot connect to Zotero”.
-5. (If you installed the document tools) run the command **ScholarWeft: Compile and export…** from the command palette (`Cmd/Ctrl` + `P`) and export a simple note to **DOCX** to confirm Pandoc/Python work.
+5. (If you installed the document tools) open a note, then run **ScholarWeft: Compile and export the current document (DOCX, ODT, PDF, LaTeX)** from the command palette (`Cmd/Ctrl` + `P`) and export it to **DOCX** to confirm Pandoc/Python work.
 6. (Optional) run **ScholarWeft: Insert Zotero notes into literature notes (vault)** to pull any Zotero notes you took before Obsidian into the matching literature notes — see [Literature Notes](./literature-notes.md).
 
 ---
