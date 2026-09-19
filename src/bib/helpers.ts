@@ -240,6 +240,11 @@ export const defaultHeaders = {
   'Content-Type': 'application/json',
   'User-Agent': 'obsidian/zotero',
   Accept: 'application/json',
+  // Zotero 10 drops any request carrying an `Origin` header (Obsidian's
+  // requestUrl sends one) unless it also carries this header — see
+  // https://www.zotero.org/support/dev/zotero_10_for_developers. Without it
+  // the local HTTP server closes the connection with no response.
+  'Zotero-Allowed-Request': '1',
 };
 
 export async function isZoteroRunning(
@@ -249,6 +254,7 @@ export async function isZoteroRunning(
     const result = await Promise.race<{ status: number; text: string } | null>([
       requestUrl({
         url: `http://127.0.0.1:${port}/better-bibtex/cayw?probe=true`,
+        headers: { 'Zotero-Allowed-Request': '1' },
         throw: false,
       }),
       new Promise<null>((resolve) => setTimeout(() => resolve(null), 150)),
@@ -331,6 +337,7 @@ export async function getZBib(
 
   const resp = await requestUrl({
     url: `http://127.0.0.1:${port}/better-bibtex/export/library?/${groupId}/library.json`,
+    headers: { 'Zotero-Allowed-Request': '1' },
     throw: false,
   });
   if (resp.status !== 200) throw new Error(`Zotero BBT export: HTTP ${resp.status}`);

@@ -6,6 +6,8 @@ This page walks through **everything**, in order, with the exact menu items and 
 
 **The script does all of the following steps for you, except those you’ve already done or opt out of.** It installs/updates the Obsidian and Zotero apps, adds the ScholarWeft and ZotLit plugins to Obsidian and the Better BibTeX and ZotLit add-ons to Zotero, switches on Zotero's local connection, and installs the document tools (Python, Pandoc, LibreOffice, LaTeX, fonts) — asking before each step and skipping anything you’ve already done. Run it first; the numbered steps below are the manual equivalent, and your fallback if a step fails.
 
+The script installs plugin **files**; anything that needs another plugin's **settings** is finished from inside Obsidian the first time you open it (that's the only safe way to change another plugin's settings). So after running the script, open Obsidian once and it will finish setting up ScholarWeft's ZotLit import templates — no manual step needed. It also offers the optional **Basic note template + Templater** step (see [Step 6b](#6b-optional-basic-note-template--templater)).
+
 If you have more than one Obsidian vault on your machine, you'll have to run the script for each vault you want to use them with, just repeating Obsidian plugin steps (installing and configuring ScholarWeft and ZotLit).
 
 ### Open a terminal
@@ -30,7 +32,7 @@ curl.exe -fsSL https://raw.githubusercontent.com/nebedaay/ScholarWeft/main/insta
 powershell -ExecutionPolicy Bypass -File .\install-windows.ps1
 ```
 
-It is **interactive** (`y` / `n` / `esc` before each step), safe to re-run, and finds your Obsidian vault on its own (asking which one if you have several). At the end it prints a **summary** of what **succeeded**, what **failed** (with the reason), and what you **skipped** — so you can fix a failure and run it again, or finish that one step by hand below.
+It is **interactive** (`y` / `n` / `q` as single keypresses before each step), safe to re-run, and finds your Obsidian vault on its own (asking which one if you have several). At the end it prints a **summary** of what **succeeded**, what **failed** (with the reason), and what you **skipped** — so you can fix a failure and run it again, or finish that one step by hand below.
 
 > The citation features need **none** of the document tools — only **Obsidian + Zotero** (and optionally Better BibTeX/ZotLit). You can answer `n` to the Python/Pandoc/LibreOffice/LaTeX questions if you only want to cite and read; the manual steps below work the same way.
 
@@ -98,6 +100,9 @@ ZotLit creates rich literature notes from Zotero items (annotations, metadata) a
 1. In **Obsidian**: **Settings** (gear, bottom-left) → **Community plugins**.
 2. If you see **Restricted mode** / **Turn on community plugins**, click **Turn on community plugins** and confirm.
 3. Click **Browse**, type `ZotLit`, click **Install**, then **Enable**.
+4. In **Settings → ScholarWeft → Literature note import**, click **Install and use ScholarWeft's ZotLit import templates** (or just open Obsidian if you ran the setup script — it does this for you). This copies ScholarWeft's ZotLit templates into a dedicated `sw-zotlit-templates/` folder and points ZotLit's **Template folder** setting at it, leaving your own templates untouched.
+
+> If ScholarWeft can't see ZotLit, install and **enable** it first, then click the button again.
 
 ---
 
@@ -234,11 +239,29 @@ luaotfload-tool --update    # every OS, once
 
 ---
 
+## 6b. Optional: Basic note template + Templater
+
+**Recommended if you want every new note to start with the same few properties.** ScholarWeft works best when every note carries a `created` date, a larger category (`up`), `related` notes, and alternative names (`aliases`). Based on Nick Milo's *Linking Your Thinking* philosophy, this optional step installs a **Basic note template** with those four properties and sets up the **Templater** plugin to apply it to every note you create in your vault — so you never have to add them by hand.
+
+**The easy way:** the [setup script](#the-easy-way-run-the-setup-script) offers this step (it installs the Templater plugin; the configuration is finished from inside Obsidian on your next launch). Otherwise, do it from ScholarWeft's settings:
+
+1. In **Obsidian**: **Settings → Community plugins → Browse**, search `Templater`, **Install**, then **Enable**.
+2. Open **Settings → ScholarWeft → Literature note import** and click **Install the Basic note template and apply it to new notes**.
+   - It copies the template into a dedicated `sw-markdown-templates/` folder — **your own templates are left untouched.**
+   - It sets Templater to apply that template to new notes at the top level of your vault.
+   - If you already have a Templater rule for new notes, it asks whether to **Keep** your rule or **Replace** it — nothing is overwritten without your say-so.
+3. If new notes still start empty, open **Settings → Templater**, turn on **Trigger Templater on new file creation**, and confirm Templater's warning. (Templater keeps that switch in a per-device setting and guards it with a confirmation; the button above normally sets it for you, but Templater still asks you to accept the risk the first time you enable it by hand.)
+
+> Prefer to make your own template? Point ScholarWeft's **Literature note import** page at your own folder and edit it there — the `sw-markdown-templates/` folder is ScholarWeft-managed and is overwritten on update.
+
+---
+
 ## 7. Configure ScholarWeft
 
 Open **Settings → ScholarWeft**.
 
 - **Bibliography** — Zotero is **already switched on** with **My Library** selected. If Zotero isn't running (or the checkbox from Step 2 is off), you'll see **“Cannot connect to Zotero”** with a **Retry** button and instructions. Use a `.bib` file instead of Zotero? Just turn the Zotero toggle off and add your file under *Bibliography files*.
+- **Literature note import** — where literature notes live and how they are created. This page also has the two setup buttons: **Install and use ScholarWeft's ZotLit import templates** (Step 4) and **Install the Basic note template and apply it to new notes** (Step 6b). Each finishes the job for you, and offers to install the companion plugin (**ZotLit** / **Templater**) if it isn't there yet. See [Literature Notes](./literature-notes.md).
 - **Document import/export and compilation** — if you installed the document tools, each option shows a “not found” note until it detects them. ScholarWeft searches for a usable Python automatically (your `python3`/conda, or the setup script's `~/ScholarWeft/venv`), so **you normally don't have to set anything**. If it still reports Python missing:
   - **Path to Python 3** → paste your interpreter (e.g. `~/ScholarWeft/venv/bin/python3`, or your conda `python`)
   - **Path to Pandoc** → usually auto-detected (`/opt/homebrew/bin/pandoc` on Apple-silicon Macs)
@@ -253,12 +276,15 @@ Open **Settings → ScholarWeft**.
 3. Type `[[@` a few letters again and select a reference; the citation should turn into *(Author Year)* and link to a literature note.
 4. Open **Settings → ScholarWeft → Bibliography** — it should say connected, not “Cannot connect to Zotero”.
 5. (If you installed the document tools) run the command **ScholarWeft: Compile and export…** from the command palette (`Cmd/Ctrl` + `P`) and export a simple note to **DOCX** to confirm Pandoc/Python work.
+6. (Optional) run **ScholarWeft: Insert Zotero notes into literature notes (vault)** to pull any Zotero notes you took before Obsidian into the matching literature notes — see [Literature Notes](./literature-notes.md).
 
 ---
 
 ## Troubleshooting
 
 **“Cannot connect to Zotero.”** Open Zotero → Settings (**Zotero → Settings…** on macOS, **Edit → Settings…** on Windows/Linux) → **Advanced** → tick **“Allow other applications on this computer to communicate with Zotero”**. Make sure Zotero itself is running, then click **Retry**.
+
+**Zotero 10: features still report “Cannot connect”.** Zotero 10 added a security check that silently drops local requests it thinks come from a browser. ScholarWeft 0.2.5+ works with this automatically; on older versions, update ScholarWeft.
 
 **No citekey suggestions when I type `[[@`.** You need stable citekeys. Install **Better BibTeX** (Step 3) and let it generate them; make sure Zotero is running and **My Library** is ticked under Settings → ScholarWeft → Bibliography.
 

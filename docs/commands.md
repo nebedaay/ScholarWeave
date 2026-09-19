@@ -23,6 +23,7 @@ See [Citations](./citations.md) and [Linked Citations](./linked-citations.md).
 |---|---|---|
 | Create literature notes for citations lacking notes (current note) | Current note | Uses ZotLit templates when available |
 | Create literature notes for citations lacking notes (vault) | Vault | For every note |
+| Insert Zotero notes into literature notes (vault) | Vault | Copy a source's Zotero child notes into its literature note — see [Literature Notes](./literature-notes.md) |
 | Update stale citekeys and literature note filenames (vault) | Vault | Apply accumulated citekey renames |
 
 See [Literature Notes](./literature-notes.md).

@@ -988,7 +988,7 @@ export class ReferenceListSettingsTab extends PluginSettingTab {
         companionKey: 'templater',
         name: 'Install the Basic note template and apply it to new notes',
         readyDesc:
-          'Copies the Basic note template into "sw-markdown-templates/" and sets Templater to apply it to every new note created in "/". Your own templates and other Templater rules are left untouched. If new notes still start empty, open Templater\'s settings, turn on "Trigger Templater on new file creation", and confirm its warning.',
+          'Installs the Basic note template and sets Templater to apply it by default to every note you manually create in your vault. The template adds four properties at the top of each note that help you situate and connect all notes in your vault: created date, larger category ("up"), related notes, and alternative names ("aliases"). It lives in its own folder ("sw-markdown-templates/"), so your own templates and other Templater rules are left untouched. If new notes still start empty, open Templater\'s settings, turn on "Trigger Templater on new file creation", and confirm its warning.',
         actionLabel: 'Install and set up',
         openSettingsId: 'templater-obsidian',
         openSettingsLabel: 'Open Templater settings',

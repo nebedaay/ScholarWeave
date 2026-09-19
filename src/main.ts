@@ -49,7 +49,12 @@ import {
   installZotlitTemplates,
   installZotlitTemplatesWithNotice,
 } from './zotlitTemplates';
+import { getLitNoteForCitekey } from './zotlit';
 import { installTemplaterTemplatesWithNotice } from './templaterTemplates';
+import {
+  insertZoteroNotesForFiles,
+  insertZoteroNotesVaultWide,
+} from './zoteroNotes';
 
 /**
  * Heuristic: is this plugin another reference-list provider of the same
@@ -408,6 +413,8 @@ export default class ReferenceList extends Plugin {
           (done, total) => (progress as any).setProgress?.(done, total)
         );
         progress.hide();
+        // Fill any freshly created notes with their Zotero child notes.
+        await this.fillZoteroNotesForCitekeys(missingKeys, view.file);
         // Re-render the sidebar reference list so per-entry buttons flip from
         // "Create literature note" to "Open literature note".
         this.processReferences();
@@ -433,6 +440,8 @@ export default class ReferenceList extends Plugin {
           (done, total) => (progress as any).setProgress?.(done, total)
         );
         progress.hide();
+        // Fill any freshly created notes with their Zotero child notes.
+        await this.fillZoteroNotesForCitekeys(missingKeys, null);
         // Re-render the sidebar so entry buttons reflect the new notes.
         this.processReferences();
         new Notice(
@@ -441,6 +450,45 @@ export default class ReferenceList extends Plugin {
             : 'All cited works in the vault already have literature notes.',
           6000
         );
+      },
+    });
+
+    // Insert the Zotero child notes of every literature note whose "## Notes"
+    // section is still empty (ZotLit imports them as separate files and never
+    // hands their text to a template, so we do it ourselves).
+    this.addCommand({
+      id: 'insert-zotero-notes',
+      name: t('Insert Zotero notes into literature notes (vault)'),
+      callback: async () => {
+        const progress = new Notice('Inserting Zotero notes…', 0);
+        (progress as any).setProgress?.(0, 0);
+        const r = await insertZoteroNotesVaultWide(this.app, {
+          zoteroPort: this.settings.zoteroPort,
+          onProgress: (done, total) =>
+            (progress as any).setProgress?.(done, total),
+        });
+        progress.hide();
+        const lines = [
+          `Inserted Zotero notes into ${r.inserted} literature note(s).`,
+          `${r.noNotes.length} had no Zotero notes.`,
+        ];
+        if (r.skipped.length) {
+          lines.push(
+            `${r.skipped.length} skipped (the "## Notes" section already had content).`
+          );
+        }
+        if (r.failed.length) {
+          lines.push(
+            `${r.failed.length} could not be read from Zotero — is Zotero running? (see the developer console)`
+          );
+        }
+        new Notice(`ScholarWeft: ${lines.join('\n')}`, 10000);
+        if (r.skipped.length) {
+          console.log(
+            'ScholarWeft: notes skipped because "## Notes" already had content:\n' +
+              r.skipped.join('\n')
+          );
+        }
       },
     });
 
@@ -739,6 +787,38 @@ export default class ReferenceList extends Plugin {
         }
       }
     }).open();
+  }
+
+  /**
+   * After ScholarWeft (via ZotLit) creates literature notes for `citekeys`,
+   * insert their Zotero child notes. ZotLit creates notes asynchronously and
+   * we only have the citekeys, so resolve each to its note via ZotLit's index.
+   */
+  private async fillZoteroNotesForCitekeys(
+    citekeys: string[],
+    sourceFile: TFile | null
+  ): Promise<void> {
+    if (!citekeys?.length) return;
+    const sourcePath = sourceFile?.path ?? this.app.workspace.getActiveFile()?.path ?? '';
+    const files: TFile[] = [];
+    for (const key of citekeys) {
+      const hit = getLitNoteForCitekey(key, sourcePath, this.app);
+      if (hit?.file) files.push(hit.file);
+    }
+    if (!files.length) return;
+    try {
+      const r = await insertZoteroNotesForFiles(this.app, files, {
+        zoteroPort: this.settings.zoteroPort,
+      });
+      if (r.inserted) {
+        new Notice(
+          `ScholarWeft: inserted Zotero notes into ${r.inserted} new literature note(s).`,
+          8000
+        );
+      }
+    } catch {
+      /* best effort — the vault command can be run later */
+    }
   }
 
   /**
